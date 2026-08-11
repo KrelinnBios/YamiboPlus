@@ -118,7 +118,7 @@ androidComponents {
 dependencies {
     implementation("androidx.activity:activity-compose:1.13.0")
 
-    implementation(platform("androidx.compose:compose-bom:2026.06.00"))
+    implementation(platform("androidx.compose:compose-bom:2026.06.01"))
 
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
@@ -131,29 +131,29 @@ dependencies {
     implementation("androidx.compose.animation:animation")
     implementation("androidx.compose.animation:animation-core")
 
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.10.0")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.10.0")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.11.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.11.0")
     implementation("androidx.navigation:navigation-compose:2.9.8")
 
     implementation("androidx.datastore:datastore-preferences:1.2.1")
     implementation("com.squareup.retrofit2:retrofit:3.0.0")
     implementation("com.squareup.retrofit2:converter-gson:3.0.0")
-    implementation("org.jsoup:jsoup:1.21.2")
+    implementation("org.jsoup:jsoup:1.23.1")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.okhttp3:okhttp-brotli:4.12.0")
-    implementation("com.alibaba.fastjson2:fastjson2:2.0.61.android5")
+    implementation("com.alibaba.fastjson2:fastjson2:2.0.64.android5")
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("io.coil-kt:coil:2.7.0")
-    implementation("androidx.core:core-ktx:1.18.0")
-    implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
-    implementation("me.saket.telephoto:zoomable-image-coil:0.6.2")
+    implementation("androidx.core:core-ktx:1.19.0")
+    implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.2.0")
+    implementation("me.saket.telephoto:zoomable-image-coil:0.19.0")
     implementation("com.github.qichuan:android-opencc:1.2.0")
     implementation("com.squareup.okhttp3:okhttp-dnsoverhttps:4.12.0")
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
-    androidTestImplementation(platform("androidx.compose:compose-bom:2026.06.00"))
+    androidTestImplementation(platform("androidx.compose:compose-bom:2026.06.01"))
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
