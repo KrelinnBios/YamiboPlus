@@ -90,6 +90,7 @@ Android 7.0（API 24）及以上。
 
 相关项目：
 
+- [KrelinnBios/YamiboReaderLite](https://github.com/KrelinnBios/YamiboReaderLite)
 - [prprbell/YamiboReaderPro](https://github.com/prprbell/YamiboReaderPro)
 - [flben233/YamiboReader](https://github.com/flben233/YamiboReader)
 - [duck123ducker/yamibo_manga_reader](https://github.com/duck123ducker/yamibo_manga_reader)（参考）
