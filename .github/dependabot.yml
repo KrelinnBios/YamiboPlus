@@ -16,6 +16,29 @@ updates:
         update-types:
           - minor
           - patch
+    ignore:
+      # AGP 9 需要同步迁移到 Gradle 9 和 compileSdk 37。
+      - dependency-name: com.android.application
+        update-types:
+          - version-update:semver-major
+      - dependency-name: gradle-wrapper
+        update-types:
+          - version-update:semver-major
+      # OkHttp 5 需要单独迁移并修复 Cookie 测试。
+      - dependency-name: com.squareup.okhttp3:*
+        update-types:
+          - version-update:semver-major
+      # 以下版本要求 compileSdk 37 与 AGP 9。
+      - dependency-name: 'androidx.core:core-ktx'
+        versions:
+          - '>= 1.19.0'
+      - dependency-name: 'androidx.lifecycle:*'
+        versions:
+          - '>= 2.11.0'
+      # 0.x 跨多个次版本可能包含破坏性 API 变更，留待单独迁移。
+      - dependency-name: 'me.saket.telephoto:zoomable-image-coil'
+        versions:
+          - '>= 0.7.0'
     commit-message:
       prefix: "依赖"
     labels:
