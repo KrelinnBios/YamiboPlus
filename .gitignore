@@ -1,0 +1,38 @@
+# IDE
+.idea/
+.agents/
+.claude/
+.codex/
+.vscode/
+*.iml
+
+# Gradle
+.gradle/
+build/
+.kotlin/
+
+# Android
+local.properties
+.externalNativeBuild/
+.cxx/
+captures/
+*.apk
+*.aab
+output-metadata.json
+
+# Release
+release/
+release_notes.txt
+*.jks
+*.keystore
+keystore.properties
+signing.properties
+
+# Misc
+.DS_Store
+Thumbs.db
+.env*
+.gitee_token
+.gh-cli/
+upload_github.ps1
+plan.txt

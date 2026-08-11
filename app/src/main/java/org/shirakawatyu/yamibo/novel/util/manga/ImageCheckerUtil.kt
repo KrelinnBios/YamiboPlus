@@ -1,0 +1,72 @@
+package org.shirakawatyu.yamibo.novel.util.manga
+
+import okhttp3.Response
+import okhttp3.ResponseBody.Companion.asResponseBody
+import okio.Buffer
+import okio.ForwardingSource
+import okio.buffer
+import java.io.IOException
+
+/**
+ * 垃圾图/错误图拦截工具类
+ */
+object ImageCheckerUtil {
+    private const val TAG = "ImageCheckerUtil"
+
+    private const val MIN_IMAGE_SIZE_BYTES = 3 * 1024L
+    // 合法的图片 Content-Type 白名单
+    private val VALID_IMAGE_TYPES = listOf("image/jpeg", "image/png", "image/webp", "image/gif", "image/bmp")
+
+    @Throws(IOException::class)
+    fun interceptAndCheckImageStream(response: Response, url: String): Response {
+        // 论坛图片 WAF 会先返回同地址 302 并下发 abymg_id。此时必须把响应交给 OkHttp
+        // 的重定向层，不能把空的 HTML/重定向响应提前判成坏图；最终 200 图片仍会正常校验。
+        if (!response.isSuccessful) return response
+
+        val isForumAttachment = url.contains("attachment/forum", ignoreCase = true)
+        val hasImageExtension = url.contains(Regex("\\.(jpg|jpeg|png|webp|gif)", RegexOption.IGNORE_CASE))
+
+        if (!isForumAttachment && !hasImageExtension) {
+            return response
+        }
+
+        val contentType = response.header("Content-Type") ?: ""
+        val contentLength = response.body?.contentLength() ?: -1L
+
+        if (contentType.isNotEmpty()) {
+            val isImage = VALID_IMAGE_TYPES.any { contentType.contains(it, ignoreCase = true) }
+            if (!isImage && !contentType.contains("application/octet-stream", ignoreCase = true)) {
+                throw IOException("Invalid Content-Type: $contentType. Suspected HTML error page.")
+            }
+        }
+
+        if (contentLength in 1 until MIN_IMAGE_SIZE_BYTES) {
+            throw IOException("Image size too small ($contentLength bytes). Suspected garbage image.")
+        }
+
+        val originalBody = response.body ?: return response
+
+        val sizeCheckingSource = object : ForwardingSource(originalBody.source()) {
+            var totalBytesRead = 0L
+
+            override fun read(sink: Buffer, byteCount: Long): Long {
+                val bytesRead = super.read(sink, byteCount)
+                if (bytesRead > 0) {
+                    totalBytesRead += bytesRead
+                } else if (bytesRead == -1L) {
+                    if (totalBytesRead < MIN_IMAGE_SIZE_BYTES) {
+                        throw IOException("Actual downloaded image size too small ($totalBytesRead bytes).")
+                    }
+                }
+                return bytesRead
+            }
+        }
+
+        val newBody = sizeCheckingSource.buffer().asResponseBody(originalBody.contentType(), contentLength)
+        return response.newBuilder().body(newBody).build()
+    }
+
+    fun isGarbageByBounds(width: Int, height: Int): Boolean {
+        return width > 0 && height > 0 && width < 150 && height < 150
+    }
+}

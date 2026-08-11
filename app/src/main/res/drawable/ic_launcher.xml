@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 六瓣百合：米底方块 + 花朵。旧版启动器与启动画面回退用的完整矢量。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:fillColor="#FCF4CF" android:pathData="M0,0h108v108h-108z" />
+    <group
+        android:scaleX="2.9"
+        android:scaleY="2.9"
+        android:translateX="19.2"
+        android:translateY="19.2">
+        <group android:rotation="60" android:pivotX="12" android:pivotY="12">
+            <path android:fillColor="#FCF4CF" android:strokeColor="#551200" android:strokeWidth="0.26" android:strokeLineJoin="round"
+                android:pathData="M12,12 C9.2,9.2 8.4,4.6 11.2,1.1 Q12,0.3 12.8,1.1 C15.6,4.6 14.8,9.2 12,12 Z" />
+            <path android:fillColor="#00000000" android:strokeColor="#551200" android:strokeWidth="0.18" android:strokeAlpha="0.5" android:strokeLineCap="round"
+                android:pathData="M12,8.5 C11.97,6.6 11.99,4.9 12,3.4" />
+        </group>
+        <group android:rotation="180" android:pivotX="12" android:pivotY="12">
+            <path android:fillColor="#FCF4CF" android:strokeColor="#551200" android:strokeWidth="0.26" android:strokeLineJoin="round"
+                android:pathData="M12,12 C9.2,9.2 8.4,4.6 11.2,1.1 Q12,0.3 12.8,1.1 C15.6,4.6 14.8,9.2 12,12 Z" />
+            <path android:fillColor="#00000000" android:strokeColor="#551200" android:strokeWidth="0.18" android:strokeAlpha="0.5" android:strokeLineCap="round"
+                android:pathData="M12,8.5 C11.97,6.6 11.99,4.9 12,3.4" />
+        </group>
+        <group android:rotation="300" android:pivotX="12" android:pivotY="12">
+            <path android:fillColor="#FCF4CF" android:strokeColor="#551200" android:strokeWidth="0.26" android:strokeLineJoin="round"
+                android:pathData="M12,12 C9.2,9.2 8.4,4.6 11.2,1.1 Q12,0.3 12.8,1.1 C15.6,4.6 14.8,9.2 12,12 Z" />
+            <path android:fillColor="#00000000" android:strokeColor="#551200" android:strokeWidth="0.18" android:strokeAlpha="0.5" android:strokeLineCap="round"
+                android:pathData="M12,8.5 C11.97,6.6 11.99,4.9 12,3.4" />
+        </group>
+        <group android:rotation="0" android:pivotX="12" android:pivotY="12">
+            <path android:fillColor="#FBE29D" android:strokeColor="#551200" android:strokeWidth="0.26" android:strokeLineJoin="round"
+                android:pathData="M12,12 C9.2,9.2 8.4,4.6 11.2,1.1 Q12,0.3 12.8,1.1 C15.6,4.6 14.8,9.2 12,12 Z" />
+            <path android:fillColor="#00000000" android:strokeColor="#551200" android:strokeWidth="0.18" android:strokeAlpha="0.5" android:strokeLineCap="round"
+                android:pathData="M12,8.5 C11.97,6.6 11.99,4.9 12,3.4" />
+        </group>
+        <group android:rotation="120" android:pivotX="12" android:pivotY="12">
+            <path android:fillColor="#FBE29D" android:strokeColor="#551200" android:strokeWidth="0.26" android:strokeLineJoin="round"
+                android:pathData="M12,12 C9.2,9.2 8.4,4.6 11.2,1.1 Q12,0.3 12.8,1.1 C15.6,4.6 14.8,9.2 12,12 Z" />
+            <path android:fillColor="#00000000" android:strokeColor="#551200" android:strokeWidth="0.18" android:strokeAlpha="0.5" android:strokeLineCap="round"
+                android:pathData="M12,8.5 C11.97,6.6 11.99,4.9 12,3.4" />
+        </group>
+        <group android:rotation="240" android:pivotX="12" android:pivotY="12">
+            <path android:fillColor="#FBE29D" android:strokeColor="#551200" android:strokeWidth="0.26" android:strokeLineJoin="round"
+                android:pathData="M12,12 C9.2,9.2 8.4,4.6 11.2,1.1 Q12,0.3 12.8,1.1 C15.6,4.6 14.8,9.2 12,12 Z" />
+            <path android:fillColor="#00000000" android:strokeColor="#551200" android:strokeWidth="0.18" android:strokeAlpha="0.5" android:strokeLineCap="round"
+                android:pathData="M12,8.5 C11.97,6.6 11.99,4.9 12,3.4" />
+        </group>
+        <path android:fillColor="#993B22" android:strokeColor="#551200" android:strokeWidth="0.26"
+            android:pathData="M9.7,12 A2.3,2.3 0 1,0 14.3,12 A2.3,2.3 0 1,0 9.7,12 Z" />
+    </group>
+</vector>

@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+# 与 build-apk.yml 保持一致：所有 JavaScript actions 固定跑在 Node 24 上。
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Compile and unit test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
+        with:
+          packages: "platforms;android-34 build-tools;34.0.0"
+
+      - name: Grant Gradle wrapper permission
+        run: chmod +x ./gradlew
+
+      # 日常提交的编译门禁：不打包、不签名，只保证代码能编译、单测全绿。
+      # 附带作用：把 Gradle 依赖缓存写到默认分支，发版（tag）构建只能读缓存，
+      # 全靠这里保温。不加 --no-daemon：两次调用复用同一个守护进程。
+      # CI 显式关闭 configuration cache，避免跨 run 恢复时引用缺失的 instrumentation transform。
+      - name: Compile debug Kotlin
+        run: ./gradlew compileDebugKotlin --stacktrace --no-configuration-cache
+
+      - name: Run unit tests
+        run: ./gradlew testDebugUnitTest --stacktrace --no-configuration-cache
