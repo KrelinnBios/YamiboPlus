@@ -32,6 +32,7 @@ import java.util.zip.ZipOutputStream
 object BackupUtil {
     private const val META_ENTRY = "yamibo_backup_meta.json"
     private const val META_PACKAGE_KEY = "packageName"
+    private const val LEGACY_LITE_PACKAGE_NAME = "com.krelinnbios.yamiboreaderlite"
 
     private data class BackupRoot(val zipPrefix: String, val resolve: (Context) -> File)
 
@@ -44,8 +45,14 @@ object BackupUtil {
 
     fun suggestedFileName(): String {
         val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-        return "300Lite_backup_$stamp.zip"
+        return "300Plus_backup_$stamp.zip"
     }
+
+    internal fun isSupportedBackupPackage(
+        currentPackageName: String,
+        backupPackageName: String?
+    ): Boolean = backupPackageName == currentPackageName ||
+            backupPackageName == LEGACY_LITE_PACKAGE_NAME
 
     /** 导出备份到 SAF Uri，返回打包的文件数。 */
     suspend fun exportBackup(context: Context, uri: Uri): Result<Int> = withContext(Dispatchers.IO) {
@@ -101,8 +108,12 @@ object BackupUtil {
                                 entry.isDirectory -> Unit
                                 name == META_ENTRY -> {
                                     val meta = JSON.parseObject(zip.readBytes().toString(Charsets.UTF_8))
-                                    if (meta?.getString(META_PACKAGE_KEY) != context.packageName) {
-                                        throw IllegalStateException("不是本应用的备份文件")
+                                    if (!isSupportedBackupPackage(
+                                            currentPackageName = context.packageName,
+                                            backupPackageName = meta?.getString(META_PACKAGE_KEY)
+                                        )
+                                    ) {
+                                        throw IllegalStateException("不是兼容的备份文件")
                                     }
                                     metaValid = true
                                 }

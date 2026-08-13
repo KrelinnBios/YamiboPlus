@@ -1,11 +1,41 @@
 package org.shirakawatyu.yamibo.novel.ui.theme
 
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SliderColors
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.SwitchColors
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+
+data class YamiboComponentColors(
+    val topBarContainer: Color,
+    val topBarContent: Color,
+    val contentBackground: Color,
+    val baseRow: Color,
+    val alternateRow: Color,
+    val bottomBarContainer: Color,
+    val destructiveIcon: Color
+)
+
+fun yamiboComponentColors(scheme: ColorScheme): YamiboComponentColors {
+    val isDark = scheme.background.luminance() < 0.5f
+    return YamiboComponentColors(
+        topBarContainer = if (isDark) scheme.primaryContainer else scheme.primary,
+        topBarContent = if (isDark) scheme.onPrimaryContainer else scheme.onPrimary,
+        contentBackground = scheme.background,
+        baseRow = scheme.surfaceContainerLow,
+        alternateRow = scheme.surfaceContainerHigh,
+        bottomBarContainer = if (isDark) scheme.surfaceContainerHighest else scheme.surfaceContainer,
+        destructiveIcon = scheme.primary
+    )
+}
+
+@Composable
+fun yamiboComponentColors(): YamiboComponentColors =
+    yamiboComponentColors(MaterialTheme.colorScheme)
 
 @Composable
 fun yamiboSwitchColors(): SwitchColors {

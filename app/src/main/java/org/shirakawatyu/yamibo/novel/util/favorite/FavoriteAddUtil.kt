@@ -40,6 +40,30 @@ object FavoriteAddUtil {
         }
     }
 
+    suspend fun addForumFavorite(fid: String): Boolean {
+        return withContext(Dispatchers.IO) {
+            try {
+                val api = YamiboRetrofit.getInstance().create(FavoriteApi::class.java)
+                val profileResponse = api.getFormHash().execute()
+                val json = profileResponse.body()?.string() ?: ""
+                val formHash = JSON.parseObject(json)
+                    ?.getJSONObject("Variables")
+                    ?.getString("formhash")
+                    ?.takeIf { it.isNotBlank() }
+                    ?: return@withContext false
+                val response = api.addForumFavorite(formHash, fid).execute()
+                val body = if (response.isSuccessful) {
+                    response.body()?.string()
+                } else {
+                    response.errorBody()?.string()
+                }
+                response.isSuccessful && parseAddFavoriteResponse(body)
+            } catch (_: Exception) {
+                false
+            }
+        }
+    }
+
     /**
      * 解析添加收藏接口的响应。
      *

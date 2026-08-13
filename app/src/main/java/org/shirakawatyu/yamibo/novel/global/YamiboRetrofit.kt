@@ -225,14 +225,6 @@ class YamiboRetrofit {
                     return@addInterceptor chain.proceed(original)
                 }
 
-                // 显式 Cookie（如电脑版模板）保持优先，同时补上 CookieManager 中仅运行期存在的
-                // nox_* 等 WAF Cookie；持久化快照只兜底缺失的登录/会话字段。
-                val cookie = YamiboSession.mergeCookieHeaders(
-                    listOf(
-                        original.header("Cookie").orEmpty(),
-                        YamiboSession.cookieFor(original.url.toString())
-                    )
-                )
                 val existingUa = original.header("User-Agent")
                 val isPcPseudoRequest =
                     existingUa?.contains("Windows NT") == true || existingUa?.contains("Macintosh") == true
@@ -242,6 +234,25 @@ class YamiboRetrofit {
                 } else {
                     YamiboApplication.systemUserAgent.ifEmpty { RequestConfig.UA }
                 }
+
+                // nox 凭证约 30 分钟过期：只在真正访问论坛内容（GET 且非静态资源）、
+                // 且凭证已接近过期时静默换新一次。成功后至少安静 25 分钟，
+                // 不引入任何周期任务或额外验证请求。
+                if (
+                    original.method == "GET" &&
+                    !staticResourceRegex.containsMatchIn(original.url.toString())
+                ) {
+                    Waf405RecoveryManager.ensureFreshNox(original.url.toString(), finalUa)
+                }
+
+                // 显式 Cookie（如电脑版模板）保持优先，同时补上 CookieManager 中仅运行期存在的
+                // nox_* 等 WAF Cookie；持久化快照只兜底缺失的登录/会话字段。
+                val cookie = YamiboSession.mergeCookieHeaders(
+                    listOf(
+                        original.header("Cookie").orEmpty(),
+                        YamiboSession.cookieFor(original.url.toString())
+                    )
+                )
 
                 val requestBuilder = original.newBuilder()
                     .header("User-Agent", finalUa)
@@ -369,10 +380,22 @@ class YamiboRetrofit {
                             request.method == "GET" &&
                             isRateLimitedResponse(response)
                     if (!canRetryResponse) {
+                        val responsePreview = if (response.code == 405) {
+                            runCatching { response.peekBody(64 * 1024L).string() }
+                                .getOrDefault("")
+                        } else {
+                            ""
+                        }
                         val refreshed = Waf405RecoveryPolicy.shouldRefreshForResponse(
                             response.code,
-                            request.method
-                        ) && Waf405RecoveryManager.refreshAndWait()
+                            request.method,
+                            responsePreview
+                        ) && Waf405RecoveryManager.refreshAndWait(
+                            challengeUrl = request.url.toString(),
+                            userAgent = request.header("User-Agent").orEmpty().ifBlank {
+                                YamiboApplication.systemUserAgent.ifBlank { RequestConfig.UA }
+                            }
+                        )
                         if (!refreshed) return response
 
                         response.close()

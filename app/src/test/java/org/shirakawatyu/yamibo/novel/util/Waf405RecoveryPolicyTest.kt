@@ -1,6 +1,8 @@
 package org.shirakawatyu.yamibo.novel.util
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -18,15 +20,64 @@ class Waf405RecoveryPolicyTest {
     }
 
     @Test
-    fun nativeGetRecoveryOnlyReplaysTheKnown405Get() {
-        assertTrue(Waf405RecoveryPolicy.shouldRefreshForResponse(405, "GET"))
-        assertFalse(Waf405RecoveryPolicy.shouldRefreshForResponse(444, "GET"))
-        assertFalse(Waf405RecoveryPolicy.shouldRefreshForResponse(405, "POST"))
+    fun nativeRecoveryOnlyAcceptsKnownNoxChallengeResponses() {
+        assertTrue(
+            Waf405RecoveryPolicy.shouldRefreshForResponse(
+                405,
+                "GET",
+                "<script>window.__noxExpire = 1; fetch('/NOX_CHECK')</script>"
+            )
+        )
+        assertTrue(
+            Waf405RecoveryPolicy.shouldRefreshForResponse(
+                405,
+                "GET",
+                "const worker = 'gangplank_ab12'"
+            )
+        )
+        assertFalse(
+            Waf405RecoveryPolicy.shouldRefreshForResponse(
+                405,
+                "GET",
+                "Method Not Allowed"
+            )
+        )
+        assertFalse(
+            Waf405RecoveryPolicy.shouldRefreshForResponse(
+                444,
+                "GET",
+                "__noxExpire"
+            )
+        )
+        assertFalse(
+            Waf405RecoveryPolicy.shouldRefreshForResponse(
+                405,
+                "POST",
+                "__noxExpire"
+            )
+        )
     }
 
     @Test
-    fun challengeDoesNotForceForumTemplateCookie() {
-        assertFalse(Waf405RecoveryPolicy.CHALLENGE_URL.contains("mobile="))
+    fun staleNoxCookieIsRemovedWithoutDroppingLoginCookies() {
+        assertEquals(
+            "auth=token; sid=session",
+            Waf405RecoveryPolicy.withoutNoxCookie(
+                "auth=token; nox_jst_v1=stale; sid=session"
+            )
+        )
+    }
+
+    @Test
+    fun freshNoxCookieCanBeDetected() {
+        assertEquals(
+            "fresh",
+            Waf405RecoveryPolicy.extractNoxCookieValue(
+                "auth=token; NOX_JST_V1=fresh; sid=session"
+            )
+        )
+        assertNull(Waf405RecoveryPolicy.extractNoxCookieValue("auth=token; sid=session"))
+        assertNull(Waf405RecoveryPolicy.extractNoxCookieValue("nox_jst_v1="))
     }
 
     @Test

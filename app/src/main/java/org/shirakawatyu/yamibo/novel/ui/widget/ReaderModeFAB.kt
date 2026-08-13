@@ -10,13 +10,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import org.shirakawatyu.yamibo.novel.R
-import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
-import org.shirakawatyu.yamibo.novel.util.darkThemeColor
 
 /**
  * 阅读模式悬浮按钮
@@ -38,12 +37,8 @@ fun ReaderModeFAB(
     ) {
         FloatingActionButton(
             onClick = onClick,
-            containerColor = darkThemeColor(
-                YamiboColors.secondary.copy(alpha = 0.5f)
-            ) { surfaceVariant },
-            contentColor = darkThemeColor(
-                YamiboColors.primary
-            ) { primary },
+            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+            contentColor = MaterialTheme.colorScheme.primary,
             elevation = FloatingActionButtonDefaults.elevation(
                 defaultElevation = 0.dp,
                 pressedElevation = 0.dp,

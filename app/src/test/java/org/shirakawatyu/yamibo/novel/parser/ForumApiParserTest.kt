@@ -87,6 +87,8 @@ class ForumApiParserTest {
         assertEquals("连载 & 小说", thread.typeName)
         assertTrue(thread.isSticky)
         assertEquals(4, thread.replyCount)
+        assertEquals(30, thread.viewCount)
+        assertEquals(mapOf("3" to "连载 & 小说"), result.availableTypes)
     }
 
     @Test
@@ -189,4 +191,154 @@ class ForumApiParserTest {
         assertEquals("资料.pdf", post.attachments.single().filename)
         assertFalse(post.attachments.single().isImage)
     }
+
+    @Test
+    fun parseForumPostRatingSummaries_readsMobileRatingLog() {
+        val result = ForumApiParser.parseForumPostRatingSummaries(
+            """
+            <div id="ratelog_415">
+              <a href="forum.php?mod=misc&amp;action=viewratings&amp;tid=1&amp;pid=415">参与人数 2</a>
+              <a href="forum.php?mod=misc&amp;action=viewratings&amp;tid=1&amp;pid=415">查看全部评分</a>
+              <ul>
+                <li class="flex-box mli p0"><div>参与人数</div><div>积分 +7</div></li>
+                <li class="flex-box mli p0">
+                  <a href="home.php?mod=space&amp;uid=7">甲</a>
+                  <div>+5</div><div>支持</div>
+                </li>
+                <li class="flex-box mli p0"><a href="#">查看全部评分</a></li>
+              </ul>
+            </div>
+            """.trimIndent()
+        )
+
+        val summary = result.getValue("415")
+        assertEquals("参与人数 2", summary.participantText)
+        assertEquals("积分 +7", summary.scoreText)
+        assertEquals("https://bbs.yamibo.com/forum.php?mod=misc&action=viewratings&tid=1&pid=415", summary.viewAllUrl)
+        assertEquals("甲", summary.ratings.single().userName)
+        assertEquals("+5", summary.ratings.single().score)
+        assertEquals("支持", summary.ratings.single().reason)
+    }
+
+    @Test
+    fun parseForumPostRatingSummaries_readsDesktopRatingLog() {
+        val result = ForumApiParser.parseForumPostRatingSummaries(
+            """
+            <div id="ratelog_416">
+              <a title="查看全部评分" href="forum.php?mod=misc&amp;action=viewratings&amp;tid=1&amp;pid=416">参与人数 1</a>
+              <table class="ratl"><tr><th>参与人数</th><th>积分 +2</th></tr></table>
+              <table class="ratl_l">
+                <tr id="rate_1">
+                  <td><a href="home.php?mod=space&amp;uid=8">乙</a></td>
+                  <td>+2</td><td>赞同</td>
+                </tr>
+              </table>
+            </div>
+            """.trimIndent()
+        )
+
+        val summary = result.getValue("416")
+        assertEquals("参与人数 1", summary.participantText)
+        assertEquals("积分 +2", summary.scoreText)
+        assertEquals("乙", summary.ratings.single().userName)
+        assertEquals("+2", summary.ratings.single().score)
+    }
+
+    @Test
+    fun parseForumBanners_readsForumSwiperImagesAndThreadLinks() {
+        val result = ForumApiParser.parseForumBanners(
+            """
+            <div class="swiper-wrapper">
+              <div class="swiper-slide">
+                <a href="forum.php?mod=viewthread&amp;tid=573162">
+                  <img src="/data/attachment/portal/banner-one.jpg">
+                </a>
+              </div>
+              <div class="swiper-slide">
+                <a href="thread-572320-1-1.html">
+                  <img src="//cdn.example.com/banner-two.webp">
+                </a>
+              </div>
+              <div class="swiper-slide"><span>无图片</span></div>
+            </div>
+            """.trimIndent()
+        )
+
+        assertEquals(2, result.size)
+        assertEquals(
+            "https://bbs.yamibo.com/data/attachment/portal/banner-one.jpg",
+            result[0].imageUrl
+        )
+        assertEquals("573162", result[0].threadId)
+        assertEquals("https://cdn.example.com/banner-two.webp", result[1].imageUrl)
+        assertEquals("572320", result[1].threadId)
+    }
+
+    @Test
+    fun parseForumBanners_readsCurrentYamiSwiperStructure() {
+        val result = ForumApiParser.parseForumBanners(
+            """
+            <div id="forum">
+              <div class="index-top-wrapper">
+                <div class="yami-swiper">
+                  <div class="swiper-slide">
+                    <a href="forum.php?mod=viewthread&amp;tid=573200">
+                      <img src="/data/attachment/portal/current-banner.jpg">
+                    </a>
+                  </div>
+                </div>
+              </div>
+            </div>
+            """.trimIndent()
+        )
+
+        assertEquals(1, result.size)
+        assertEquals(
+            "https://bbs.yamibo.com/data/attachment/portal/current-banner.jpg",
+            result.single().imageUrl
+        )
+        assertEquals("573200", result.single().threadId)
+    }
+
+    @Test
+    fun parseForumBanners_readsSlideboxCarouselStructure() {
+        val result = ForumApiParser.parseForumBanners(
+            """
+            <div id="forum">
+              <div class="slidebox">
+                <div class="swiper-wrapper">
+                  <div class="swiper-slide">
+                    <a href="forum.php?mod=viewthread&amp;tid=573201">
+                      <img src="/data/attachment/portal/slidebox-banner.jpg">
+                    </a>
+                  </div>
+                </div>
+              </div>
+            </div>
+            """.trimIndent()
+        )
+
+        assertEquals(1, result.size)
+        assertEquals(
+            "https://bbs.yamibo.com/data/attachment/portal/slidebox-banner.jpg",
+            result.single().imageUrl
+        )
+        assertEquals("573201", result.single().threadId)
+    }
+
+    @Test
+    fun parseForumHeadImage_readsForumHeadImage() {
+        val result = ForumApiParser.parseForumHeadImage(
+            """
+            <div id="forum">
+              <div class="forum-headimg">
+                <img src="//cdn.example.com/forum-head.webp">
+              </div>
+            </div>
+            """.trimIndent()
+        )
+
+        assertEquals("https://cdn.example.com/forum-head.webp", result)
+    }
+
 }

@@ -1,10 +1,16 @@
 package org.shirakawatyu.yamibo.novel.util
 
-import org.shirakawatyu.yamibo.novel.util.theme.DARK_MODE_CSS_RULES_CLASSIC
 import org.shirakawatyu.yamibo.novel.util.theme.LIGHT_MODE_CSS_RULES_CLASSIC
 import org.shirakawatyu.yamibo.novel.util.theme.MemberSpaceGuard
+import org.shirakawatyu.yamibo.novel.util.theme.webThemeCssRules
+import org.shirakawatyu.yamibo.novel.util.theme.webThemeEditorCss
+import org.shirakawatyu.yamibo.novel.ui.theme.YamiboAppTheme
+import org.shirakawatyu.yamibo.novel.global.GlobalData
 
 object PageJsScripts {
+
+    fun shouldApplyWebTheme(theme: YamiboAppTheme): Boolean =
+        theme != YamiboAppTheme.CLASSIC_LIGHT || LIGHT_MODE_CSS_RULES_CLASSIC.isNotEmpty()
 
     /**
      * 隐藏论坛自带的全局底栏，避免与应用底栏重复；私信会话的发送栏同样使用
@@ -1065,8 +1071,13 @@ object PageJsScripts {
         })();
     """.trimIndent()
 
-    fun getDarkModeSetJs(enable: Boolean, themeId: Int = 0): String {
-        val rulesList = DARK_MODE_CSS_RULES_CLASSIC
+    fun getDarkModeSetJs(
+        enable: Boolean,
+        themeId: Int = 0,
+        appTheme: YamiboAppTheme = YamiboAppTheme.BLUE_BLACK
+    ): String {
+        val rulesList = webThemeCssRules(appTheme, GlobalData.pureBlackMode.value)
+        val editorCss = webThemeEditorCss(appTheme, GlobalData.pureBlackMode.value)
         val memberSpaceUrlExpression = MemberSpaceGuard.jsExpression()
         // 规则会被嵌进 JS 单引号字符串：必须转义反斜杠和单引号，
         // 否则任何一条带 ' 的规则都会让整段注入脚本语法错误，暗黑切换静默失效。
@@ -1120,7 +1131,7 @@ object PageJsScripts {
                             if (!applyDark) continue;
                             var st = doc.createElement('style');
                             st.id = sid;
-                            st.innerHTML = 'html,body{background:#182332 !important;color:#c7d8ea !important;}a{color:#7dbdf2 !important;}';
+                            st.innerHTML = '$editorCss';
                             (doc.head || doc.body || doc.documentElement).appendChild(st);
                         } catch (e) {}
                     }
@@ -1155,8 +1166,12 @@ $styleString
         """.trimIndent()
     }
 
-    fun getLightModeSetJs(enable: Boolean, themeId: Int = 0): String {
-        val styleString = LIGHT_MODE_CSS_RULES_CLASSIC.joinToString(",\n") {
+    fun getLightModeSetJs(
+        enable: Boolean,
+        themeId: Int = 0,
+        appTheme: YamiboAppTheme = YamiboAppTheme.CLASSIC_LIGHT
+    ): String {
+        val styleString = webThemeCssRules(appTheme, GlobalData.pureBlackMode.value).joinToString(",\n") {
             "                '${it.replace("\\", "\\\\").replace("'", "\\'")}'"
         }
         val memberSpaceUrlExpression = MemberSpaceGuard.jsExpression()
@@ -1182,11 +1197,15 @@ $styleString
         """.trimIndent()
     }
 
-    fun injectDarkModeCssIntoHtml(html: String, themeId: Int = 0): String {
+    fun injectDarkModeCssIntoHtml(
+        html: String,
+        themeId: Int = 0,
+        appTheme: YamiboAppTheme = YamiboAppTheme.BLUE_BLACK
+    ): String {
         // 会员 DIY 空间模板的兜底守卫：URL 判不出来的场合按 HTML 内容判断，
         // body#space（个人主页/日志/相册）保持会员自己的背景和配色。
         if (MemberSpaceGuard.isMemberSpaceHtml(html)) return html
-        val rulesList = DARK_MODE_CSS_RULES_CLASSIC
+        val rulesList = webThemeCssRules(appTheme, GlobalData.pureBlackMode.value)
         val css = rulesList.joinToString("\n")
         val styleTag = "<style id=\"yamibo-dark-mode\">\n$css\n</style>"
         return when {
@@ -1198,9 +1217,13 @@ $styleString
         }
     }
 
-    fun injectLightModeCssIntoHtml(html: String, themeId: Int = 0): String {
+    fun injectLightModeCssIntoHtml(
+        html: String,
+        themeId: Int = 0,
+        appTheme: YamiboAppTheme = YamiboAppTheme.CLASSIC_LIGHT
+    ): String {
         if (MemberSpaceGuard.isMemberSpaceHtml(html)) return html
-        val css = LIGHT_MODE_CSS_RULES_CLASSIC.joinToString("\n")
+        val css = webThemeCssRules(appTheme, GlobalData.pureBlackMode.value).joinToString("\n")
         val styleTag = "<style id=\"yamibo-light-mode\">\n$css\n</style>"
         return when {
             html.contains("</head>") -> html.replace("</head>", "$styleTag</head>")
@@ -1383,9 +1406,18 @@ $styleString
         """.trimIndent()
     }
 
-    fun getThemeSetJs(isDark: Boolean, darkThemeId: Int, lightThemeId: Int): String {
-        val darkJs = getDarkModeSetJs(isDark, darkThemeId)
-        val lightJs = getLightModeSetJs(!isDark, lightThemeId)
+    fun getThemeSetJs(
+        isDark: Boolean,
+        darkThemeId: Int,
+        lightThemeId: Int,
+        appTheme: YamiboAppTheme = if (isDark) {
+            YamiboAppTheme.BLUE_BLACK
+        } else {
+            YamiboAppTheme.CLASSIC_LIGHT
+        }
+    ): String {
+        val darkJs = getDarkModeSetJs(isDark, darkThemeId, appTheme)
+        val lightJs = getLightModeSetJs(!isDark, lightThemeId, appTheme)
         return "$darkJs\n$lightJs"
     }
 
@@ -1404,13 +1436,18 @@ $styleString
         isDark: Boolean,
         darkThemeId: Int,
         lightThemeId: Int,
-        desktopFitScale: Double = 0.0
+        desktopFitScale: Double = 0.0,
+        appTheme: YamiboAppTheme = if (isDark) {
+            YamiboAppTheme.BLUE_BLACK
+        } else {
+            YamiboAppTheme.CLASSIC_LIGHT
+        }
     ): String {
         val compacted = compactMobileForumPageSelector(html)
         val fixed = applyDesktopViewportForWebView(compacted, desktopFitScale)
         return when {
-            isDark -> injectDarkModeCssIntoHtml(fixed, darkThemeId)
-            else -> injectLightModeCssIntoHtml(fixed, lightThemeId)
+            isDark -> injectDarkModeCssIntoHtml(fixed, darkThemeId, appTheme)
+            else -> injectLightModeCssIntoHtml(fixed, lightThemeId, appTheme)
         }
     }
 
@@ -1530,6 +1567,216 @@ $styleString
         return viewportTag + html
     }
 
+    /** 保留论坛原有 DOM 与链接，只整理移动端信息层级。 */
+    val FORUM_SIMPLE_UI_JS = """
+        (function() {
+            if (window.__yamiboSimpleForumUiV1) {
+                window.__yamiboSimpleForumUiV1.enhance();
+                return;
+            }
+
+            function ensureStyle() {
+                if (document.getElementById('yamibo-simple-forum-ui-style')) return;
+                var style = document.createElement('style');
+                style.id = 'yamibo-simple-forum-ui-style';
+                style.textContent =
+                    '.subforumshow[data-yamibo-section-header]{cursor:pointer!important;display:flex!important;align-items:center!important;justify-content:space-between!important;gap:12px!important;}' +
+                    '.yamibo-section-chevron{flex:0 0 auto!important;font-size:16px!important;line-height:1!important;transition:transform .18s ease!important;opacity:.72!important;}' +
+                    '.subforumshow[aria-expanded=true]>.yamibo-section-chevron{transform:rotate(180deg)!important;}' +
+                    '.mlist1 li{border-radius:10px!important;margin:6px 10px!important;overflow:hidden!important;}' +
+                    '.yamibo-post-actions{display:flex!important;align-items:center!important;justify-content:flex-end!important;gap:8px!important;box-sizing:border-box!important;width:100%!important;margin:14px 0 0!important;padding:10px 0 2px!important;border-top:1px solid rgba(120,90,70,.22)!important;}' +
+                    '.yamibo-post-action{display:inline-flex!important;align-items:center!important;justify-content:center!important;min-width:56px!important;height:32px!important;box-sizing:border-box!important;margin:0!important;padding:0 12px!important;border:1px solid currentColor!important;border-radius:16px!important;background:transparent!important;background-image:none!important;color:inherit!important;font-size:13px!important;font-weight:normal!important;line-height:30px!important;text-decoration:none!important;box-shadow:none!important;text-shadow:none!important;}' +
+                    '.yamibo-post-action:active{opacity:.68!important;}';
+                (document.head || document.documentElement).appendChild(style);
+            }
+
+            function sectionNodes(root, header, index) {
+                var nodes = [];
+                var parent = header.parentElement;
+                if (parent && parent !== root && parent.parentElement === root &&
+                    parent.querySelectorAll('.subforumshow').length === 1) {
+                    for (var child = parent.firstElementChild; child; child = child.nextElementSibling) {
+                        if (child !== header) nodes.push(child);
+                    }
+                } else {
+                    var sibling = header.nextElementSibling;
+                    while (sibling && !sibling.matches('.subforumshow')) {
+                        nodes.push(sibling);
+                        sibling = sibling.nextElementSibling;
+                    }
+                }
+                for (var i = 0; i < nodes.length; i++) {
+                    nodes[i].setAttribute('data-yamibo-section-content', String(index));
+                }
+                return nodes;
+            }
+
+            function setSectionExpanded(header, nodes, expanded) {
+                header.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+                for (var i = 0; i < nodes.length; i++) {
+                    if (expanded) nodes[i].style.removeProperty('display');
+                    else nodes[i].style.setProperty('display', 'none', 'important');
+                }
+            }
+
+            function enhanceForumHome() {
+                var root = document.querySelector('.forumlist');
+                if (!root) return;
+                var headers = root.querySelectorAll('.subforumshow');
+                for (var index = 0; index < headers.length; index++) {
+                    var header = headers[index];
+                    var nodes = sectionNodes(root, header, index);
+                    if (!nodes.length) continue;
+                    header.setAttribute('data-yamibo-section-header', String(index));
+                    if (!header.querySelector('.yamibo-section-chevron')) {
+                        var chevron = document.createElement('span');
+                        chevron.className = 'yamibo-section-chevron';
+                        chevron.textContent = '⌄';
+                        chevron.setAttribute('aria-hidden', 'true');
+                        header.appendChild(chevron);
+                    }
+                    if (!header.hasAttribute('aria-expanded')) {
+                        setSectionExpanded(header, nodes, index < 2);
+                    }
+                    if (header.getAttribute('data-yamibo-section-bound') === '1') continue;
+                    header.setAttribute('data-yamibo-section-bound', '1');
+                    header.addEventListener('click', function(event) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        var current = event.currentTarget;
+                        var currentIndex = current.getAttribute('data-yamibo-section-header');
+                        var contents = root.querySelectorAll(
+                            '[data-yamibo-section-content="' + currentIndex + '"]'
+                        );
+                        setSectionExpanded(
+                            current,
+                            contents,
+                            current.getAttribute('aria-expanded') !== 'true'
+                        );
+                    });
+                }
+            }
+
+            function valueFromUrl(name) {
+                try { return new URL(location.href).searchParams.get(name) || ''; }
+                catch (e) { return ''; }
+            }
+
+            function currentThreadId() {
+                var tid = valueFromUrl('tid');
+                if (tid) return tid;
+                var match = String(location.href).match(/thread-(\d+)/i);
+                return match ? match[1] : '';
+            }
+
+            function postId(post) {
+                var raw = post.getAttribute('data-pid') || post.id || '';
+                var match = String(raw).match(/(\d+)/);
+                return match ? match[1] : '';
+            }
+
+            function findNativeAction(post, kind) {
+                var links = post.querySelectorAll('a[href],a[onclick]');
+                for (var i = 0; i < links.length; i++) {
+                    if (links[i].closest('.yamibo-post-actions')) continue;
+                    var href = String(links[i].getAttribute('href') || '');
+                    var onclick = String(links[i].getAttribute('onclick') || '');
+                    var value = (href + ' ' + onclick).toLowerCase();
+                    if (kind === 'reply' &&
+                        (value.indexOf('action=reply') >= 0 || value.indexOf('repquote=') >= 0)) {
+                        return links[i];
+                    }
+                    if (kind === 'comment' &&
+                        (value.indexOf('action=postreview') >= 0 ||
+                            value.indexOf("showwindow('comment") >= 0)) {
+                        return links[i];
+                    }
+                    if (kind === 'rate' &&
+                        (value.indexOf('action=rate') >= 0 ||
+                            value.indexOf("showwindow('rate") >= 0)) {
+                        return links[i];
+                    }
+                }
+                return null;
+            }
+
+            function makeAction(label, nativeAction, fallbackUrl, windowName) {
+                var action = document.createElement('a');
+                action.className = 'yamibo-post-action';
+                action.textContent = label;
+                action.href = nativeAction
+                    ? (nativeAction.getAttribute('href') || 'javascript:;')
+                    : (fallbackUrl || 'javascript:;');
+                action.addEventListener('click', function(event) {
+                    if (nativeAction) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        nativeAction.click();
+                        return;
+                    }
+                    if (windowName && typeof window.showWindow === 'function') {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        window.showWindow(windowName, fallbackUrl);
+                    }
+                });
+                return action;
+            }
+
+            function enhancePostActions() {
+                var tid = currentThreadId();
+                if (!tid || !document.querySelector('#postlist, .viewthread')) return;
+                var fid = valueFromUrl('fid');
+                var page = valueFromUrl('page') || '1';
+                var posts = document.querySelectorAll('[id^="pid"], .plc[data-pid]');
+                var seen = {};
+                for (var i = 0; i < posts.length; i++) {
+                    var post = posts[i];
+                    var pid = postId(post);
+                    if (!pid || seen[pid]) continue;
+                    seen[pid] = true;
+                    var host = post.querySelector('.plc') || post;
+                    if (host.querySelector('.yamibo-post-actions')) continue;
+                    var bar = document.createElement('div');
+                    bar.className = 'yamibo-post-actions';
+                    bar.setAttribute('data-yamibo-post-actions-for', pid);
+
+                    var rate = findNativeAction(post, 'rate');
+                    if (rate) bar.appendChild(makeAction('评分', rate, '', ''));
+
+                    var comment = findNativeAction(post, 'comment');
+                    var commentUrl = 'forum.php?mod=misc&action=postreview&tid=' +
+                        encodeURIComponent(tid) + '&pid=' + encodeURIComponent(pid);
+                    bar.appendChild(makeAction('点评', comment, commentUrl, 'comment'));
+
+                    var reply = findNativeAction(post, 'reply');
+                    var replyUrl = 'forum.php?mod=post&action=reply' +
+                        (fid ? '&fid=' + encodeURIComponent(fid) : '') +
+                        '&tid=' + encodeURIComponent(tid) +
+                        '&repquote=' + encodeURIComponent(pid) +
+                        '&extra=' + encodeURIComponent('page=' + page) +
+                        '&page=' + encodeURIComponent(page) + '&mobile=2';
+                    bar.appendChild(makeAction('回复', reply, replyUrl, ''));
+                    host.appendChild(bar);
+                }
+            }
+
+            function enhance() {
+                ensureStyle();
+                enhanceForumHome();
+                enhancePostActions();
+            }
+
+            window.__yamiboSimpleForumUiV1 = { enhance: enhance };
+            enhance();
+            var observer = new MutationObserver(function() {
+                clearTimeout(window.__yamiboSimpleForumUiTimer);
+                window.__yamiboSimpleForumUiTimer = setTimeout(enhance, 80);
+            });
+            if (document.body) observer.observe(document.body, { childList: true, subtree: true });
+        })();
+    """.trimIndent()
+
     fun getForumBlockerJs(enabled: Boolean, itemsJson: String, isDark: Boolean, selfUid: String = ""): String {
         val itemsLiteral = jsStringLiteral(itemsJson)
         val selfUidLiteral = jsStringLiteral(selfUid)
@@ -1584,6 +1831,8 @@ $styleString
                         for (var i = 0; i < hidden.length; i++) restoreElement(hidden[i]);
                         var generated = document.querySelectorAll('.yamibo-block-action, .yamibo-block-li, .yamibo-blocked-message, .yamibo-block-choice-backdrop, .yamibo-blocked-inline, [data-yamibo-block-aux]');
                         for (var j = 0; j < generated.length; j++) generated[j].remove();
+                        var targets = document.querySelectorAll('[data-yamibo-block-target="1"]');
+                        for (var k = 0; k < targets.length; k++) clearBlockTarget(targets[k]);
                     }
 
                     function ensureStyle() {
@@ -1603,18 +1852,6 @@ $styleString
                         var menuPrimary = state.dark ? '#31577a' : '#6e2b19';
                         var linkColor = state.dark ? '#7dbdf2' : '#6e2b19';
                         style.textContent =
-                            // 基础重置只作用于按钮本身的 <a>，保持极简，让它在不同容器里自然继承排版。
-                            'a.yamibo-block-action{background:transparent!important;border:0!important;box-shadow:none!important;font:inherit!important;text-decoration:none!important;cursor:pointer!important;}' +
-                            // 列表页：容器 <li> 不加任何样式类，直接复用站点 .threadlist_foot li 的胶囊样式
-                            // （float:left、内边距、圆角、深色边框），从而与浏览数/回复数按钮完全对齐。
-                            // 内部 <a> 保持纯 inline（不要用 inline-flex，否则其原子盒在 baseline 上会撑高行盒，
-                            // 使屏蔽按钮比浏览/评论按钮高）；SVG 图标按站点原生 .threadlist_foot li i 的 float:left
-                            // 方式排版，14px 图标在 22px 行高中用 4px 上边距居中，和文字同一条中线。
-                            '.threadlist_foot li.yamibo-block-li a.yamibo-block-action{display:inline!important;padding:0!important;margin:0!important;line-height:inherit!important;vertical-align:baseline!important;color:inherit!important;}' +
-                            '.threadlist_foot li.yamibo-block-li .yamibo-block-icon{float:left!important;display:block!important;width:14px!important;height:14px!important;line-height:1!important;margin:4px 3px 0 0!important;vertical-align:baseline!important;fill:currentColor!important;color:inherit!important;}' +
-                            '.threadlist_foot li.yamibo-block-li .yamibo-block-label{display:inline!important;line-height:inherit!important;vertical-align:baseline!important;}' +
-                            // 帖子页：按钮在用户名后内联显示，间距由前面插入的四个不可断空格决定，这里清零边距。
-                            '.authi>.yamibo-block-action{display:inline!important;margin-left:0!important;padding-left:0!important;font-size:12px!important;font-weight:normal!important;}' +
                             '.yamibo-blocked-message{box-sizing:border-box;margin:8px 0;padding:10px 12px;text-align:center;border-radius:4px;background:' + background + '!important;border:1px solid ' + border + '!important;color:' + text + '!important;font-size:12px;line-height:1.7;}' +
                             '.threadlist>.yamibo-blocked-message{list-style:none;margin:8px 10px;}' +
                             '.yamibo-blocked-message a.yamibo-unblock-action,#ct .yamibo-blocked-message a.yamibo-unblock-action{font-size:12px!important;color:' + linkColor + '!important;}' +
@@ -1843,28 +2080,24 @@ $styleString
                         if (generated) generated.remove();
                     }
 
-                    function makeAction(type, id, title, blocked, authorUid, authorName) {
-                        var action = document.createElement('a');
-                        action.href = 'javascript:;';
-                        action.className = 'xi2 yamibo-block-action';
-                        action.setAttribute('data-type', type);
-                        action.setAttribute('data-id', id);
-                        action.setAttribute('data-title', title || '');
-                        action.setAttribute('data-author-uid', authorUid || '');
-                        action.setAttribute('data-author-name', authorName || '');
-                        action.textContent = blocked ? '取消屏蔽' : '屏蔽';
-                        return action;
+                    function clearBlockTarget(target) {
+                        if (!target) return;
+                        target.removeAttribute('data-yamibo-block-target');
+                        target.removeAttribute('data-yamibo-block-type');
+                        target.removeAttribute('data-yamibo-block-id');
+                        target.removeAttribute('data-yamibo-block-title');
+                        target.removeAttribute('data-yamibo-block-author-uid');
+                        target.removeAttribute('data-yamibo-block-author-name');
                     }
 
-                    // 列表页（大区帖子列表）的屏蔽按钮加上闭眼图标，与旁边的浏览数(dm-eye-fill)、
-                    // 评论数(dm-chat-s-fill)按钮保持一致；颜色和字号由 .threadlist_foot 继承。
-                    // 帖子页内的屏蔽按钮不走这里，保持纯文字。
-                    // 屏蔽后整行会被隐藏、由占位提示里的「取消屏蔽」撤销，所以这里固定只显示「屏蔽」。
-                    function setListActionLabel(action) {
-                        var icon = action.querySelector('.yamibo-block-icon');
-                        var label = action.querySelector('.yamibo-block-label');
-                        if (icon && label && label.textContent === '屏蔽') return;
-                        action.innerHTML = '<svg class="yamibo-block-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12,7c2.76,0 5,2.24 5,5 0,0.65 -0.13,1.26 -0.36,1.83l2.92,2.92c1.51,-1.26 2.7,-2.89 3.43,-4.75 -1.73,-4.39 -6,-7.5 -11,-7.5 -1.4,0 -2.74,0.25 -3.98,0.7l2.16,2.16C10.74,7.13 11.35,7 12,7zM2,4.27l2.28,2.28 0.46,0.46C3.08,8.3 1.78,10.02 1,12c1.73,4.39 6,7.5 11,7.5 1.55,0 3.03,-0.3 4.38,-0.84l0.42,0.42L19.73,22 21,20.73 3.27,3 2,4.27zM7.53,9.8l1.55,1.55c-0.05,0.21 -0.08,0.43 -0.08,0.65 0,1.66 1.34,3 3,3 0.22,0 0.44,-0.03 0.65,-0.08l1.55,1.55c-0.67,0.33 -1.41,0.53 -2.2,0.53 -2.76,0 -5,-2.24 -5,-5 0,-0.79 0.2,-1.53 0.53,-2.2zM11.84,9.02l3.15,3.15 0.02,-0.16c0,-1.66 -1.34,-3 -3,-3l-0.17,0.01z"></path></svg><span class="yamibo-block-label">屏蔽</span>';
+                    function setBlockTarget(target, type, id, title, authorUid, authorName) {
+                        if (!target) return;
+                        target.setAttribute('data-yamibo-block-target', '1');
+                        target.setAttribute('data-yamibo-block-type', type);
+                        target.setAttribute('data-yamibo-block-id', id);
+                        target.setAttribute('data-yamibo-block-title', title || '');
+                        target.setAttribute('data-yamibo-block-author-uid', authorUid || '');
+                        target.setAttribute('data-yamibo-block-author-name', authorName || '');
                     }
 
                     // 从行/楼层里尽量取作者用户名（带文字的「空间链接」）。
@@ -1880,7 +2113,7 @@ $styleString
 
                     function syncListPage(map) {
                         var rows = document.querySelectorAll('.threadlist li.list, .threadlist li.list_top');
-                        // 我自己的空间列表页（我的主题/回复/收藏）整页都是自己的内容，不加屏蔽按钮，
+                        // 我自己的空间列表页（我的主题/回复/收藏）整页都是自己的内容，不绑定长按屏蔽入口，
                         // 并清掉历史上误加的，避免依赖行内作者链接（部分模板该页不带作者头像链接）。
                         var ownSpace = isOwnSpaceListPage();
                         for (var i = 0; i < rows.length; i++) {
@@ -1890,43 +2123,31 @@ $styleString
                             if (ownSpace) {
                                 var ownSpaceHolder = row.querySelector('.yamibo-block-li');
                                 if (ownSpaceHolder) ownSpaceHolder.remove();
+                                clearBlockTarget(row);
                                 continue;
                             }
                             var authorUid = getRowAuthorUid(row);
                             var authorName = getAuthorName(row);
-                            // 自己发布的主题不显示屏蔽按钮（也清掉历史上误加的）。
+                            // 自己发布的主题不绑定长按屏蔽入口（也清掉历史上误加的）。
                             if (isOwnUid(authorUid)) {
                                 var ownHolder = row.querySelector('.yamibo-block-li');
                                 if (ownHolder) ownHolder.remove();
+                                clearBlockTarget(row);
                                 continue;
                             }
                             var key = itemKey('thread', tid);
                             var isBlocked = !!map[key];
                             var blockedUser = getBlockedUser(map, authorUid, authorName);
-                            var action = row.querySelector('.yamibo-block-action[data-type="thread"]');
-                            if (!action) {
-                                var foot = row.querySelector('.threadlist_foot ul');
-                                if (foot) {
-                                    // 用普通的 foot <li> 作为容器，让屏蔽按钮与旁边的浏览/回复数
-                                    // 按钮（同为 .threadlist_foot li）保持同样的对齐与外观，不再单独重置样式。
-                                    var holder = document.createElement('li');
-                                    holder.className = 'yamibo-block-li';
-                                    var titleLink = row.querySelector('a[href*="tid="], a[href*="thread-"], a[href*="viewthread"]');
-                                    // 标题只取 .threadlist_tit em：投票/悬赏/活动等特殊主题在标题前还有
-                                    // 一个 .micon 徽标（如“投票”），直接取整个链接的 textContent 会把徽标
-                                    // 文字和真实标题拼在一起，徽标与标题间的换行还会让展示层截断成只剩徽标。
-                                    var titleEm = titleLink ? titleLink.querySelector('.threadlist_tit em') : null;
-                                    var title = titleEm
-                                        ? String(titleEm.textContent || '').trim()
-                                        : (titleLink ? String(titleLink.textContent || '').trim() : '');
-                                    action = makeAction('thread', tid, title, isBlocked, authorUid, authorName);
-                                    setListActionLabel(action);
-                                    holder.appendChild(action);
-                                    foot.appendChild(holder);
-                                }
-                            } else {
-                                setListActionLabel(action);
-                            }
+                            var oldHolder = row.querySelector('.yamibo-block-li');
+                            if (oldHolder) oldHolder.remove();
+                            var titleLink = row.querySelector(
+                                'a[href*="tid="], a[href*="thread-"], a[href*="viewthread"]'
+                            );
+                            var titleEm = titleLink ? titleLink.querySelector('.threadlist_tit em') : null;
+                            var title = titleEm
+                                ? String(titleEm.textContent || '').trim()
+                                : (titleLink ? String(titleLink.textContent || '').trim() : '');
+                            setBlockTarget(row, 'thread', tid, title, authorUid, authorName);
 
                             if (isBlocked) {
                                 if (authorUid) removePlaceholder(row, 'user', authorUid, 'thread-' + tid);
@@ -1945,8 +2166,8 @@ $styleString
                     }
 
                     // 电脑版列表页（forumdisplay 的 #threadlisttableid 行、标签页 .tl 相关帖子表格）：
-                    // 只做隐藏/恢复，不注入屏蔽按钮——按钮排版依赖手机版模板的 .threadlist_foot，
-                    // 电脑版表格里没有安全的挂载点；取消屏蔽走黑名单弹窗或手机版页面。
+                    // 不注入可见按钮，只把整行绑定为长按/右键屏蔽目标；
+                    // 取消屏蔽仍走黑名单弹窗。
                     // 占位提示也不加：占位元素插进 <table> 会被浏览器移出表格错位显示。
                     function syncPcListPage(map) {
                         if (isOwnSpaceListPage()) return;
@@ -1959,7 +2180,21 @@ $styleString
                             if (!tid) continue;
                             var authorUid = getRowAuthorUid(row);
                             var authorName = getAuthorName(row);
-                            if (isOwnUid(authorUid)) continue;
+                            if (isOwnUid(authorUid)) {
+                                clearBlockTarget(row);
+                                continue;
+                            }
+                            var pcTitleLink = row.querySelector(
+                                'a[href*="tid="], a[href*="thread-"], a[href*="viewthread"]'
+                            );
+                            setBlockTarget(
+                                row,
+                                'thread',
+                                tid,
+                                pcTitleLink ? String(pcTitleLink.textContent || '').trim() : '',
+                                authorUid,
+                                authorName
+                            );
                             var blocked = !!map[itemKey('thread', tid)] ||
                                 !!getBlockedUser(map, authorUid, authorName);
                             if (blocked) {
@@ -1991,36 +2226,27 @@ $styleString
                             if (!pid) continue;
                             var authorUid = getPostAuthorUid(post);
                             var authorName = getAuthorName(post.querySelector('.authi') || post);
-                            // 自己发布的楼层（含主题楼）不显示屏蔽按钮（也清掉历史上误加的）。
+                            // 自己发布的楼层（含主题楼）不绑定长按屏蔽入口（也清掉历史上误加的）。
                             if (isOwnUid(authorUid)) {
                                 var ownPostAction = post.querySelector('.yamibo-block-action[data-type="post"]');
                                 if (ownPostAction) ownPostAction.remove();
+                                clearBlockTarget(post);
                                 continue;
                             }
                             var isBlocked = !!map[itemKey('post', pid)];
                             var blockedUser = getBlockedUser(map, authorUid, authorName);
-                            var action = post.querySelector('.yamibo-block-action[data-type="post"]');
-                            if (!action) {
-                                var auth = post.querySelector('.authi');
-                                var userLink = auth ? auth.querySelector('a') : null;
-                                if (auth && userLink) {
-                                    action = makeAction(
-                                        'post',
-                                        pid,
-                                        (document.title || '') + ' · 楼层 ' + pid,
-                                        isBlocked,
-                                        authorUid,
-                                        authorName || String(userLink.textContent || '').trim()
-                                    );
-                                    // 先插入按钮，再在用户名与按钮之间补四个不可断空格（普通空格会被 HTML 折叠成一个），
-                                    // 使屏蔽文字按钮与用户名保持四个空格的距离。
-                                    userLink.insertAdjacentElement('afterend', action);
-                                    userLink.insertAdjacentText('afterend', String.fromCharCode(160, 160, 160, 160));
-                                }
-                            } else {
-                                var nextLabel = isBlocked ? '取消屏蔽' : '屏蔽';
-                                if (action.textContent !== nextLabel) action.textContent = nextLabel;
-                            }
+                            var oldPostAction = post.querySelector(
+                                '.yamibo-block-action[data-type="post"]'
+                            );
+                            if (oldPostAction) oldPostAction.remove();
+                            setBlockTarget(
+                                post,
+                                'post',
+                                pid,
+                                (document.title || '') + ' · 楼层 ' + pid,
+                                authorUid,
+                                authorName
+                            );
 
                             if (isBlocked) {
                                 if (authorUid) removePlaceholder(post, 'user', authorUid, 'post-' + pid);
@@ -2254,11 +2480,11 @@ $styleString
 
                     function showBlockChoiceMenu(action) {
                         closeBlockChoiceMenu();
-                        var type = action.getAttribute('data-type') || '';
-                        var id = action.getAttribute('data-id') || '';
-                        var title = action.getAttribute('data-title') || '';
-                        var authorUid = action.getAttribute('data-author-uid') || '';
-                        var authorName = action.getAttribute('data-author-name') || '';
+                        var type = action.getAttribute('data-yamibo-block-type') || '';
+                        var id = action.getAttribute('data-yamibo-block-id') || '';
+                        var title = action.getAttribute('data-yamibo-block-title') || '';
+                        var authorUid = action.getAttribute('data-yamibo-block-author-uid') || '';
+                        var authorName = action.getAttribute('data-yamibo-block-author-name') || '';
 
                         var backdrop = document.createElement('div');
                         backdrop.className = 'yamibo-block-choice-backdrop';
@@ -2325,7 +2551,72 @@ $styleString
                         }
                     }
 
+                    var longPressTimer = null;
+                    var longPressTarget = null;
+                    var longPressStartX = 0;
+                    var longPressStartY = 0;
+                    var suppressClickUntil = 0;
+
+                    function cancelLongPress() {
+                        if (longPressTimer) clearTimeout(longPressTimer);
+                        longPressTimer = null;
+                        longPressTarget = null;
+                    }
+
+                    function closestBlockTarget(node) {
+                        return node && node.closest
+                            ? node.closest(
+                                '[data-yamibo-block-target="1"]' +
+                                '[data-yamibo-block-type][data-yamibo-block-id]'
+                            )
+                            : null;
+                    }
+
+                    document.addEventListener('touchstart', function(event) {
+                        if (!state.enabled || !event.touches || event.touches.length !== 1) return;
+                        var target = closestBlockTarget(event.target);
+                        if (!target || event.target.closest('.yamibo-block-choice-backdrop')) return;
+                        cancelLongPress();
+                        longPressTarget = target;
+                        longPressStartX = event.touches[0].clientX;
+                        longPressStartY = event.touches[0].clientY;
+                        longPressTimer = setTimeout(function() {
+                            var selected = longPressTarget;
+                            cancelLongPress();
+                            if (!selected) return;
+                            suppressClickUntil = Date.now() + 900;
+                            showBlockChoiceMenu(selected);
+                            if (navigator.vibrate) navigator.vibrate(20);
+                        }, 550);
+                    }, { capture: true, passive: true });
+
+                    document.addEventListener('touchmove', function(event) {
+                        if (!longPressTimer || !event.touches || !event.touches.length) return;
+                        if (Math.abs(event.touches[0].clientX - longPressStartX) > 12 ||
+                            Math.abs(event.touches[0].clientY - longPressStartY) > 12) {
+                            cancelLongPress();
+                        }
+                    }, { capture: true, passive: true });
+                    document.addEventListener('touchend', cancelLongPress, true);
+                    document.addEventListener('touchcancel', cancelLongPress, true);
+
+                    document.addEventListener('contextmenu', function(event) {
+                        if (!state.enabled) return;
+                        var target = closestBlockTarget(event.target);
+                        if (!target) return;
+                        event.preventDefault();
+                        event.stopPropagation();
+                        cancelLongPress();
+                        suppressClickUntil = Date.now() + 900;
+                        showBlockChoiceMenu(target);
+                    }, true);
+
                     document.addEventListener('click', function(event) {
+                        if (Date.now() < suppressClickUntil && closestBlockTarget(event.target)) {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            return;
+                        }
                         var unblock = event.target.closest ? event.target.closest('.yamibo-unblock-action') : null;
                         if (unblock) {
                             event.preventDefault();
@@ -2377,12 +2668,7 @@ $styleString
                             return;
                         }
 
-                        var action = event.target.closest ? event.target.closest('.yamibo-block-action[data-type][data-id]') : null;
-                        if (!action) return;
-                        event.preventDefault();
-                        event.stopPropagation();
-                        showBlockChoiceMenu(action);
-                    }, true);
+                     }, true);
 
                     var observer = new MutationObserver(scheduleSync);
                     if (document.body) observer.observe(document.body, { childList: true, subtree: true });
@@ -2799,6 +3085,7 @@ $styleString
             "PRESERVE_DESKTOP_SPACE_LINKS_JS" to PRESERVE_DESKTOP_SPACE_LINKS_JS,
             "PULL_REFRESH_EDIT_FOCUS_JS" to PULL_REFRESH_EDIT_FOCUS_JS,
             "PRESERVE_RATE_POSITION_JS" to PRESERVE_RATE_POSITION_JS,
+            "FORUM_SIMPLE_UI_JS" to FORUM_SIMPLE_UI_JS,
             "INJECT_COPY_LINK_JS" to INJECT_COPY_LINK_JS
         )
     }
@@ -2812,6 +3099,7 @@ $styleString
             "PRESERVE_DESKTOP_SPACE_LINKS_JS" to PRESERVE_DESKTOP_SPACE_LINKS_JS,
             "PULL_REFRESH_EDIT_FOCUS_JS" to PULL_REFRESH_EDIT_FOCUS_JS,
             "PRESERVE_RATE_POSITION_JS" to PRESERVE_RATE_POSITION_JS,
+            "FORUM_SIMPLE_UI_JS" to FORUM_SIMPLE_UI_JS,
             "INJECT_COPY_LINK_JS" to INJECT_COPY_LINK_JS
         )
     }

@@ -11,6 +11,7 @@ data class ForumBoard(
     val name: String,
     val description: String = "",
     val iconUrl: String? = null,
+    val headImageUrl: String? = null,
     val parentId: String? = null,
     val threadCount: Int = 0,
     val postCount: Int = 0,
@@ -35,9 +36,19 @@ data class ForumThread(
     val isSticky: Boolean
         get() = displayOrder > 0
 
+    val avatarUrl: String?
+        get() = authorId?.let {
+            "https://bbs.yamibo.com/uc_server/avatar.php?uid=$it&size=small"
+        }
+
     val url: String
         get() = "https://bbs.yamibo.com/forum.php?mod=viewthread&tid=$id&mobile=2"
 }
+
+data class ForumBanner(
+    val imageUrl: String,
+    val threadId: String? = null
+)
 
 data class ForumIndex(
     val categories: List<ForumCategory>
@@ -47,7 +58,8 @@ data class ForumThreadPage(
     val forum: ForumBoard,
     val threads: List<ForumThread>,
     val page: Int,
-    val hasMore: Boolean
+    val hasMore: Boolean,
+    val availableTypes: Map<String, String> = emptyMap()
 )
 
 data class ForumPostAuthor(
@@ -74,6 +86,20 @@ data class ForumPostAttachment(
     val isImage: Boolean
 )
 
+data class ForumPostRating(
+    val userName: String,
+    val score: String,
+    val reason: String = "",
+    val createdAt: String? = null
+)
+
+data class ForumPostRatingSummary(
+    val participantText: String,
+    val scoreText: String,
+    val ratings: List<ForumPostRating> = emptyList(),
+    val viewAllUrl: String? = null
+)
+
 data class ForumPost(
     val id: String,
     val threadId: String,
@@ -82,7 +108,8 @@ data class ForumPost(
     val floor: Int,
     val isOriginalPost: Boolean,
     val blocks: List<ForumPostBlock>,
-    val attachments: List<ForumPostAttachment> = emptyList()
+    val attachments: List<ForumPostAttachment> = emptyList(),
+    val ratingSummary: ForumPostRatingSummary? = null
 )
 
 data class ForumThreadDetail(
@@ -92,7 +119,9 @@ data class ForumThreadDetail(
     val author: ForumPostAuthor,
     val replyCount: Int,
     val viewCount: Int,
-    val isClosed: Boolean
+    val isClosed: Boolean,
+    val forumName: String = "",
+    val lastPoster: String = ""
 )
 
 data class ForumPostPage(

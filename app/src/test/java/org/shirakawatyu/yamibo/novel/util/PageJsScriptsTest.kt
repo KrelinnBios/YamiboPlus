@@ -79,15 +79,31 @@ class PageJsScriptsTest {
     }
 
     @Test
-    fun forumBlockerDoesNotRewriteStableButtonsOnEveryMutationSync() {
+    fun forumBlockerUsesLongPressTargetsWithoutVisibleBlockButtons() {
         val script = PageJsScripts.getForumBlockerJs(
             enabled = true,
             itemsJson = "[]",
             isDark = true
         )
 
-        assertTrue(script.contains("if (icon && label && label.textContent === '屏蔽') return;"))
-        assertTrue(script.contains("if (action.textContent !== nextLabel) action.textContent = nextLabel;"))
+        assertTrue(script.contains("data-yamibo-block-target"))
+        assertTrue(script.contains("document.addEventListener('touchstart'"))
+        assertTrue(script.contains("document.addEventListener('contextmenu'"))
+        assertTrue(script.contains("showBlockChoiceMenu(selected)"))
+        assertFalse(script.contains("function makeAction(type, id, title, blocked"))
+    }
+
+    @Test
+    fun simpleForumUiKeepsDailyActionsAndCollapsesLaterSections() {
+        val script = PageJsScripts.FORUM_SIMPLE_UI_JS
+
+        assertTrue(script.contains("index < 2"))
+        assertTrue(script.contains("data-yamibo-section-header"))
+        assertTrue(script.contains("action=postreview"))
+        assertTrue(script.contains("action=reply"))
+        assertTrue(script.contains("action=rate"))
+        assertTrue(PageJsScripts.BBS_COMMIT_BOOTSTRAP_JS.contains("FORUM_SIMPLE_UI_JS"))
+        assertTrue(PageJsScripts.BBS_MANGA_REINJECT_JS.contains("FORUM_SIMPLE_UI_JS"))
     }
 
     @Test

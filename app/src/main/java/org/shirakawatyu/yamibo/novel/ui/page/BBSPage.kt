@@ -61,6 +61,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -88,8 +89,8 @@ import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.module.CoilWebViewProxy
 import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
+import org.shirakawatyu.yamibo.novel.ui.component.YamiboLoadError
 import org.shirakawatyu.yamibo.novel.ui.state.BBSPageState
-import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
@@ -99,7 +100,6 @@ import org.shirakawatyu.yamibo.novel.util.ActivityWebViewLifecycleObserver
 import org.shirakawatyu.yamibo.novel.ui.widget.YamiboToast
 import org.shirakawatyu.yamibo.novel.util.PageJsScripts
 import org.shirakawatyu.yamibo.novel.util.YamiboPostLinkUtil
-import org.shirakawatyu.yamibo.novel.util.darkThemeColor
 import org.shirakawatyu.yamibo.novel.util.CurrentUserUtil
 import org.shirakawatyu.yamibo.novel.util.forum.ForumBlocklistManager
 import org.shirakawatyu.yamibo.novel.util.history.HistoryUtil
@@ -289,7 +289,7 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
         // 主题模式：拦截主框架 HTML，在渲染前注入主题 CSS，消除白闪
         if (request?.isForMainFrame == true &&
             request.method == "GET" &&
-            (GlobalData.isDarkMode.value || GlobalData.lightModeTheme.value > 0) &&
+            PageJsScripts.shouldApplyWebTheme(GlobalData.appTheme.value) &&
             urlStr.contains("bbs.yamibo.com")
         ) {
             val html = YamiboRetrofit.proxyHtmlForDarkMode(request)
@@ -303,7 +303,8 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
                     GlobalData.isDarkMode.value,
                     GlobalData.darkModeTheme.value,
                     GlobalData.lightModeTheme.value,
-                    desktopFitScale
+                    desktopFitScale,
+                    appTheme = GlobalData.appTheme.value
                 )
                 return WebResourceResponse(
                     "text/html",
@@ -363,12 +364,13 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
         view?.evaluateJavascript(PageJsScripts.BBS_COMMIT_BOOTSTRAP_JS, null)
         injectForumBlocker(view)
 
-        if (GlobalData.isDarkMode.value || GlobalData.lightModeTheme.value > 0) {
+        if (PageJsScripts.shouldApplyWebTheme(GlobalData.appTheme.value)) {
             view?.evaluateJavascript(
                 PageJsScripts.getThemeSetJs(
                     GlobalData.isDarkMode.value,
                     GlobalData.darkModeTheme.value,
-                    GlobalData.lightModeTheme.value
+                    GlobalData.lightModeTheme.value,
+                    GlobalData.appTheme.value
                 ), null
             )
         }
@@ -615,21 +617,23 @@ fun BBSPage(
 
     var autoOpenMangaMode by remember { mutableStateOf(false) }
     val context = LocalContext.current
-    val isDarkMode by GlobalData.isDarkMode.collectAsState()
+    val appTheme by GlobalData.appTheme.collectAsState()
+    val isDarkMode = appTheme.isDark
     val isForumBlocklistEnabled by ForumBlocklistManager.enabled.collectAsState()
     val forumBlockedItems by ForumBlocklistManager.items.collectAsState()
     val currentUid = GlobalData.currentUid
     val pullRefreshBridge = remember { WebViewPullRefreshBridge() }
 
-    LaunchedEffect(isDarkMode, isForumBlocklistEnabled, forumBlockedItems, currentUid) {
+    LaunchedEffect(appTheme, isForumBlocklistEnabled, forumBlockedItems, currentUid) {
         webView.setBackgroundColor(
-            if (isDarkMode) 0xFF0D141D.toInt() else android.graphics.Color.TRANSPARENT
+            appTheme.scheme.background.toArgb()
         )
         webView.evaluateJavascript(
             PageJsScripts.getThemeSetJs(
                 isDarkMode,
                 GlobalData.darkModeTheme.value,
-                GlobalData.lightModeTheme.value
+                GlobalData.lightModeTheme.value,
+                GlobalData.appTheme.value
             ),
             null
         )
@@ -691,7 +695,8 @@ fun BBSPage(
                 PageJsScripts.getThemeSetJs(
                     GlobalData.isDarkMode.value,
                     GlobalData.darkModeTheme.value,
-                    GlobalData.lightModeTheme.value
+                    GlobalData.lightModeTheme.value,
+                    GlobalData.appTheme.value
                 ),
                 null
             )
@@ -1227,7 +1232,7 @@ fun BBSPage(
     val finalNavHeight = lockedNavHeight.dp
 
     val isFullscreen = isFullscreenState.value || autoOpenMangaMode
-    val topSpacerColor = if (isFullscreen) Color.Black else darkThemeColor(YamiboColors.primary) { statusBar }
+    val topSpacerColor = if (isFullscreen) Color.Black else MaterialTheme.colorScheme.primary
     val bottomPad = if (isFullscreen) finalNavHeight else (finalNavHeight + 50.dp)
 
     Box(
@@ -1336,52 +1341,20 @@ fun BBSPage(
             )
 
             if (BBSPageState.showLoadError) {
-                Column(
+                YamiboLoadError(
+                    title = "网页无法打开",
                     modifier = Modifier
                         .fillMaxSize()
-                        .zIndex(10f)
-                        .background(MaterialTheme.colorScheme.background)
-                        .padding(horizontal = 32.dp),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Icon(
-                        Icons.Default.Warning,
-                        contentDescription = "加载失败",
-                        modifier = Modifier.size(48.dp),
-                        tint = Color.Gray
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        "网页无法打开",
-                        fontSize = 18.sp,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        "页面加载失败，请检查网络后刷新",
-                        fontSize = 14.sp,
-                        color = Color.Gray,
-                        textAlign = TextAlign.Center
-                    )
-                    Spacer(modifier = Modifier.height(24.dp))
-                    Button(onClick = {
+                        .zIndex(10f),
+                    onRetry = {
                         val curl = webView.url
                         if (!curl.isNullOrEmpty() && curl != "about:blank") {
                             startLoading(curl)
                         } else {
                             startLoading(mobileIndexUrl)
                         }
-                    }) {
-                        Icon(
-                            Icons.Default.Refresh,
-                            contentDescription = "刷新",
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("刷新页面")
                     }
-                }
+                )
             }
 
             val shouldShowLoadingCover =

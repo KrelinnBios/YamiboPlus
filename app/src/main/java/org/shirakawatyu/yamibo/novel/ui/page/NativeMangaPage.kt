@@ -140,7 +140,6 @@ import org.shirakawatyu.yamibo.novel.ui.widget.manga.MangaChapterPanel
 import org.shirakawatyu.yamibo.novel.ui.widget.manga.MangaSettingsPanel
 import org.shirakawatyu.yamibo.novel.util.HapticUtil
 import org.shirakawatyu.yamibo.novel.util.OnboardingUtil
-import org.shirakawatyu.yamibo.novel.util.darkModeColor
 import org.shirakawatyu.yamibo.novel.util.favorite.FavoriteUtil
 import org.shirakawatyu.yamibo.novel.util.history.HistoryUtil
 import org.shirakawatyu.yamibo.novel.util.manga.MangaImagePipeline
@@ -1063,12 +1062,12 @@ fun NativeMangaPage(
                                             Icon(
                                                 Icons.Default.Refresh,
                                                 contentDescription = "Retry",
-                                                tint = Color.LightGray
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                             Spacer(Modifier.height(8.dp))
                                             Text(
                                                 "加载失败，点击重试",
-                                                color = Color.LightGray,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 fontSize = 12.sp
                                             )
                                         }
@@ -1183,13 +1182,13 @@ fun NativeMangaPage(
                                                     Icon(
                                                         Icons.Default.Refresh,
                                                         contentDescription = "Retry",
-                                                        tint = Color.LightGray,
+                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                                         modifier = Modifier.size(36.dp)
                                                     )
                                                     Spacer(Modifier.height(12.dp))
                                                     Text(
                                                         "图片加载失败，点击重试",
-                                                        color = Color.LightGray,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                         fontSize = 15.sp
                                                     )
                                                 }
@@ -1392,10 +1391,7 @@ fun NativeMangaPage(
                                 tint = if (isCurrentFavorited) {
                                     MaterialTheme.colorScheme.primary
                                 } else {
-                                    darkModeColor(
-                                        light = MaterialTheme.colorScheme.outline,
-                                        dark = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                                    MaterialTheme.colorScheme.outline
                                 }
                             )
                         }

@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumBoard
 import org.shirakawatyu.yamibo.novel.repository.ForumRepository
+import org.shirakawatyu.yamibo.novel.ui.state.ForumSort
 import org.shirakawatyu.yamibo.novel.ui.state.ForumState
 import org.shirakawatyu.yamibo.novel.ui.state.ForumThreadState
 import java.io.IOException
@@ -47,18 +48,37 @@ class ForumVM(
         if (_uiState.value.categories.isEmpty()) refresh()
     }
 
+    fun setSort(sort: ForumSort) {
+        if (_uiState.value.sortBy == sort) return
+        _uiState.update { it.copy(sortBy = sort, threads = emptyList(), page = 1) }
+        refresh()
+    }
+
+    fun setFilterType(typeId: String?) {
+        if (_uiState.value.filterType == typeId) return
+        _uiState.update { it.copy(filterType = typeId, threads = emptyList(), page = 1) }
+        refresh()
+    }
+
     fun refresh() {
-        val selectedForum = _uiState.value.selectedForum
+        val state = _uiState.value
+        val selectedForum = state.selectedForum
         val version = ++requestVersion
-        _uiState.update {
-            it.copy(isLoading = true, isLoadingMore = false, error = null, page = 1)
-        }
+        _uiState.update { it.copy(isLoading = true, isLoadingMore = false, error = null, page = 1) }
+        if (selectedForum == null) refreshBanners(version)
         viewModelScope.launch(Dispatchers.IO) {
             runCatching {
                 if (selectedForum == null) {
                     repository.getForumIndex()
                 } else {
-                    repository.getThreads(selectedForum.id, 1)
+                    val filter = if (state.filterType != null) "typeid" else null
+                    repository.getThreads(
+                        forumId = selectedForum.id,
+                        page = 1,
+                        orderBy = state.sortBy.apiValue,
+                        filter = filter,
+                        typeId = state.filterType
+                    )
                 }
             }.onSuccess { result ->
                 if (version != requestVersion) return@onSuccess
@@ -73,7 +93,8 @@ class ForumVM(
                             threads = result.threads.distinctBy { it.id },
                             page = result.page,
                             hasMore = result.hasMore,
-                            isLoading = false
+                            isLoading = false,
+                            availableTypes = result.availableTypes
                         )
                         else -> state.copy(isLoading = false)
                     }
@@ -87,6 +108,16 @@ class ForumVM(
         }
     }
 
+    private fun refreshBanners(version: Long) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { repository.getForumBanners() }.onSuccess { banners ->
+                if (version == requestVersion) {
+                    _uiState.update { it.copy(banners = banners) }
+                }
+            }
+        }
+    }
+
     fun loadMore() {
         val state = _uiState.value
         val forum = state.selectedForum ?: return
@@ -95,7 +126,16 @@ class ForumVM(
         val nextPage = state.page + 1
         _uiState.update { it.copy(isLoadingMore = true, error = null) }
         viewModelScope.launch(Dispatchers.IO) {
-            runCatching { repository.getThreads(forum.id, nextPage) }
+            runCatching {
+                val filter = if (state.filterType != null) "typeid" else null
+                repository.getThreads(
+                    forumId = forum.id,
+                    page = nextPage,
+                    orderBy = state.sortBy.apiValue,
+                    filter = filter,
+                    typeId = state.filterType
+                )
+            }
                 .onSuccess { result ->
                     if (version != requestVersion || _uiState.value.selectedForum?.id != forum.id) {
                         return@onSuccess
@@ -139,7 +179,8 @@ class ForumThreadVM(
         val version = ++requestVersion
         _uiState.update { it.copy(isLoading = true, isLoadingMore = false, error = null, page = 1) }
         viewModelScope.launch(Dispatchers.IO) {
-            runCatching { repository.getPosts(threadId, 1) }
+            val authorId = _uiState.value.takeIf { it.onlyOriginalPoster }?.thread?.author?.id
+            runCatching { repository.getPosts(threadId, 1, authorId) }
                 .onSuccess { result ->
                     if (version != requestVersion) return@onSuccess
                     _uiState.update {
@@ -160,6 +201,17 @@ class ForumThreadVM(
         }
     }
 
+    fun toggleOriginalPosterOnly() {
+        val state = _uiState.value
+        if (state.thread?.author?.id.isNullOrBlank()) return
+        _uiState.update { it.copy(onlyOriginalPoster = !it.onlyOriginalPoster) }
+        refresh()
+    }
+
+    fun toggleReverseOrder() {
+        _uiState.update { it.copy(reverseOrder = !it.reverseOrder) }
+    }
+
     fun loadMore() {
         val state = _uiState.value
         if (state.isLoading || state.isLoadingMore || !state.hasMore) return
@@ -167,7 +219,8 @@ class ForumThreadVM(
         val version = requestVersion
         _uiState.update { it.copy(isLoadingMore = true, error = null) }
         viewModelScope.launch(Dispatchers.IO) {
-            runCatching { repository.getPosts(threadId, nextPage) }
+            val authorId = state.takeIf { it.onlyOriginalPoster }?.thread?.author?.id
+            runCatching { repository.getPosts(threadId, nextPage, authorId) }
                 .onSuccess { result ->
                     if (version != requestVersion) return@onSuccess
                     _uiState.update {

@@ -73,6 +73,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumBoard
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumThread
 import org.shirakawatyu.yamibo.novel.global.GlobalData
+import org.shirakawatyu.yamibo.novel.ui.component.YamiboLoadError
 import org.shirakawatyu.yamibo.novel.ui.state.ForumState
 import org.shirakawatyu.yamibo.novel.ui.vm.ForumVM
 import org.shirakawatyu.yamibo.novel.util.DarkThemeColors
@@ -393,35 +394,11 @@ private fun ForumThreadRow(thread: ForumThread, onClick: () -> Unit) {
 
 @Composable
 private fun ForumError(message: String, onRetry: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 32.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Icon(
-            Icons.Default.Warning,
-            contentDescription = "加载失败",
-            modifier = Modifier.size(48.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(Modifier.height(16.dp))
-        Text("论坛暂时无法打开", fontSize = 18.sp, color = MaterialTheme.colorScheme.onBackground)
-        Spacer(Modifier.height(8.dp))
-        Text(
-            text = message,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 14.sp,
-            textAlign = TextAlign.Center
-        )
-        Spacer(Modifier.height(24.dp))
-        Button(onClick = onRetry) {
-            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text("刷新页面")
-        }
-    }
+    YamiboLoadError(
+        title = "论坛暂时无法打开",
+        message = message,
+        onRetry = onRetry
+    )
 }
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable

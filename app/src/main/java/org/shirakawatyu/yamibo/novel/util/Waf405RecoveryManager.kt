@@ -2,11 +2,14 @@ package org.shirakawatyu.yamibo.novel.util
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.view.ViewGroup
+import android.webkit.CookieManager
 import android.webkit.RenderProcessGoneDetail
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
@@ -16,16 +19,21 @@ import android.widget.FrameLayout
 import org.shirakawatyu.yamibo.novel.YamiboApplication
 import org.shirakawatyu.yamibo.novel.constant.RequestConfig
 import java.lang.ref.WeakReference
+import java.util.Locale
 import java.util.WeakHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 internal object Waf405RecoveryPolicy {
-    const val CHALLENGE_URL =
-        "https://bbs.yamibo.com/home.php?mod=space&do=profile&mycenter=1"
     const val CHALLENGE_TIMEOUT_MS = 18_000L
     const val RECENT_SUCCESS_GRACE_MS = 15_000L
     const val SAME_PAGE_RETRY_GUARD_MS = 30_000L
+    const val NOX_COOKIE_NAME = "nox_jst_v1"
+    // 论坛挑战凭证约 30 分钟过期；在还剩约 5 分钟余量时按需换新。
+    const val NOX_RENEW_INTERVAL_MS = 25L * 60L * 1000L
+    const val NOX_RENEW_TIMEOUT_MS = 12_000L
+
+    private val challengeBodyMarkers = listOf("__noxexpire", "/nox_", "gangplank_")
 
     fun shouldRecover(
         statusCode: Int,
@@ -37,8 +45,38 @@ internal object Waf405RecoveryPolicy {
             isMainFrame &&
             isYamiboUrl
 
-    fun shouldRefreshForResponse(statusCode: Int, method: String): Boolean =
-        method.equals("GET", ignoreCase = true) && statusCode == 405
+    fun shouldRefreshForResponse(
+        statusCode: Int,
+        method: String,
+        bodyPreview: String
+    ): Boolean {
+        if (!method.equals("GET", ignoreCase = true) || statusCode != 405) return false
+        val normalizedBody = bodyPreview.lowercase(Locale.ROOT)
+        return challengeBodyMarkers.any(normalizedBody::contains)
+    }
+
+    fun withoutNoxCookie(cookieHeader: String): String =
+        cookieHeader.split(';')
+            .map(String::trim)
+            .filter { cookie ->
+                !cookie.substringBefore('=').equals(NOX_COOKIE_NAME, ignoreCase = true)
+            }
+            .filter(String::isNotEmpty)
+            .joinToString("; ")
+
+    fun extractNoxCookieValue(cookieHeader: String): String? =
+        cookieHeader.split(';')
+            .map(String::trim)
+            .firstNotNullOfOrNull { cookie ->
+                val separator = cookie.indexOf('=')
+                if (separator <= 0 ||
+                    !cookie.substring(0, separator).equals(NOX_COOKIE_NAME, ignoreCase = true)
+                ) {
+                    null
+                } else {
+                    cookie.substring(separator + 1).takeIf(String::isNotBlank)
+                }
+            }
 
     fun hasRecentSuccess(lastSuccessMs: Long, nowMs: Long): Boolean =
         lastSuccessMs > 0L && nowMs - lastSuccessMs in 0..RECENT_SUCCESS_GRACE_MS
@@ -54,34 +92,24 @@ internal object Waf405RecoveryPolicy {
 }
 
 /**
- * 仅在论坛明确返回 WAF 405 时，短暂加载一次个人主页以刷新 WebView 共享 Cookie。
+ * 仅在论坛明确返回 NOX WAF 405 时，通过一个短暂的隐藏 WebView 执行同地址的挑战脚本。
  *
- * 不做启动或定时预热，避免挑战页和正常论坛页面争抢 WebView/网络资源。并发失败会合并为
- * 同一次挑战；完成后自动重试原请求，挑战页随即销毁。
+ * 挑战成功的标志是共享 Cookie 中出现 nox_jst_v1，而不是等待论坛页面完整渲染。
+ * 并发失败会合并为同一次挑战；完成后原 GET 最多自动重试一次。
  */
 object Waf405RecoveryManager {
-    private const val READY_POLL_INTERVAL_MS = 500L
-    private const val CHALLENGE_405_RETRY_DELAY_MS = 600L
-
-    private const val FORUM_READY_JS = """
-        (function() {
-            if (!document || !document.documentElement) return false;
-            return !!(
-                document.querySelector('meta[name="generator"][content*="Discuz"]') ||
-                document.querySelector('input[name="formhash"]') ||
-                document.getElementById('wp') ||
-                document.getElementById('ct') ||
-                document.querySelector('.threadlist')
-            );
-        })();
-    """
+    private const val COOKIE_POLL_INTERVAL_MS = 250L
+    private const val FORUM_ORIGIN = "https://bbs.yamibo.com/"
 
     private data class VisibleRetry(
         val webViewRef: WeakReference<WebView>,
         val url: String
     )
 
-    private class RefreshSignal {
+    private class RefreshSignal(
+        val challengeUrl: String,
+        val userAgent: String
+    ) {
         val latch = CountDownLatch(1)
 
         @Volatile
@@ -99,10 +127,8 @@ object Waf405RecoveryManager {
     @Volatile
     private var ownerRef: WeakReference<Activity>? = null
     private var webView: WebView? = null
-    private var readinessRunnable: Runnable? = null
+    private var cookiePollRunnable: Runnable? = null
     private var timeoutRunnable: Runnable? = null
-    private var pageGeneration = 0
-    private var challenge405RetryCount = 0
 
     @Volatile
     private var lastSuccessfulRefreshMs = 0L
@@ -130,7 +156,9 @@ object Waf405RecoveryManager {
 
     /** WebView 主文档 405：挑战成功或超时后自动重试原 URL 一次。 */
     fun recoverWebView(webView: WebView, failedUrl: String): Boolean {
-        if (Looper.myLooper() != Looper.getMainLooper()) return false
+        if (Looper.myLooper() != Looper.getMainLooper() || !isAllowedYamiboUrl(failedUrl)) {
+            return false
+        }
 
         val owner = ownerRef?.get()
             ?.takeUnless { it.isFinishing || it.isDestroyed }
@@ -150,17 +178,24 @@ object Waf405RecoveryManager {
 
         if (Waf405RecoveryPolicy.hasRecentSuccess(lastSuccessfulRefreshMs, now)) {
             runCatching { webView.stopLoading() }
-            mainHandler.post { retryVisibleWebView(VisibleRetry(WeakReference(webView), failedUrl)) }
+            mainHandler.post {
+                retryVisibleWebView(VisibleRetry(WeakReference(webView), failedUrl))
+            }
             return true
         }
 
+        val requestUserAgent = webView.settings.userAgentString
+            ?.takeIf(String::isNotBlank)
+            ?: defaultUserAgent()
         val signal = synchronized(signalLock) {
-            activeSignal ?: RefreshSignal().also { activeSignal = it }
+            activeSignal ?: RefreshSignal(failedUrl, requestUserAgent).also { activeSignal = it }
         }
         signal.visibleRetries += VisibleRetry(WeakReference(webView), failedUrl)
         if (webView === this.webView) return false
-        if (this.webView == null && createHiddenWebView(owner) == null) {
-            signal.visibleRetries.removeAll { it.webViewRef.get() === webView && it.url == failedUrl }
+        if (this.webView == null && createHiddenWebView(owner, signal) == null) {
+            signal.visibleRetries.removeAll {
+                it.webViewRef.get() === webView && it.url == failedUrl
+            }
             synchronized(signalLock) {
                 if (signal === activeSignal && signal.visibleRetries.isEmpty()) activeSignal = null
             }
@@ -171,9 +206,44 @@ object Waf405RecoveryManager {
         return true
     }
 
-    /** OkHttp 405：后台线程等待同一次挑战，调用方据结果决定是否重放 GET。 */
-    fun refreshAndWait(timeoutMs: Long = Waf405RecoveryPolicy.CHALLENGE_TIMEOUT_MS): Boolean {
-        if (Looper.myLooper() == Looper.getMainLooper()) return false
+    /**
+     * 在真正要访问论坛内容前调用：只有当 nox 凭证已接近过期时才静默换新一次。
+     * 不轮询、无后台任务；每次换新成功后至少安静 25 分钟。
+     */
+    fun ensureFreshNox(
+        challengeUrl: String,
+        userAgent: String,
+        timeoutMs: Long = Waf405RecoveryPolicy.NOX_RENEW_TIMEOUT_MS
+    ): Boolean {
+        if (!isAllowedYamiboUrl(challengeUrl)) return false
+        if (isNoxFresh()) return true
+        // 本会话还没换过凭证、但 WebView 里已有 nox（通常是上次使用留下的，
+        // 真实年龄未知）：先信任它，避免每次冷启动都强制挑战一次加重论坛负担；
+        // 真过期时仍由既有 405 恢复路径兜底。
+        if (lastSuccessfulRefreshMs == 0L && hasNoxCookie()) return false
+        return refreshAndWait(challengeUrl, userAgent, timeoutMs)
+    }
+
+    fun isNoxFresh(nowMs: Long = SystemClock.elapsedRealtime()): Boolean {
+        val last = lastSuccessfulRefreshMs
+        return last > 0L && nowMs - last < Waf405RecoveryPolicy.NOX_RENEW_INTERVAL_MS
+    }
+
+    private fun hasNoxCookie(): Boolean = runCatching {
+        Waf405RecoveryPolicy.extractNoxCookieValue(
+            CookieManager.getInstance().getCookie(FORUM_ORIGIN).orEmpty()
+        ) != null
+    }.getOrDefault(false)
+
+    /** OkHttp 线程等待同一次挑战，由调用方根据结果决定是否重放原 GET。 */
+    fun refreshAndWait(
+        challengeUrl: String,
+        userAgent: String,
+        timeoutMs: Long = Waf405RecoveryPolicy.CHALLENGE_TIMEOUT_MS
+    ): Boolean {
+        if (Looper.myLooper() == Looper.getMainLooper() || !isAllowedYamiboUrl(challengeUrl)) {
+            return false
+        }
         if (Waf405RecoveryPolicy.hasRecentSuccess(
                 lastSuccessfulRefreshMs,
                 SystemClock.elapsedRealtime()
@@ -185,14 +255,18 @@ object Waf405RecoveryManager {
             ?.takeUnless { it.isFinishing || it.isDestroyed }
             ?: return false
         val signal = synchronized(signalLock) {
-            activeSignal ?: RefreshSignal().also {
+            activeSignal ?: RefreshSignal(
+                challengeUrl = challengeUrl,
+                userAgent = userAgent.ifBlank(::defaultUserAgent)
+            ).also {
                 activeSignal = it
                 mainHandler.post {
                     if (it !== activeSignal) return@post
-                    if (createHiddenWebView(owner) != null) {
+                    if (createHiddenWebView(owner, it) != null) {
                         if (timeoutRunnable == null) beginRefresh(it)
+                    } else {
+                        completeRefresh(it, succeeded = false)
                     }
-                    else completeRefresh(it, succeeded = false)
                 }
             }
         }
@@ -205,12 +279,8 @@ object Waf405RecoveryManager {
     }
 
     @SuppressLint("SetJavaScriptEnabled")
-    private fun createHiddenWebView(activity: Activity): WebView? {
+    private fun createHiddenWebView(activity: Activity, signal: RefreshSignal): WebView? {
         webView?.let { return it }
-        val challengeUserAgent = runCatching {
-            WebSettings.getDefaultUserAgent(activity)
-        }.getOrDefault(RequestConfig.UA)
-        YamiboApplication.systemUserAgent = challengeUserAgent
 
         val hiddenWebView = runCatching {
             WebView(activity).apply {
@@ -221,25 +291,21 @@ object Waf405RecoveryManager {
                 settings.apply {
                     javaScriptEnabled = true
                     domStorageEnabled = true
+                    allowFileAccess = false
+                    allowContentAccess = false
+                    mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
                     loadsImagesAutomatically = false
                     blockNetworkImage = true
                     cacheMode = WebSettings.LOAD_NO_CACHE
-                    userAgentString = challengeUserAgent
+                    userAgentString = signal.userAgent
                 }
+                CookieManager.getInstance().setAcceptThirdPartyCookies(this, false)
                 webViewClient = object : WebViewClient() {
-                    override fun onPageStarted(
+                    override fun shouldOverrideUrlLoading(
                         view: WebView?,
-                        url: String?,
-                        favicon: android.graphics.Bitmap?
-                    ) {
-                        pageGeneration++
-                        super.onPageStarted(view, url, favicon)
-                    }
-
-                    override fun onPageFinished(view: WebView?, url: String?) {
-                        super.onPageFinished(view, url)
-                        pollUntilForumPageReady(pageGeneration)
-                    }
+                        request: WebResourceRequest?
+                    ): Boolean = request?.isForMainFrame == true &&
+                            !isAllowedYamiboUrl(request.url?.toString())
 
                     override fun onReceivedHttpError(
                         view: WebView?,
@@ -247,20 +313,21 @@ object Waf405RecoveryManager {
                         errorResponse: WebResourceResponse?
                     ) {
                         super.onReceivedHttpError(view, request, errorResponse)
+                        if (request?.isForMainFrame == true &&
+                            errorResponse?.statusCode != 405
+                        ) {
+                            completeRefresh(activeSignal, succeeded = false)
+                        }
+                    }
+
+                    override fun onReceivedError(
+                        view: WebView?,
+                        request: WebResourceRequest?,
+                        error: WebResourceError?
+                    ) {
+                        super.onReceivedError(view, request, error)
                         if (request?.isForMainFrame == true) {
-                            if (errorResponse?.statusCode == 405 && challenge405RetryCount == 0) {
-                                challenge405RetryCount++
-                                mainHandler.postDelayed({
-                                    if (view === webView && activeSignal != null) {
-                                        view?.loadUrl(
-                                            Waf405RecoveryPolicy.CHALLENGE_URL,
-                                            mapOf("Cache-Control" to "no-cache")
-                                        )
-                                    }
-                                }, CHALLENGE_405_RETRY_DELAY_MS)
-                            } else {
-                                completeRefresh(activeSignal, succeeded = false)
-                            }
+                            completeRefresh(activeSignal, succeeded = false)
                         }
                     }
 
@@ -297,14 +364,26 @@ object Waf405RecoveryManager {
         }
 
         cancelRefreshCallbacks()
-        challenge405RetryCount = 0
-        YamiboSession.syncToWebView(Waf405RecoveryPolicy.CHALLENGE_URL)
+        val cookieManager = CookieManager.getInstance()
+        cookieManager.setAcceptCookie(true)
+        val cookiesWithoutNox = Waf405RecoveryPolicy.withoutNoxCookie(
+            YamiboSession.cookieFor(signal.challengeUrl)
+        )
         runCatching {
-            target.onResume()
-            target.loadUrl(
-                Waf405RecoveryPolicy.CHALLENGE_URL,
-                mapOf("Cache-Control" to "no-cache")
+            cookieManager.setCookie(
+                FORUM_ORIGIN,
+                Waf405RecoveryPolicy.NOX_COOKIE_NAME + "=; Max-Age=0; Path=/; Secure"
             )
+            cookiesWithoutNox.split(';')
+                .map(String::trim)
+                .filter { it.contains('=') }
+                .forEach { cookie ->
+                    cookieManager.setCookie(FORUM_ORIGIN, "$cookie; Path=/; Secure")
+                }
+            cookieManager.flush()
+            target.onResume()
+            target.loadUrl(signal.challengeUrl, mapOf("Cache-Control" to "no-cache"))
+            pollForNoxCookie(signal)
         }.onFailure {
             completeRefresh(signal, succeeded = false)
             return
@@ -317,32 +396,24 @@ object Waf405RecoveryManager {
         }
     }
 
-    private fun pollUntilForumPageReady(expectedGeneration: Int) {
-        val signal = activeSignal ?: return
+    private fun pollForNoxCookie(signal: RefreshSignal) {
         val target = webView ?: return
-        readinessRunnable?.let(mainHandler::removeCallbacks)
-        readinessRunnable = Runnable {
-            if (signal !== activeSignal || target !== webView) return@Runnable
-            if (expectedGeneration != pageGeneration) {
-                pollUntilForumPageReady(pageGeneration)
-                return@Runnable
-            }
-            runCatching {
-                target.evaluateJavascript(FORUM_READY_JS) { result ->
-                    if (signal !== activeSignal || target !== webView) return@evaluateJavascript
-                    if (result.equals("true", ignoreCase = true)) {
-                        runCatching { android.webkit.CookieManager.getInstance().flush() }
-                        completeRefresh(signal, succeeded = true)
-                    } else {
-                        pollUntilForumPageReady(pageGeneration)
-                    }
+        cookiePollRunnable?.let(mainHandler::removeCallbacks)
+        cookiePollRunnable = object : Runnable {
+            override fun run() {
+                if (signal !== activeSignal || target !== webView) return
+                val currentCookies = runCatching {
+                    CookieManager.getInstance().getCookie(FORUM_ORIGIN).orEmpty()
+                }.getOrDefault("")
+                if (Waf405RecoveryPolicy.extractNoxCookieValue(currentCookies) != null) {
+                    runCatching { target.stopLoading() }
+                    runCatching { CookieManager.getInstance().flush() }
+                    completeRefresh(signal, succeeded = true)
+                } else {
+                    mainHandler.postDelayed(this, COOKIE_POLL_INTERVAL_MS)
                 }
-            }.onFailure {
-                pollUntilForumPageReady(pageGeneration)
             }
-        }.also {
-            mainHandler.postDelayed(it, READY_POLL_INTERVAL_MS)
-        }
+        }.also(mainHandler::post)
     }
 
     private fun completeRefresh(signal: RefreshSignal?, succeeded: Boolean) {
@@ -358,7 +429,7 @@ object Waf405RecoveryManager {
             signal.visibleRetries.toList()
         }
         cancelRefreshCallbacks()
-        runCatching { android.webkit.CookieManager.getInstance().flush() }
+        runCatching { CookieManager.getInstance().flush() }
         signal.latch.countDown()
         destroyHiddenWebView()
         retries.forEach(::retryVisibleWebView)
@@ -373,9 +444,9 @@ object Waf405RecoveryManager {
     }
 
     private fun cancelRefreshCallbacks() {
-        readinessRunnable?.let(mainHandler::removeCallbacks)
+        cookiePollRunnable?.let(mainHandler::removeCallbacks)
         timeoutRunnable?.let(mainHandler::removeCallbacks)
-        readinessRunnable = null
+        cookiePollRunnable = null
         timeoutRunnable = null
     }
 
@@ -388,7 +459,14 @@ object Waf405RecoveryManager {
             target.removeAllViews()
             target.destroy()
         }
-        pageGeneration = 0
-        challenge405RetryCount = 0
+    }
+
+    private fun defaultUserAgent(): String =
+        YamiboApplication.systemUserAgent.ifBlank { RequestConfig.UA }
+
+    private fun isAllowedYamiboUrl(rawUrl: String?): Boolean {
+        val uri = rawUrl?.let { runCatching { Uri.parse(it) }.getOrNull() } ?: return false
+        return uri.scheme.equals("https", ignoreCase = true) &&
+                uri.host.equals("bbs.yamibo.com", ignoreCase = true)
     }
 }

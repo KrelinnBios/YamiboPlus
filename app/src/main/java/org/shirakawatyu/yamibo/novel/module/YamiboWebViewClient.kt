@@ -201,7 +201,7 @@ open class YamiboWebViewClient : WebViewClient() {
     }
 
     private fun injectCurrentTheme(view: WebView?, currentUrl: String?, onComplete: (() -> Unit)? = null) {
-        if (!GlobalData.isDarkMode.value && GlobalData.lightModeTheme.value <= 0) {
+        if (!PageJsScripts.shouldApplyWebTheme(GlobalData.appTheme.value)) {
             onComplete?.invoke()
             return
         }
@@ -222,7 +222,8 @@ open class YamiboWebViewClient : WebViewClient() {
             PageJsScripts.getThemeSetJs(
                 GlobalData.isDarkMode.value,
                 GlobalData.darkModeTheme.value,
-                GlobalData.lightModeTheme.value
+                GlobalData.lightModeTheme.value,
+                GlobalData.appTheme.value
             )
         ) { onComplete?.invoke() }
     }

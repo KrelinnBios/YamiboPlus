@@ -3,11 +3,14 @@ package org.shirakawatyu.yamibo.novel.util
 import android.content.Context
 import android.content.res.Configuration
 import android.webkit.CookieManager
+import org.shirakawatyu.yamibo.novel.util.reader.ChineseConvertUtil
 import java.util.Locale
 
 object LanguageModeUtil {
     const val SIMPLIFIED = "zh-hans"
     const val TRADITIONAL = "zh-hant"
+    @Volatile private var displayContext: Context? = null
+    @Volatile private var displayMode: String = SIMPLIFIED
 
     fun normalize(mode: String?): String {
         return when (mode?.lowercase()) {
@@ -28,8 +31,22 @@ object LanguageModeUtil {
         return if (normalize(mode) == TRADITIONAL) 2 else 1
     }
 
+    /**
+     * 转换原生界面和原生解析结果中的可见文本。
+     * 网络请求的语言参数仍然保留，OpenCC 负责兜底处理论坛未按语言返回的内容。
+     */
+    fun displayText(text: String): String {
+        val context = displayContext ?: return text
+        return if (displayMode == TRADITIONAL) {
+            ChineseConvertUtil.toTraditional(text, context)
+        } else {
+            ChineseConvertUtil.toSimplified(text, context)
+        }
+    }
+
     fun applyForumCookies(mode: String?, currentUrl: String? = null) {
         val normalized = normalize(mode)
+        displayMode = normalized
         val target = if (normalized == TRADITIONAL) "traditional" else "simplified"
         val flag = if (normalized == TRADITIONAL) "hant" else "hans"
         val cookieValues = listOf(
@@ -53,7 +70,10 @@ object LanguageModeUtil {
     }
 
     fun applyLocale(context: Context, mode: String?) {
-        val locale = if (normalize(mode) == TRADITIONAL) Locale("zh", "TW") else Locale("zh", "CN")
+        val normalized = normalize(mode)
+        displayContext = context.applicationContext
+        displayMode = normalized
+        val locale = if (normalized == TRADITIONAL) Locale("zh", "TW") else Locale("zh", "CN")
         Locale.setDefault(locale)
         val config = Configuration(context.resources.configuration)
         config.setLocale(locale)

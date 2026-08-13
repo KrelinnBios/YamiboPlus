@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>300 Plus</strong><br>
-  面向百合会论坛的非官方 Android 阅读客户端
+  面向百合会论坛的非官方原生 Android 客户端
 </p>
 
 <p align="center">
@@ -57,6 +57,8 @@ YamiboPlus 是面向百合会论坛的非官方 Android 阅读客户端。Plus �
 
 从 [Releases](https://github.com/KrelinnBios/YamiboPlus/releases) 下载 `300-Plus.apk` 后安装。
 
+300 Plus 与旧版 300 Lite 使用不同的应用包名，因此旧版本地数据不会自动迁移。需要保留数据时，请先在 300 Lite 设置页导出备份，再安装 300 Plus，并在“我的 → 数据备份”中导入该备份；不要在导出前卸载旧版。
+
 ### 系统要求
 
 Android 7.0（API 24）及以上。
@@ -72,6 +74,7 @@ Android 7.0（API 24）及以上。
 ## 数据与安全
 
 - 登录状态、收藏、历史、阅读进度和缓存等数据保存在设备本地或来自百合会论坛账号本身。
+- 300 Lite 备份可导入 300 Plus；备份不包含页面、图片缓存和 WebView 登录状态，导入后需按提示重启应用。
 - 请只从本仓库 Releases 或可信来源安装 APK，避免使用来源不明的改包版本。
 - 清理应用数据、卸载应用或更换设备可能导致本地历史、缓存和设置丢失。
 

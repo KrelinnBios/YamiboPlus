@@ -60,6 +60,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -85,7 +86,7 @@ import org.shirakawatyu.yamibo.novel.util.reader.ReaderReturnBridge
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
-import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
+import org.shirakawatyu.yamibo.novel.ui.component.YamiboLoadError
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.FavoriteVM
 import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
@@ -95,8 +96,6 @@ import org.shirakawatyu.yamibo.novel.ui.widget.YamiboToast
 import org.shirakawatyu.yamibo.novel.util.PageJsScripts
 import org.shirakawatyu.yamibo.novel.util.StaticAssetProxy
 import org.shirakawatyu.yamibo.novel.util.WebViewPool
-import org.shirakawatyu.yamibo.novel.util.darkModeColor
-import org.shirakawatyu.yamibo.novel.util.darkThemeColor
 import org.shirakawatyu.yamibo.novel.util.history.HistoryUtil
 import org.shirakawatyu.yamibo.novel.util.manga.MangaImagePipeline
 import org.shirakawatyu.yamibo.novel.util.manga.MangaTitleCleaner
@@ -264,16 +263,18 @@ fun MangaWebPage(
             YamiboWebViewClient.setupDownloadListener(this)
         }
     }
-    val isDarkMode by GlobalData.isDarkMode.collectAsState()
-    LaunchedEffect(isDarkMode) {
+    val appTheme by GlobalData.appTheme.collectAsState()
+    val isDarkMode = appTheme.isDark
+    LaunchedEffect(appTheme) {
         mangaWebView.setBackgroundColor(
-            if (isDarkMode) 0xFF0D141D.toInt() else android.graphics.Color.TRANSPARENT
+            appTheme.scheme.background.toArgb()
         )
         mangaWebView.evaluateJavascript(
             PageJsScripts.getThemeSetJs(
                 isDarkMode,
                 GlobalData.darkModeTheme.value,
-                GlobalData.lightModeTheme.value
+                GlobalData.lightModeTheme.value,
+                GlobalData.appTheme.value
             ),
             null
         )
@@ -474,7 +475,7 @@ fun MangaWebPage(
 
                 if (request?.isForMainFrame == true &&
                     request.method == "GET" &&
-                    (GlobalData.isDarkMode.value || GlobalData.lightModeTheme.value > 0) &&
+                    PageJsScripts.shouldApplyWebTheme(GlobalData.appTheme.value) &&
                     urlStr.contains("bbs.yamibo.com")
                 ) {
                     val html = YamiboRetrofit.proxyHtmlForDarkMode(request)
@@ -487,7 +488,8 @@ fun MangaWebPage(
                             GlobalData.isDarkMode.value,
                             GlobalData.darkModeTheme.value,
                             GlobalData.lightModeTheme.value,
-                            desktopFitScale
+                            desktopFitScale,
+                            appTheme = GlobalData.appTheme.value
                         )
                         return WebResourceResponse(
                             "text/html",
@@ -595,12 +597,13 @@ fun MangaWebPage(
 
                 view?.evaluateJavascript(PageJsScripts.MANGA_BOOTSTRAP_JS, null)
 
-                if (GlobalData.isDarkMode.value || GlobalData.lightModeTheme.value > 0) {
+                if (PageJsScripts.shouldApplyWebTheme(GlobalData.appTheme.value)) {
                     view?.evaluateJavascript(
                         PageJsScripts.getThemeSetJs(
                             GlobalData.isDarkMode.value,
                             GlobalData.darkModeTheme.value,
-                            GlobalData.lightModeTheme.value
+                            GlobalData.lightModeTheme.value,
+                            GlobalData.appTheme.value
                         ), null
                     )
                 }
@@ -798,7 +801,7 @@ fun MangaWebPage(
             modifier = Modifier
                 .fillMaxWidth()
                 .windowInsetsTopHeight(WindowInsets.statusBars)
-                .background(darkThemeColor(YamiboColors.primary) { statusBar })
+                .background(MaterialTheme.colorScheme.primary)
                 .align(Alignment.TopCenter)
                 .zIndex(1f)
         )
@@ -850,40 +853,21 @@ fun MangaWebPage(
             )
 
             if (showLoadError) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(MaterialTheme.colorScheme.background)
-                        .padding(horizontal = 32.dp),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Icon(
-                        Icons.Default.Warning,
-                        "加载失败",
-                        Modifier.size(48.dp),
-                        MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(Modifier.height(16.dp))
-                    Text(
-                        "漫画解析失败",
-                        fontSize = 18.sp,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                    Spacer(Modifier.height(24.dp))
-                    Button(onClick = {
+                YamiboLoadError(
+                    title = "漫画页面无法打开",
+                    onRetry = {
                         startLoading(
                             mangaWebView,
                             mangaWebView.url ?: url
                         )
-                    }) { Text("重试") }
-                }
+                    }
+                )
             }
 
             if (isLoading) {
                 CircularProgressIndicator(
                     modifier = Modifier.align(Alignment.Center),
-                    color = darkModeColor(YamiboColors.secondary, YamiboColors.secondaryDark)
+                    color = MaterialTheme.colorScheme.secondary
                 )
             }
         }

@@ -70,12 +70,10 @@ import androidx.navigation.NavController
 import kotlinx.coroutines.launch
 import org.shirakawatyu.yamibo.novel.bean.HistoryEntry
 import org.shirakawatyu.yamibo.novel.global.GlobalData
-import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
+import org.shirakawatyu.yamibo.novel.ui.theme.yamiboComponentColors
 import org.shirakawatyu.yamibo.novel.ui.widget.OnboardingOverlay
 import org.shirakawatyu.yamibo.novel.ui.widget.OnboardingStep
 import org.shirakawatyu.yamibo.novel.util.OnboardingUtil
-import org.shirakawatyu.yamibo.novel.util.darkModeColor
-import org.shirakawatyu.yamibo.novel.util.darkThemeColor
 import org.shirakawatyu.yamibo.novel.util.history.HistoryUtil
 import java.net.URLEncoder
 import java.util.Calendar
@@ -469,14 +467,12 @@ fun HistoryPage(navController: NavController) {
     var showClearDialog by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
-    val pageBackground = MaterialTheme.colorScheme.background
-    val topBarColor = darkThemeColor(YamiboColors.onSurface) { statusBar }
-    val topBarContentColor = darkThemeColor(Color.Black) { onPrimary }
-    // 搜索框背景色：暗黑模式下与历史记录卡片（tertiary）一致，浅色模式保持 surfaceVariant。
-    val searchBoxContainerColor = darkModeColor(
-        light = MaterialTheme.colorScheme.surfaceVariant,
-        dark = MaterialTheme.colorScheme.tertiary
-    )
+    val componentColors = yamiboComponentColors()
+    val pageBackground = componentColors.contentBackground
+    val topBarColor = componentColors.topBarContainer
+    val topBarContentColor = componentColors.topBarContent
+    // 使用主题容器色，避免未定义 tertiary 时回退成默认紫红色。
+    val searchBoxContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh
 
     // 将搜索词按空格分词，实现组合搜索
     val searchTerms = remember(searchQuery) {
@@ -651,7 +647,7 @@ fun HistoryPage(navController: NavController) {
                                 Icon(
                                     Icons.Default.Delete,
                                     contentDescription = "清空",
-                                    tint = MaterialTheme.colorScheme.error,
+                                    tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(23.dp)
                                 )
                             }
@@ -716,13 +712,13 @@ fun HistoryPage(navController: NavController) {
                                     Icons.Default.Delete,
                                     contentDescription = null,
                                     modifier = Modifier.size(18.dp),
-                                    tint = if (selectedUrls.isNotEmpty()) MaterialTheme.colorScheme.error
+                                    tint = if (selectedUrls.isNotEmpty()) MaterialTheme.colorScheme.primary
                                     else MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
                                     "删除",
-                                    color = if (selectedUrls.isNotEmpty()) MaterialTheme.colorScheme.error
+                                    color = if (selectedUrls.isNotEmpty()) MaterialTheme.colorScheme.primary
                                     else MaterialTheme.colorScheme.onSurfaceVariant,
                                     fontSize = 15.sp
                                 )
@@ -781,8 +777,7 @@ fun HistoryPage(navController: NavController) {
                 singleLine = true,
                 shape = MaterialTheme.shapes.medium,
                 colors = OutlinedTextFieldDefaults.colors(
-                    // 暗黑模式下搜索框背景与历史记录卡片保持一致（tertiary = #223247），
-                    // 浅色模式维持原有 surfaceVariant。
+                    // 搜索框使用当前主题的容器色，和历史卡片保持同一视觉层级。
                     focusedContainerColor = searchBoxContainerColor,
                     unfocusedContainerColor = searchBoxContainerColor,
                     focusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
@@ -884,7 +879,7 @@ fun HistoryPage(navController: NavController) {
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(horizontal = 12.dp, vertical = 4.dp),
-                                color = MaterialTheme.colorScheme.tertiary,
+                                color = MaterialTheme.colorScheme.surfaceContainer,
                                 shape = RoundedCornerShape(14.dp),
                                 tonalElevation = 0.dp,
                                 shadowElevation = 1.dp
@@ -975,10 +970,7 @@ fun HistoryPage(navController: NavController) {
                                         Icon(
                                             Icons.Default.Close,
                                             contentDescription = "删除",
-                                            tint = darkModeColor(
-                                                light = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
-                                                dark = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                                            ),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
                                             modifier = Modifier.size(16.dp)
                                         )
                                     }

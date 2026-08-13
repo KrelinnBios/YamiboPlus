@@ -53,7 +53,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.res.painterResource
@@ -66,10 +65,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.shirakawatyu.yamibo.novel.R
-import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
+import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.ui.vm.FavoriteVM
-import org.shirakawatyu.yamibo.novel.util.darkModeColor
-import org.shirakawatyu.yamibo.novel.util.darkThemeColor
+import org.shirakawatyu.yamibo.novel.util.LanguageModeUtil
+
 
 private val PREFIX_REGEX = Regex("^(?:[【\\[].*?[】\\]]|[\\s\\u00A0\\u3000])+")
 private val TAG_REGEX = Regex("[【\\[].*?[】\\]]")
@@ -117,10 +116,11 @@ fun FavoriteItem(
 ) {
     val tagColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
 
-    val displayTitle = remember(title, tagColor) {
+    val displayTitle = remember(title, tagColor, GlobalData.languageMode.value) {
+        val localizedTitle = LanguageModeUtil.displayText(title)
         buildAnnotatedString {
-            append(title)
-            val prefixMatch = PREFIX_REGEX.find(title)
+            append(localizedTitle)
+            val prefixMatch = PREFIX_REGEX.find(localizedTitle)
 
             if (prefixMatch != null) {
                 val tags = TAG_REGEX.findAll(prefixMatch.value)
@@ -143,7 +143,9 @@ fun FavoriteItem(
         targetValue = when {
             isManageMode && isSelected -> MaterialTheme.colorScheme.primaryContainer
             isManageMode && isHidden -> MaterialTheme.colorScheme.surfaceVariant
-            else -> MaterialTheme.colorScheme.tertiary
+            // 不使用 tertiary：部分自定义主题未显式提供 tertiary 时，Material 3
+            // 会回退到默认紫红色，导致收藏卡片脱离当前主题。
+            else -> MaterialTheme.colorScheme.surfaceContainer
         },
         label = "color_animation"
     )
@@ -156,17 +158,11 @@ fun FavoriteItem(
 
     // 小说标记浅色保持原本棕红，暗黑模式改为青色，和顶部分类菜单样例保持一致。
     val middleColor = if (type == 1) {
-        darkModeColor(
-            light = YamiboColors.secondary,
-            dark = Color(0xFF3FC1B0)
-        )
+        MaterialTheme.colorScheme.secondary
     } else {
         lerp(typeColor.first, typeColor.second, 0.75f)
     }
-    val pinColor = darkModeColor(
-        light = YamiboColors.primary.copy(alpha = 0.8f),
-        dark = Color(0xFF8CCBFF)
-    )
+    val pinColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
 
     Card(
         modifier = modifier
@@ -225,7 +221,7 @@ fun FavoriteItem(
                                 modifier = Modifier.padding(0.dp, 2.dp),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.78f),
                                 fontSize = 12.sp,
-                                text = lastChapter,
+                                 text = LanguageModeUtil.displayText(lastChapter),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -336,7 +332,6 @@ private fun UpdateStatusHandle(
     onRefreshUpdate: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    val primary = darkThemeColor(YamiboColors.primary) { primary }
     val updateAccent = MaterialTheme.colorScheme.primary
 
     Box(
@@ -351,7 +346,7 @@ private fun UpdateStatusHandle(
             CircularProgressIndicator(
                 modifier = Modifier.size(22.dp),
                 strokeWidth = 2.dp,
-                color = primary
+                color = updateAccent
             )
         }
 

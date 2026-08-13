@@ -25,5 +25,8 @@ class YamiboColors {
         val tertiaryDark = Color(0xFF223247)
         val onSecondaryDark = Color(0xFF182332)
         val onSurfaceDark = Color(0xFF121B27)
+
+        // Functional colors
+        val pink = Color(0xFFFF4081)
     }
 }

@@ -6,6 +6,8 @@ import com.alibaba.fastjson2.JSONException
 import kotlinx.coroutines.flow.first
 import org.shirakawatyu.yamibo.novel.bean.ReaderSettings
 import org.shirakawatyu.yamibo.novel.global.GlobalData
+import org.shirakawatyu.yamibo.novel.ui.theme.YamiboAppTheme
+import org.shirakawatyu.yamibo.novel.ui.theme.YamiboThemePreference
 
 /**
  * 设置管理工具
@@ -14,15 +16,17 @@ import org.shirakawatyu.yamibo.novel.global.GlobalData
 class SettingsUtil {
     companion object {
         private val key = stringPreferencesKey("settings")
-        private val collapseModeKey = stringPreferencesKey("favorite_collapse_mode")
         private val customDnsKey = stringPreferencesKey("custom_dns_mode")
-        private val clickToTopKey = stringPreferencesKey("click_to_top_mode")
         private val autoSignInKey = stringPreferencesKey("auto_sign_in")
         private val autoVersionUpdateKey = stringPreferencesKey("auto_version_update")
         private val autoClearCacheKey = stringPreferencesKey("auto_clear_cache")
         private val dnsEnabledKey = stringPreferencesKey("dns_optimization_enabled")
         private val dnsModeKey = stringPreferencesKey("dns_optimization_mode")
         private val darkModeKey = stringPreferencesKey("dark_mode")
+        private val appThemeKey = stringPreferencesKey("app_theme")
+        private val themePaletteKey = stringPreferencesKey("theme_palette")
+        private val themeModeKey = stringPreferencesKey("theme_mode")
+        private val pureBlackKey = stringPreferencesKey("pure_black")
         private val customDnsUrlKey = stringPreferencesKey("custom_dns_url")
         private val languageModeKey = stringPreferencesKey("language_mode")
         fun saveSettings(settings: ReaderSettings) {
@@ -41,13 +45,6 @@ class SettingsUtil {
         }
 
 
-        fun getFavoriteCollapseMode(callback: (isCollapsed: Boolean) -> Unit) {
-            DataStoreUtil.getData(collapseModeKey, callback = {
-                callback(it.toBooleanStrictOrNull() ?: false)
-            }, onNull = {
-                callback(false)
-            })
-        }
         fun getCustomDnsMode(callback: (isEnabled: Boolean) -> Unit) {
             DataStoreUtil.getData(customDnsKey, callback = {
                 callback(it.toBooleanStrictOrNull() ?: false)
@@ -55,12 +52,8 @@ class SettingsUtil {
                 callback(false)
             })
         }
-        fun getClickToTopMode(callback: (isEnabled: Boolean) -> Unit) {
-            DataStoreUtil.getData(clickToTopKey, callback = {
-                callback(it.toBooleanStrictOrNull() ?: false)
-            }, onNull = {
-                callback(false)
-            })
+        fun saveCustomDnsMode(isEnabled: Boolean) {
+            DataStoreUtil.addData(isEnabled.toString(), customDnsKey)
         }
         fun saveAutoSignInMode(isEnabled: Boolean) {
             DataStoreUtil.addData(isEnabled.toString(), autoSignInKey)
@@ -140,6 +133,41 @@ class SettingsUtil {
             }, onNull = {
                 callback(false)
             })
+        }
+        fun saveAppTheme(theme: YamiboAppTheme) {
+            DataStoreUtil.addData(theme.name, appThemeKey)
+        }
+        fun getAppTheme(callback: (YamiboAppTheme) -> Unit) {
+            DataStoreUtil.getData(appThemeKey, callback = { name ->
+                callback(YamiboAppTheme.fromName(name))
+            }, onNull = {
+                callback(YamiboAppTheme.CLASSIC_LIGHT)
+            })
+        }
+        suspend fun getAppTheme(): YamiboAppTheme {
+            val preferences = GlobalData.dataStore?.data?.first() ?: return YamiboAppTheme.CLASSIC_LIGHT
+            return YamiboAppTheme.fromName(preferences[appThemeKey])
+        }
+        fun saveThemePreference(
+            preference: YamiboThemePreference,
+            resolvedTheme: YamiboAppTheme
+        ) {
+            DataStoreUtil.addData(preference.palette.name, themePaletteKey)
+            DataStoreUtil.addData(preference.mode.name, themeModeKey)
+            DataStoreUtil.addData(preference.pureBlack.toString(), pureBlackKey)
+            // 同步写入旧键，兼容仍读取固定主题的旧版本与备份。
+            saveAppTheme(resolvedTheme)
+            saveDarkMode(resolvedTheme.isDark)
+        }
+        suspend fun getThemePreference(): YamiboThemePreference {
+            val preferences = GlobalData.dataStore?.data?.first()
+                ?: return YamiboThemePreference()
+            return YamiboThemePreference.fromStored(
+                paletteName = preferences[themePaletteKey],
+                modeName = preferences[themeModeKey],
+                pureBlackValue = preferences[pureBlackKey],
+                legacyThemeName = preferences[appThemeKey]
+            )
         }
         fun saveLanguageMode(mode: String) {
             DataStoreUtil.addData(LanguageModeUtil.normalize(mode), languageModeKey)

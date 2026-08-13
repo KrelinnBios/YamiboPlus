@@ -8,6 +8,16 @@ import org.junit.Test
 
 class YamiboPostLinkUtilTest {
     @Test
+    fun extractsLinkFromClipboardShareText() {
+        assertEquals(
+            "https://bbs.yamibo.com/thread-572320-3-1.html?mobile=2",
+            YamiboPostLinkUtil.extractPostUrl(
+                "分享帖子：[是否应该稍微放开对AI的禁令]（https://bbs.yamibo.com/thread-572320-3-1.html）。"
+            )
+        )
+    }
+
+    @Test
     fun extractsViewThreadLinkRegardlessOfQueryOrder() {
         assertEquals(
             "https://bbs.yamibo.com/forum.php?tid=572320&mod=viewthread&mobile=2",

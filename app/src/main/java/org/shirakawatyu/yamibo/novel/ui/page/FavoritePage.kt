@@ -104,8 +104,7 @@ import org.shirakawatyu.yamibo.novel.bean.Favorite
 import org.shirakawatyu.yamibo.novel.bean.MangaUpdateCheckStrategy
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.item.FavoriteItem
-import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
-import org.shirakawatyu.yamibo.novel.ui.theme.YellowLightLight
+import org.shirakawatyu.yamibo.novel.ui.theme.yamiboComponentColors
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.FavoriteVM
 import org.shirakawatyu.yamibo.novel.ui.vm.FavoriteTypeResolver
@@ -116,8 +115,6 @@ import org.shirakawatyu.yamibo.novel.ui.widget.TopBar
 import org.shirakawatyu.yamibo.novel.ui.widget.YamiboToast
 import org.shirakawatyu.yamibo.novel.ui.widget.favorite.FavoriteTopSearchField
 import org.shirakawatyu.yamibo.novel.util.OnboardingUtil
-import org.shirakawatyu.yamibo.novel.util.darkModeColor
-import org.shirakawatyu.yamibo.novel.util.darkThemeColor
 import org.shirakawatyu.yamibo.novel.util.manga.MangaImagePipeline
 import org.shirakawatyu.yamibo.novel.util.manga.MangaProber
 import org.shirakawatyu.yamibo.novel.util.manga.MangaTitleCleaner
@@ -459,10 +456,7 @@ fun FavoritePage(
     }
 
     // 分类数据
-    val novelCategoryColor = darkModeColor(
-        light = YamiboColors.secondary,
-        dark = Color(0xFF3FC1B0)
-    )
+    val novelCategoryColor = MaterialTheme.colorScheme.secondary
     val categoryOptions = listOf(
         Triple(-1, "全部", Color.Transparent),
         Triple(1, "小说", novelCategoryColor),
@@ -535,7 +529,8 @@ fun FavoritePage(
     if (statusBarsPadding.value > lockedStatusHeightValue) lockedStatusHeightValue =
         statusBarsPadding.value
     val lockedStatusHeight = lockedStatusHeightValue.dp
-    val topBarContentColor = darkThemeColor(Color.Black) { onPrimary }
+    val componentColors = yamiboComponentColors()
+    val topBarContentColor = componentColors.topBarContent
     LaunchedEffect(Unit) {
         favoriteVM.refreshCacheInfo()
     }
@@ -677,7 +672,7 @@ fun FavoritePage(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(if (lockedStatusHeight > 0.dp) lockedStatusHeight else 28.dp)
-                .background(darkThemeColor(YamiboColors.onSurface) { statusBar })
+                .background(componentColors.topBarContainer)
         )
         TopBar(title = "") {
             Row(
@@ -882,8 +877,8 @@ fun FavoritePage(
                         state = pullState,
                         isRefreshing = false,
                         modifier = Modifier.align(Alignment.TopCenter),
-                        containerColor = darkThemeColor(YellowLightLight) { surfaceVariant },
-                        color = darkThemeColor(YamiboColors.primary) { primary }
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        color = MaterialTheme.colorScheme.primary
                     )
                 }
             }
@@ -1033,13 +1028,11 @@ fun FavoritePage(
             ) {
                 Surface(
                     shape = RoundedCornerShape(50),
-                    color = darkThemeColor(YellowLightLight) { surface },
+                    color = MaterialTheme.colorScheme.surface,
                     shadowElevation = 3.dp,
                     border = BorderStroke(
                         width = 2.dp,
-                        color = darkThemeColor(
-                            YamiboColors.primary.copy(alpha = 0.4f)
-                        ) { primary.copy(alpha = 0.5f) }
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
                     ),
                     modifier = Modifier.padding(horizontal = 16.dp)
                 ) {
@@ -1049,7 +1042,7 @@ fun FavoritePage(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         val neutral = MaterialTheme.colorScheme.onSurfaceVariant
-                        val danger = MaterialTheme.colorScheme.error
+                        val danger = MaterialTheme.colorScheme.primary
                         val allSelected = searchedFavoriteList.isNotEmpty() &&
                                 selectedItems.size >= searchedFavoriteList.size &&
                                 searchedFavoriteList.all { selectedItems.contains(it.url) }
@@ -1330,7 +1323,7 @@ fun FavoritePage(
                             modifier = Modifier.fillMaxWidth(),
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                             colors = ButtonDefaults.textButtonColors(
-                                contentColor = MaterialTheme.colorScheme.error
+                                contentColor = MaterialTheme.colorScheme.primary
                             )
                         ) {
                             Row(

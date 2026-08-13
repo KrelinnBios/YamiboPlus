@@ -3,6 +3,7 @@ package org.shirakawatyu.yamibo.novel.ui.theme
 import android.app.Activity
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.lightColorScheme
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
@@ -45,21 +46,28 @@ private val LightColorScheme = lightColorScheme(
 fun _300文学Theme(
     content: @Composable () -> Unit
 ) {
-    val isDark by GlobalData.isDarkMode.collectAsState()
-    val darkColors = DarkThemeColors.CLASSIC
-    val colorScheme = if (isDark) darkColors.toDarkColorScheme() else LightColorScheme
+    val palette by GlobalData.themePalette.collectAsState()
+    val themeMode by GlobalData.themeMode.collectAsState()
+    val pureBlack by GlobalData.pureBlackMode.collectAsState()
+    val systemDark = isSystemInDarkTheme()
+    val appTheme = palette.resolve(themeMode.resolveDark(systemDark))
+    val colorScheme = appTheme.effectiveScheme(pureBlack)
     val view = LocalView.current
-    if (!view.isInEditMode) {
-        SideEffect {
+    SideEffect {
+        if (GlobalData.appTheme.value != appTheme) {
+            GlobalData.appTheme.value = appTheme
+        }
+        if (GlobalData.isDarkMode.value != appTheme.isDark) {
+            GlobalData.isDarkMode.value = appTheme.isDark
+        }
+        if (!view.isInEditMode) {
             val window = (view.context as Activity).window
-            window.navigationBarColor = if (isDark) {
-                darkColors.navBar.toArgb()
-            } else {
-                YamiboColors.onSurface.toArgb()
-            }
+            val backgroundArgb = colorScheme.background.toArgb()
+            window.statusBarColor = backgroundArgb
+            window.navigationBarColor = backgroundArgb
             WindowCompat.getInsetsController(window, view).apply {
-                isAppearanceLightStatusBars = !isDark
-                isAppearanceLightNavigationBars = !isDark
+                isAppearanceLightStatusBars = !appTheme.isDark
+                isAppearanceLightNavigationBars = !appTheme.isDark
             }
         }
     }
@@ -109,13 +117,12 @@ private val ReaderLightColorScheme = lightColorScheme(
 fun ReaderTheme(
     content: @Composable () -> Unit
 ) {
-    val isDark by GlobalData.isDarkMode.collectAsState()
+    val appTheme by GlobalData.appTheme.collectAsState()
+    val pureBlack by GlobalData.pureBlackMode.collectAsState()
     MaterialTheme(
-        colorScheme = if (isDark) {
-            DarkThemeColors.CLASSIC.toDarkColorScheme()
-        } else {
-            ReaderLightColorScheme
-        },
+        // 阅读器沿用应用当前主题，避免正文、顶部工具栏和底部控制面板
+        // 仍固定使用经典米黄色/蓝黑色。
+        colorScheme = appTheme.effectiveScheme(pureBlack),
         typography = Typography,
         content = content
     )

@@ -57,6 +57,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -83,12 +84,10 @@ import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
 import org.shirakawatyu.yamibo.novel.util.reader.CacheData
 import org.shirakawatyu.yamibo.novel.util.reader.AuthenticatedThreadPageLoader
 import org.shirakawatyu.yamibo.novel.util.reader.LocalCacheUtil
-import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
-import org.shirakawatyu.yamibo.novel.util.darkModeColor
-import org.shirakawatyu.yamibo.novel.util.darkThemeColor
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
+import org.shirakawatyu.yamibo.novel.ui.component.YamiboLoadError
 import org.shirakawatyu.yamibo.novel.ui.widget.ReaderModeFAB
 import org.shirakawatyu.yamibo.novel.util.ActivityWebViewLifecycleObserver
 import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
@@ -152,8 +151,9 @@ fun ReaderWebPage(
     navController: NavController,
     webChromeClient: WebChromeClient
 ) {
-    val isDarkMode by GlobalData.isDarkMode.collectAsState()
-    val statusColor = darkThemeColor(YamiboColors.primary) { statusBar }
+    val appTheme by GlobalData.appTheme.collectAsState()
+    val isDarkMode = appTheme.isDark
+    val statusColor = MaterialTheme.colorScheme.primary
     SetStatusBarColor(statusColor)
     val finalUrl = remember(url) {
         if (url.startsWith("http")) url else "${RequestConfig.BASE_URL}/$url"
@@ -347,15 +347,16 @@ fun ReaderWebPage(
             YamiboWebViewClient.setupDownloadListener(this)
         }
     }
-    LaunchedEffect(isDarkMode) {
+    LaunchedEffect(appTheme) {
         readerWebView.setBackgroundColor(
-            if (isDarkMode) 0xFF0D141D.toInt() else android.graphics.Color.TRANSPARENT
+            appTheme.scheme.background.toArgb()
         )
         readerWebView.evaluateJavascript(
             PageJsScripts.getThemeSetJs(
                 isDarkMode,
                 GlobalData.darkModeTheme.value,
-                GlobalData.lightModeTheme.value
+                GlobalData.lightModeTheme.value,
+                GlobalData.appTheme.value
             ),
             null
         )
@@ -608,7 +609,7 @@ fun ReaderWebPage(
 
                 if (request?.isForMainFrame == true &&
                     request.method == "GET" &&
-                    (GlobalData.isDarkMode.value || GlobalData.lightModeTheme.value > 0) &&
+                    PageJsScripts.shouldApplyWebTheme(GlobalData.appTheme.value) &&
                     urlStr.contains("bbs.yamibo.com")
                 ) {
                     val html = YamiboRetrofit.proxyHtmlForDarkMode(request)
@@ -621,7 +622,8 @@ fun ReaderWebPage(
                             GlobalData.isDarkMode.value,
                             GlobalData.darkModeTheme.value,
                             GlobalData.lightModeTheme.value,
-                            desktopFitScale
+                            desktopFitScale,
+                            appTheme = GlobalData.appTheme.value
                         )
                         return WebResourceResponse(
                             "text/html",
@@ -739,12 +741,13 @@ fun ReaderWebPage(
 
                 view?.evaluateJavascript(PageJsScripts.OTHER_COMMIT_BOOTSTRAP_JS, null)
 
-                if (GlobalData.isDarkMode.value || GlobalData.lightModeTheme.value > 0) {
+                if (PageJsScripts.shouldApplyWebTheme(GlobalData.appTheme.value)) {
                     view?.evaluateJavascript(
                         PageJsScripts.getThemeSetJs(
                             GlobalData.isDarkMode.value,
                             GlobalData.darkModeTheme.value,
-                            GlobalData.lightModeTheme.value
+                            GlobalData.lightModeTheme.value,
+                            GlobalData.appTheme.value
                         ), null
                     )
                 }
@@ -991,7 +994,7 @@ fun ReaderWebPage(
     val lockedStatusHeight = lockedStatusHeightValue.dp
 
     val isFullscreen = isFullscreenState.value || autoOpenMangaMode
-    val topSpacerColor = if (isFullscreen) Color.Black else darkThemeColor(YamiboColors.primary) { statusBar }
+    val topSpacerColor = if (isFullscreen) Color.Black else MaterialTheme.colorScheme.primary
     val bottomPad = if (isFullscreen) lockedNavHeight else lockedNavHeight + 50.dp
 
     Box(
@@ -1056,24 +1059,15 @@ fun ReaderWebPage(
             )
 
             if (showLoadError) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 32.dp),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Icon(Icons.Default.Warning, "加载失败", Modifier.size(48.dp), Color.Gray)
-                    Spacer(Modifier.height(16.dp))
-                    Text("页面加载失败", fontSize = 18.sp, color = Color.DarkGray)
-                    Spacer(Modifier.height(24.dp))
-                    Button(onClick = {
+                YamiboLoadError(
+                    title = "阅读页面无法打开",
+                    onRetry = {
                         startLoading(
                             readerWebView,
                             readerWebView.url ?: url
                         )
-                    }) { Text("重试") }
-                }
+                    }
+                )
             }
             if (isLoading) {
                 Box(
@@ -1086,7 +1080,7 @@ fun ReaderWebPage(
                         },
                     contentAlignment = Alignment.Center
                 ) {
-                    CircularProgressIndicator(color = darkModeColor(YamiboColors.secondary, YamiboColors.secondaryDark))
+                    CircularProgressIndicator(color = MaterialTheme.colorScheme.secondary)
                 }
             }
             if (autoOpenMangaMode) {

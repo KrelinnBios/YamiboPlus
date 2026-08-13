@@ -75,12 +75,14 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.shirakawatyu.yamibo.novel.bean.MangaHomeItem
 import org.shirakawatyu.yamibo.novel.global.GlobalData
+import org.shirakawatyu.yamibo.novel.ui.component.YamiboLoadError
+import org.shirakawatyu.yamibo.novel.ui.theme.yamiboComponentColors
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.FavoriteTypeResolver
 import org.shirakawatyu.yamibo.novel.ui.vm.MangaHomeVM
 import org.shirakawatyu.yamibo.novel.ui.widget.OnboardingOverlay
 import org.shirakawatyu.yamibo.novel.ui.widget.OnboardingStep
-import org.shirakawatyu.yamibo.novel.util.DarkThemeColors
+
 import org.shirakawatyu.yamibo.novel.util.OnboardingUtil
 import org.shirakawatyu.yamibo.novel.util.favorite.FavoriteUtil
 import org.shirakawatyu.yamibo.novel.util.manga.MangaProber
@@ -94,7 +96,6 @@ fun MangaHomePage(
     mangaHomeVM: MangaHomeVM = viewModel()
 ) {
     val state by mangaHomeVM.uiState.collectAsState()
-    val isDarkMode by GlobalData.isDarkMode.collectAsState()
     val context = LocalContext.current
     val bottomNavBarVM: BottomNavBarVM =
         viewModel(viewModelStoreOwner = context as ComponentActivity)
@@ -128,27 +129,15 @@ fun MangaHomePage(
         )
     )
 
-    val classicDarkColors = DarkThemeColors.CLASSIC
-    val headerContainerColor =
-        if (isDarkMode) classicDarkColors.statusBar else MaterialTheme.colorScheme.primary
-    val headerContentColor =
-        if (isDarkMode) classicDarkColors.onPrimary else MaterialTheme.colorScheme.onPrimary
-    val sectionContainerColor =
-        if (isDarkMode) classicDarkColors.surfaceVariant else MaterialTheme.colorScheme.primaryContainer
-    val sectionOutlineColor =
-        if (isDarkMode) classicDarkColors.outline.copy(alpha = 0.85f)
-        else MaterialTheme.colorScheme.outline.copy(alpha = 0.7f)
-    val selectedSectionColor =
-        if (isDarkMode) classicDarkColors.primary.copy(alpha = 0.32f)
-        else MaterialTheme.colorScheme.surface
-    val selectedSectionContentColor =
-        if (isDarkMode) Color.White else MaterialTheme.colorScheme.onSurface
-    val unselectedSectionContentColor =
-        if (isDarkMode) classicDarkColors.onSurfaceVariant
-        else MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.82f)
-    val selectedSectionBorderColor =
-        if (isDarkMode) classicDarkColors.primary.copy(alpha = 0.95f)
-        else MaterialTheme.colorScheme.primary.copy(alpha = 0.9f)
+    val componentColors = yamiboComponentColors()
+    val headerContainerColor = componentColors.topBarContainer
+    val headerContentColor = componentColors.topBarContent
+    val sectionContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest
+    val sectionOutlineColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.7f)
+    val selectedSectionColor = componentColors.baseRow
+    val selectedSectionContentColor = MaterialTheme.colorScheme.onSurface
+    val unselectedSectionContentColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.82f)
+    val selectedSectionBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f)
 
     var isRefreshing by remember { mutableStateOf(false) }
     LaunchedEffect(state.isLoading, state.isLoadingMore) {
@@ -311,10 +300,8 @@ fun MangaHomePage(
                     state = pullState,
                     isRefreshing = isRefreshing,
                     modifier = Modifier.align(Alignment.TopCenter),
-                    containerColor = if (isDarkMode) classicDarkColors.surfaceVariant
-                    else MaterialTheme.colorScheme.surface,
-                    color = if (isDarkMode) classicDarkColors.primary
-                    else MaterialTheme.colorScheme.primary
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    color = MaterialTheme.colorScheme.primary
                 )
             }
         ) {
@@ -323,44 +310,10 @@ fun MangaHomePage(
                     CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
                 }
                 state.error != null && state.items.isEmpty() -> {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(MaterialTheme.colorScheme.background)
-                            .padding(horizontal = 32.dp),
-                        verticalArrangement = Arrangement.Center,
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Icon(
-                            Icons.Default.Warning,
-                            contentDescription = "加载失败",
-                            modifier = Modifier.size(48.dp),
-                            tint = Color.Gray
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            "漫画首页无法打开",
-                            fontSize = 18.sp,
-                            color = MaterialTheme.colorScheme.onBackground
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            "页面加载失败，请检查网络后刷新",
-                            fontSize = 14.sp,
-                            color = Color.Gray,
-                            textAlign = TextAlign.Center
-                        )
-                        Spacer(modifier = Modifier.height(24.dp))
-                        Button(onClick = mangaHomeVM::refresh) {
-                            Icon(
-                                Icons.Default.Refresh,
-                                contentDescription = "刷新",
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("刷新页面")
-                        }
-                    }
+                    YamiboLoadError(
+                        title = "漫画首页无法打开",
+                        onRetry = mangaHomeVM::refresh
+                    )
                 }
                 state.items.isEmpty() -> {
                     Text(
@@ -382,11 +335,8 @@ fun MangaHomePage(
                             MangaHomeRow(
                                 item = item,
                                 alternate = index % 2 == 1,
-                                alternateRowColor = if (isDarkMode) {
-                                    classicDarkColors.surfaceVariant
-                                } else {
-                                    MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.42f)
-                                },
+                                baseRowColor = componentColors.baseRow,
+                                alternateRowColor = componentColors.alternateRow,
                                 isOpening = openingTid == item.tid,
                                 isFavorited = MangaTitleCleaner.getCleanBookName(item.title) in favoritedCleanTitles,
                                 onClick = {
@@ -460,16 +410,13 @@ fun MangaHomePage(
 private fun MangaHomeRow(
     item: MangaHomeItem,
     alternate: Boolean,
+    baseRowColor: Color,
     alternateRowColor: Color,
     isOpening: Boolean,
     isFavorited: Boolean,
     onClick: () -> Unit
 ) {
-    val rowColor = if (alternate) {
-        alternateRowColor
-    } else {
-        MaterialTheme.colorScheme.surface
-    }
+    val rowColor = if (alternate) alternateRowColor else baseRowColor
     Box(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier

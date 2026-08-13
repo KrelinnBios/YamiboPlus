@@ -1,5 +1,6 @@
 package org.shirakawatyu.yamibo.novel.ui.widget
 
+import android.os.SystemClock
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
@@ -20,21 +21,23 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import org.shirakawatyu.yamibo.novel.global.GlobalData
-import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
+import org.shirakawatyu.yamibo.novel.ui.theme.yamiboComponentColors
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
-import org.shirakawatyu.yamibo.novel.util.darkThemeColor
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -65,14 +68,11 @@ fun BottomNavBar(
         }
     }
 
-    val containerColor = darkThemeColor(YamiboColors.onSurface) { navBar }
-    val selectedColor = darkThemeColor(YamiboColors.primary) { onPrimary }
-    val unselectedColor = darkThemeColor(YamiboColors.primary.copy(alpha = 0.62f)) {
-        onPrimary.copy(alpha = 0.68f)
-    }
-    val indicatorColor = darkThemeColor(YamiboColors.tertiary) {
-        onPrimary.copy(alpha = 0.16f)
-    }
+    val componentColors = yamiboComponentColors()
+    val containerColor = componentColors.bottomBarContainer
+    val selectedColor = MaterialTheme.colorScheme.primary
+    val unselectedColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val indicatorColor = MaterialTheme.colorScheme.primaryContainer
 
     Box(
         modifier = Modifier
@@ -91,6 +91,7 @@ fun BottomNavBar(
             uiState.icons.forEachIndexed { index, icon ->
                 val targetRoute = pageList[index]
                 val selected = baseRoute == targetRoute
+                var lastClickAt by remember(targetRoute) { mutableLongStateOf(0L) }
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -100,8 +101,14 @@ fun BottomNavBar(
                             indication = null,
                             // 单击：仅切换板块；已在本板块内时不做任何事，避免误触重载。
                             onClick = {
+                                val now = SystemClock.elapsedRealtime()
+                                val isDoubleClick = selected && now - lastClickAt in 1..360
+                                lastClickAt = if (isDoubleClick) 0L else now
                                 navBarVM.returnToHome(
-                                    index, currentRoute, navController, notifyHome = false
+                                    index,
+                                    currentRoute,
+                                    navController,
+                                    notifyHome = isDoubleClick
                                 )
                             },
                             // 长按：回到该板块主页（论坛首页 / 个人资料 / 漫画首页 / 收藏首页）。
@@ -145,10 +152,8 @@ fun BottomNavBar(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(2.dp),
-                color = darkThemeColor(YamiboColors.primary) { primary },
-                trackColor = darkThemeColor(YamiboColors.primary.copy(alpha = 0.1f)) {
-                    primary.copy(alpha = 0.1f)
-                },
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
                 strokeCap = StrokeCap.Round
             )
         }

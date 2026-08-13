@@ -31,6 +31,15 @@ interface FavoriteApi {
 
     @Headers("User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
     @FormUrlEncoded
+    @POST("/home.php?mod=spacecp&ac=favorite&type=forum")
+    fun addForumFavorite(
+        @Field("formhash") formhash: String,
+        @Field("id") forumId: String,
+        @Field("type") type: String = "forum"
+    ): Call<ResponseBody>
+
+    @Headers("User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
+    @FormUrlEncoded
     @POST("/home.php?mod=spacecp&ac=favorite&op=delete&type=all&checkall=1")
     fun deleteFavorites(
         @Field("formhash") formhash: String,

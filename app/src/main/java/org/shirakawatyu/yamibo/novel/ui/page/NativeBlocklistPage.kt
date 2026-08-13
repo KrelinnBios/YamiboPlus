@@ -1,0 +1,318 @@
+package org.shirakawatyu.yamibo.novel.ui.page
+
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.shirakawatyu.yamibo.novel.global.GlobalData
+import org.shirakawatyu.yamibo.novel.ui.theme.yamiboComponentColors
+import org.shirakawatyu.yamibo.novel.ui.widget.YamiboToast
+import org.shirakawatyu.yamibo.novel.ui.widget.favorite.FavoriteTopSearchField
+import org.shirakawatyu.yamibo.novel.util.forum.ForumBlockedItem
+import org.shirakawatyu.yamibo.novel.util.forum.ForumBlocklistManager
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun NativeBlocklistPage(
+    onBack: () -> Unit
+) {
+    val componentColors = yamiboComponentColors()
+    val headerColor = componentColors.topBarContainer
+    val headerContent = componentColors.topBarContent
+    val scope = rememberCoroutineScope()
+    var selectedTab by remember { mutableIntStateOf(0) }
+    var searchText by remember { mutableStateOf("") }
+    var isSearchBarExpanded by remember { mutableStateOf(false) }
+    var showClearDialog by remember { mutableStateOf(false) }
+    val tabs = listOf("全部", "帖子", "用户")
+
+    val syncState by ForumBlocklistManager.syncState.collectAsState()
+    var wasSyncing by remember { mutableStateOf(false) }
+    LaunchedEffect(syncState.isSyncing) {
+        if (syncState.isSyncing) {
+            wasSyncing = true
+        } else if (wasSyncing) {
+            wasSyncing = false
+            YamiboToast.show(message = syncState.message)
+        }
+    }
+
+    BackHandler(enabled = isSearchBarExpanded) {
+        searchText = ""
+        isSearchBarExpanded = false
+    }
+
+    val items by ForumBlocklistManager.items.collectAsState()
+    val filteredItems = remember(items, searchText, selectedTab) {
+        items.filter { item ->
+            val matchesSearch = searchText.isEmpty() ||
+                item.id.contains(searchText, ignoreCase = true) ||
+                item.title.contains(searchText, ignoreCase = true)
+            val matchesTab = when (selectedTab) {
+                0 -> true
+                1 -> item.type == "thread"
+                2 -> item.type == "user"
+                else -> true
+            }
+            matchesSearch && matchesTab
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+    ) {
+        // TopBar
+        Surface(color = headerColor, contentColor = headerContent) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(horizontal = 6.dp)
+                    .height(56.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = headerContent)
+                }
+                if (isSearchBarExpanded) {
+                    FavoriteTopSearchField(
+                        value = searchText,
+                        onValueChange = { searchText = it },
+                        onClose = {
+                            searchText = ""
+                            isSearchBarExpanded = false
+                        },
+                        resultText = if (searchText.isNotBlank()) "${filteredItems.size}项" else null,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(start = 6.dp, end = 2.dp)
+                    )
+                } else {
+                    Text(
+                        "屏蔽管理",
+                        Modifier.weight(1f),
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = headerContent
+                    )
+                }
+                if (!isSearchBarExpanded) {
+                    IconButton(onClick = { isSearchBarExpanded = true }) {
+                        Icon(
+                            Icons.Default.Search,
+                            contentDescription = "搜索屏蔽项",
+                            tint = headerContent
+                        )
+                    }
+                }
+                IconButton(onClick = { showClearDialog = true }) {
+                    Icon(
+                        Icons.Default.Delete,
+                        contentDescription = "清空",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+        }
+
+        val pullState = rememberPullToRefreshState()
+        PullToRefreshBox(
+            isRefreshing = syncState.isSyncing,
+            onRefresh = { ForumBlocklistManager.syncRemote(force = true) },
+            state = pullState,
+            modifier = Modifier.weight(1f),
+            indicator = {
+                PullToRefreshDefaults.Indicator(
+                    state = pullState,
+                    isRefreshing = syncState.isSyncing,
+                    modifier = Modifier.align(Alignment.TopCenter),
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        ) {
+            Column(Modifier.fillMaxSize()) {
+                // Tabs
+                TabRow(selectedTabIndex = selectedTab) {
+                    tabs.forEachIndexed { index, title ->
+                        Tab(
+                            selected = selectedTab == index,
+                            onClick = { selectedTab = index },
+                            text = { Text(title) }
+                        )
+                    }
+                }
+
+                // Content
+                if (filteredItems.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState()),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (searchText.isEmpty()) "暂无屏蔽项" else "未找到匹配项",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(24.dp)
+                        )
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        items(filteredItems, key = { "${it.type}-${it.id}" }) { item ->
+                            BlocklistItem(
+                                item = item,
+                                onRemove = {
+                                    scope.launch(Dispatchers.IO) {
+                                        ForumBlocklistManager.remove(item.type, item.id)
+                                        withContext(Dispatchers.Main) {
+                                            YamiboToast.show(message = "已移除")
+                                        }
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Clear Dialog
+    if (showClearDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearDialog = false },
+            containerColor = MaterialTheme.colorScheme.surface,
+            titleContentColor = MaterialTheme.colorScheme.primary,
+            textContentColor = MaterialTheme.colorScheme.onSurface,
+            title = { Text("清空屏蔽列表", fontSize = 18.sp) },
+            text = {
+                Text(
+                    "确定要清空所有屏蔽项吗？此操作不可撤销。",
+                    fontSize = 15.sp
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showClearDialog = false
+                    scope.launch(Dispatchers.IO) {
+                        ForumBlocklistManager.clear()
+                        withContext(Dispatchers.Main) {
+                            YamiboToast.show(message = "已清空")
+                        }
+                    }
+                }) {
+                    Text(
+                        "确认",
+                        color = MaterialTheme.colorScheme.error,
+                        fontSize = 15.sp
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearDialog = false }) {
+                    Text("取消", fontSize = 15.sp)
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun BlocklistItem(
+    item: ForumBlockedItem,
+    onRemove: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        shape = MaterialTheme.shapes.small,
+        color = MaterialTheme.colorScheme.surface
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = item.title.ifEmpty { item.id },
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = when (item.type) {
+                        "thread" -> "帖子"
+                        "user" -> "用户"
+                        else -> item.type
+                    },
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            IconButton(onClick = onRemove) {
+                Icon(
+                    Icons.Default.Delete,
+                    contentDescription = "移除",
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+    }
+}

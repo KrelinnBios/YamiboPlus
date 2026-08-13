@@ -8,6 +8,7 @@ import org.jsoup.nodes.Element
 import org.jsoup.nodes.Node
 import org.jsoup.nodes.TextNode
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumBoard
+import org.shirakawatyu.yamibo.novel.bean.forum.ForumBanner
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumCategory
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumIndex
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumPost
@@ -15,10 +16,13 @@ import org.shirakawatyu.yamibo.novel.bean.forum.ForumPostAttachment
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumPostAuthor
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumPostBlock
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumPostPage
+import org.shirakawatyu.yamibo.novel.bean.forum.ForumPostRating
+import org.shirakawatyu.yamibo.novel.bean.forum.ForumPostRatingSummary
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumPostTextPart
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumThread
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumThreadDetail
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumThreadPage
+import org.shirakawatyu.yamibo.novel.util.LanguageModeUtil
 import kotlin.math.ceil
 
 object ForumApiParser {
@@ -55,6 +59,50 @@ object ForumApiParser {
         }.filter { it.forums.isNotEmpty() }
 
         return ForumIndex(categories = categories)
+    }
+
+    fun parseForumBanners(rawHtml: String): List<ForumBanner> {
+        val document = Jsoup.parse(rawHtml, "$FORUM_ORIGIN/")
+        // 论坛首页轮播在不同模板/UA 下可能有多种容器类名
+        val slideSelectors = listOf(
+            "#forum .index-top-wrapper .yami-swiper .swiper-slide",
+            ".index-top-wrapper .yami-swiper .swiper-slide",
+            ".slidebox .swiper-slide",
+            "#slide .swiper-slide",
+            ".img_slide .swiper-slide",
+            ".scrool_img .swiper-slide",
+            ".scroll_img .swiper-slide",
+            ".slide .swiper-slide",
+            ".yami-swiper .swiper-slide",
+            ".swiper-wrapper .swiper-slide",
+            ".swiper-slide"
+        )
+        val slides = slideSelectors.asSequence()
+            .map { document.select(it) }
+            .firstOrNull { it.isNotEmpty() }
+            ?: return emptyList()
+        return slides.mapNotNull { slide ->
+            val image = slide.selectFirst("img[src]") ?: return@mapNotNull null
+            val imageUrl = image.absUrl("src").ifBlank {
+                absoluteUrl(image.attr("src")).orEmpty()
+            }
+            if (imageUrl.isBlank()) return@mapNotNull null
+            val link = slide.selectFirst("a[href]")?.attr("href").orEmpty()
+            ForumBanner(
+                imageUrl = imageUrl,
+                threadId = extractThreadId(link)
+            )
+        }.distinctBy(ForumBanner::imageUrl)
+    }
+
+    fun parseForumHeadImage(rawHtml: String): String? {
+        val document = Jsoup.parse(rawHtml, "$FORUM_ORIGIN/")
+        val image = document.selectFirst(
+            "#forum > div.forum-headimg img[src], .forum-headimg img[src]"
+        ) ?: return null
+        return image.absUrl("src").ifBlank {
+            absoluteUrl(image.attr("src")).orEmpty()
+        }.takeIf(String::isNotBlank)
     }
 
     fun parseThreadPage(rawJson: String): ForumThreadPage {
@@ -101,12 +149,26 @@ object ForumApiParser {
             forum = forum,
             threads = threads,
             page = page,
-            hasMore = hasMore
+            hasMore = hasMore,
+            availableTypes = typeNames
         )
     }
 
     fun parsePostPage(rawJson: String, requestedPage: Int): ForumPostPage =
         buildPostPage(variables(rawJson), requestedPage)
+
+    fun parseForumPostRatingSummaries(rawHtml: String): Map<String, ForumPostRatingSummary> {
+        val document = Jsoup.parse(rawHtml, "$FORUM_ORIGIN/")
+        return document.select("[id]")
+            .filter { it.id().startsWith("ratelog_") }
+            .mapNotNull { rateLog ->
+                val postId = rateLog.id().removePrefix("ratelog_")
+                    .takeIf { it.isNotBlank() && it.all(Char::isDigit) }
+                    ?: return@mapNotNull null
+                parseForumPostRatingSummary(rateLog)?.let { postId to it }
+            }
+            .toMap()
+    }
 
     private fun variables(rawJson: String): JSONObject {
         val root = runCatching { JSON.parseObject(rawJson) }
@@ -148,18 +210,27 @@ object ForumApiParser {
             ?: throw IllegalStateException("论坛未返回主题详情")
         val postArray = variables.getJSONArray("postlist")
             ?: throw IllegalStateException("论坛未返回楼层数据")
-        val thread = parseThreadDetail(threadObject)
+        val thread = parseThreadDetail(threadObject, variables.getJSONObject("forum")?.stringValue("name"))
         val pageSize = variables.intValue("ppp", 10).coerceAtLeast(1)
         val totalPages = ceil((thread.replyCount + 1).toDouble() / pageSize).toInt().coerceAtLeast(1)
         return postPage(thread, postArray, requestedPage, totalPages)
     }
 
-    private fun parseThreadDetail(value: JSONObject): ForumThreadDetail {
+    private fun parseThreadDetail(value: JSONObject, fallbackForumName: String? = null): ForumThreadDetail {
         val id = value.stringValue("tid") ?: throw IllegalStateException("主题数据缺少 ID")
         val authorId = value.stringValue("authorid")?.takeUnless { it == "0" }
         return ForumThreadDetail(
             id = id,
             forumId = value.stringValue("fid").orEmpty(),
+            forumName = cleanText(
+                value.getString("forumname")
+                    ?: value.getString("fname")
+                    ?: fallbackForumName
+            ),
+            lastPoster = cleanText(
+                value.getString("lastposter")
+                    ?: value.getString("lastpostername")
+            ),
             subject = cleanText(value.getString("subject")),
             author = ForumPostAuthor(
                 id = authorId,
@@ -210,8 +281,72 @@ object ForumApiParser {
         )
     }
 
+    private fun parseForumPostRatingSummary(rateLog: Element): ForumPostRatingSummary? {
+        val allAnchors = rateLog.select("a[href*='action=viewratings'][href*='pid=']")
+        val participantText = cleanText(allAnchors.firstOrNull()?.text())
+        val viewAllAnchor = allAnchors.lastOrNull()
+        var scoreText = rateLog.select(".ratl th")
+            .getOrNull(1)
+            ?.let { cleanText(it.text()) }
+            .orEmpty()
+        val ratings = mutableListOf<ForumPostRating>()
+        val viewAllText = cleanText(viewAllAnchor?.text())
+        val mobileRows = rateLog.select("li.flex-box.mli.p0")
+
+        if (mobileRows.isNotEmpty()) {
+            mobileRows.forEach { row ->
+                val rowText = cleanText(row.text())
+                val cells = row.select("div")
+                if (rowText.contains("参与人数") && rowText.contains("积分")) {
+                    if (cells.size > 1) scoreText = cleanText(cells[1].text())
+                    return@forEach
+                }
+                if (viewAllText.isNotBlank() && rowText == viewAllText) return@forEach
+                parseForumPostRatingRow(row, "div")?.let(ratings::add)
+            }
+        } else {
+            rateLog.select(".ratl_l tr[id^=rate_]").forEach { row ->
+                parseForumPostRatingRow(row, "td")?.let(ratings::add)
+            }
+        }
+
+        if (participantText.isBlank() && scoreText.isBlank() && ratings.isEmpty()) return null
+        return ForumPostRatingSummary(
+            participantText = participantText,
+            scoreText = scoreText,
+            ratings = ratings,
+            viewAllUrl = viewAllAnchor?.attr("href")
+                ?.let { absoluteUrl(it) }
+        )
+    }
+
+    private fun parseForumPostRatingRow(row: Element, cellSelector: String): ForumPostRating? {
+        val userAnchor = row.selectFirst("a[href]") ?: return null
+        val userName = cleanText(userAnchor.text())
+        if (userName.isBlank()) return null
+        val cells = row.select(cellSelector)
+        val userCellIndex = cells.indexOfFirst { it.selectFirst("a[href]") != null }
+            .takeIf { it >= 0 }
+            ?: -1
+        val scoreIndex = if (userCellIndex >= 0) userCellIndex + 1 else 0
+        return ForumPostRating(
+            userName = userName,
+            score = cells.getOrNull(scoreIndex)?.let { cleanText(it.text()) }.orEmpty(),
+            reason = cells.getOrNull(scoreIndex + 1)?.let { cleanText(it.text()) }.orEmpty(),
+            createdAt = cells.getOrNull(scoreIndex + 2)
+                ?.let { cleanText(it.text()) }
+                ?.takeIf(String::isNotBlank)
+        )
+    }
+
     private fun avatarUrl(userId: String?): String? =
         userId?.let { "$FORUM_ORIGIN/uc_server/avatar.php?uid=$it&size=small" }
+
+    private fun extractThreadId(url: String): String? =
+        Regex("(?:[?&]tid=|thread-)(\\d+)", RegexOption.IGNORE_CASE)
+            .find(url)
+            ?.groupValues
+            ?.getOrNull(1)
 
     private fun parseAttachments(raw: Any?): List<ForumPostAttachment> =
         jsonObjects(raw).map(::parseAttachment)
@@ -324,13 +459,13 @@ object ForumApiParser {
     private fun cleanText(value: String?): String {
         if (value.isNullOrBlank()) return ""
         val decodedText = Jsoup.parseBodyFragment(value).text().trim()
-        return encodedHtmlTag.replace(decodedText) { match ->
+        return LanguageModeUtil.displayText(encodedHtmlTag.replace(decodedText) { match ->
             when (match.groupValues[1].lowercase()) {
                 in inlineFormattingTags -> ""
                 in blockFormattingTags -> " "
                 else -> match.value
             }
-        }.replace(Regex("\\s+"), " ").trim()
+        }.replace(Regex("\\s+"), " ").trim())
     }
 
     private fun absoluteUrl(value: String?): String? {
@@ -342,6 +477,7 @@ object ForumApiParser {
             else -> "$FORUM_ORIGIN/$url"
         }
     }
+
     private fun JSONArray.objects(): List<JSONObject> =
         (0 until size).mapNotNull(::getJSONObject)
 

@@ -2,6 +2,7 @@ package org.shirakawatyu.yamibo.novel
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.res.Configuration
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -14,7 +15,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
-import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
@@ -24,10 +24,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -62,7 +58,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -93,16 +91,25 @@ import org.shirakawatyu.yamibo.novel.ui.page.FavoritePage
 import org.shirakawatyu.yamibo.novel.ui.page.MangaWebPage
 import org.shirakawatyu.yamibo.novel.ui.page.MangaHomePage
 import org.shirakawatyu.yamibo.novel.ui.page.MinePage
+import org.shirakawatyu.yamibo.novel.ui.page.NativeMinePage
+import org.shirakawatyu.yamibo.novel.ui.page.NativeSettingsPage
+import org.shirakawatyu.yamibo.novel.ui.page.NativeThemePage
+import org.shirakawatyu.yamibo.novel.ui.page.NativeBackupPage
+import org.shirakawatyu.yamibo.novel.ui.page.NativeBlocklistPage
 import org.shirakawatyu.yamibo.novel.ui.page.NativeMangaPage
-import org.shirakawatyu.yamibo.novel.ui.page.NativeForumPage
-import org.shirakawatyu.yamibo.novel.ui.page.NativeThreadPage
+import org.shirakawatyu.yamibo.novel.ui.page.NativeForumPageV2
+import org.shirakawatyu.yamibo.novel.ui.page.NativeThreadPageV2
 import org.shirakawatyu.yamibo.novel.ui.page.HistoryPage
+import org.shirakawatyu.yamibo.novel.ui.vm.ForumVM
 import org.shirakawatyu.yamibo.novel.ui.page.OtherWebPage
 import org.shirakawatyu.yamibo.novel.ui.page.ReaderPage
 import org.shirakawatyu.yamibo.novel.ui.page.ReaderWebPage
 import org.shirakawatyu.yamibo.novel.ui.component.AppUpdateDialog
-import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
+import org.shirakawatyu.yamibo.novel.ui.component.LegacyMigrationNoticeDialog
+import org.shirakawatyu.yamibo.novel.ui.theme.YamiboAppTheme
 import org.shirakawatyu.yamibo.novel.ui.theme._300文学Theme
+import org.shirakawatyu.yamibo.novel.ui.theme.effectiveScheme
+import org.shirakawatyu.yamibo.novel.ui.theme.yamiboComponentColors
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.ui.widget.BottomNavBar
@@ -122,8 +129,8 @@ import org.shirakawatyu.yamibo.novel.util.LanguageModeUtil
 import org.shirakawatyu.yamibo.novel.util.SignTrigger
 import org.shirakawatyu.yamibo.novel.util.YamiboPostLinkUtil
 import org.shirakawatyu.yamibo.novel.util.Waf405RecoveryManager
-import org.shirakawatyu.yamibo.novel.util.darkThemeColor
 import org.shirakawatyu.yamibo.novel.util.network.NetworkMonitor
+import org.shirakawatyu.yamibo.novel.util.reader.ChineseConvertUtil
 import java.net.URLDecoder
 import kotlin.text.RegexOption
 import androidx.core.graphics.toColorInt
@@ -184,9 +191,15 @@ class MainActivity : ComponentActivity() {
     @RequiresApi(Build.VERSION_CODES.O)
     override fun onCreate(savedInstanceState: Bundle?) {
         GlobalData.dataStore = applicationContext.dataStore
+        GlobalData.applicationContext = applicationContext
         GlobalData.displayMetrics = resources.displayMetrics
         GlobalData.homePageRoute.value = "MangaHomePage"
-        GlobalData.isDarkMode.value = false
+        val initialPreference = runCatching {
+            kotlinx.coroutines.runBlocking { SettingsUtil.getThemePreference() }
+        }.getOrDefault(org.shirakawatyu.yamibo.novel.ui.theme.YamiboThemePreference())
+        val systemDark = resources.configuration.uiMode and
+            Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
+        val initialTheme = GlobalData.applyThemePreference(initialPreference, systemDark)
         GlobalData.darkModeTheme.value = 0
         GlobalData.lightModeTheme.value = 0
         super.onCreate(savedInstanceState)
@@ -202,11 +215,12 @@ class MainActivity : ComponentActivity() {
         WindowInsetsControllerCompat(window, window.decorView).apply {
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
-        window.statusBarColor = "#551200".toColorInt()
-        window.navigationBarColor = "#EEE1BE".toColorInt()
+        val initialBackground = initialTheme.effectiveScheme(initialPreference.pureBlack).background.toArgb()
+        window.statusBarColor = initialBackground
+        window.navigationBarColor = initialBackground
         WindowCompat.getInsetsController(window, window.decorView).apply {
-            isAppearanceLightStatusBars = true
-            isAppearanceLightNavigationBars = true
+            isAppearanceLightStatusBars = !initialTheme.isDark
+            isAppearanceLightNavigationBars = !initialTheme.isDark
         }
 
 
@@ -370,6 +384,9 @@ fun App(webChromeClient: WebChromeClient) {
     }.collectAsState(initial = false)
     val homeRoute by GlobalData.homePageRoute.collectAsState()
     val isAutoVersionUpdateEnabled by GlobalData.isAutoVersionUpdateEnabled.collectAsState()
+    // 读取语言状态，让整个原生 Compose 树在切换简繁后重新组合。
+    val languageMode by GlobalData.languageMode.collectAsState()
+    LaunchedEffect(languageMode) { ChineseConvertUtil.clearCache() }
 
     LaunchedEffect(Unit) {
         if (!GlobalData.isAppInitialized) {
@@ -379,9 +396,7 @@ fun App(webChromeClient: WebChromeClient) {
                 GlobalData.currentCookie = ""
             } finally {
                 GlobalData.homePageRoute.value = "MangaHomePage"
-                SettingsUtil.getFavoriteCollapseMode { GlobalData.isFavoriteCollapsed.value = it }
                 SettingsUtil.getCustomDnsMode { GlobalData.isCustomDnsEnabled.value = it }
-                SettingsUtil.getClickToTopMode { GlobalData.isClickToTopEnabled.value = it }
                 SettingsUtil.getAutoSignInMode { GlobalData.isAutoSignInEnabled.value = it }
                 GlobalData.isAutoVersionUpdateEnabled.value =
                     SettingsUtil.getAutoVersionUpdateMode()
@@ -390,7 +405,10 @@ fun App(webChromeClient: WebChromeClient) {
                 }
                 SettingsUtil.getDnsOptimizationMode { GlobalData.dnsOptimizationMode.value = it }
                 SettingsUtil.getCustomDnsUrl { GlobalData.customDnsUrl.value = it }
-                SettingsUtil.getDarkMode { GlobalData.isDarkMode.value = it }
+                val savedThemePreference = SettingsUtil.getThemePreference()
+                val systemDark = context.resources.configuration.uiMode and
+                    Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
+                GlobalData.applyThemePreference(savedThemePreference, systemDark)
                 val savedLanguageMode = SettingsUtil.getLanguageMode()
                 GlobalData.languageMode.value = savedLanguageMode
                 LanguageModeUtil.applyForumCookies(savedLanguageMode)
@@ -443,6 +461,7 @@ fun App(webChromeClient: WebChromeClient) {
     }
 
     val lifecycleOwner = LocalLifecycleOwner.current
+    val rootView = LocalView.current
     val coroutineScope = rememberCoroutineScope()
 
     // 2. 后台切回 (Resume) 触发逻辑
@@ -480,7 +499,7 @@ fun App(webChromeClient: WebChromeClient) {
     }
 
     // 剪贴板检测：首次进入或切回前台时检查是否复制了百合会帖子链接
-    DisposableEffect(lifecycleOwner, isAppInitialized) {
+    DisposableEffect(lifecycleOwner, rootView, isAppInitialized) {
         if (!isAppInitialized) return@DisposableEffect onDispose {}
 
         fun inspectClipboard() {
@@ -506,13 +525,20 @@ fun App(webChromeClient: WebChromeClient) {
         val clipboardObserver = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) inspectClipboard()
         }
+        val focusObserver = android.view.ViewTreeObserver.OnWindowFocusChangeListener { hasFocus ->
+            if (hasFocus) inspectClipboard()
+        }
         lifecycleOwner.lifecycle.addObserver(clipboardObserver)
+        rootView.viewTreeObserver.addOnWindowFocusChangeListener(focusObserver)
         if (lifecycleOwner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
             inspectClipboard()
         }
 
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(clipboardObserver)
+            if (rootView.viewTreeObserver.isAlive) {
+                rootView.viewTreeObserver.removeOnWindowFocusChangeListener(focusObserver)
+            }
         }
     }
     _300文学Theme {
@@ -629,13 +655,16 @@ fun App(webChromeClient: WebChromeClient) {
                         val lockedNavHeight = maxOf(currentPaddingValue, lockedNavHeightValue).dp
 
                         Box(modifier = Modifier.fillMaxSize()) {
+                            val topBarContainerColor = yamiboComponentColors().topBarContainer
                             val statusBarColor = when {
-                                currentRoute == "MangaHomePage" -> YamiboColors.primary
-                                currentRoute == "FavoritePage" -> YamiboColors.onSurface
-                                currentRoute == "BBSPage" -> YamiboColors.primary
-                                currentRoute == "MinePage" || currentRoute?.startsWith("MineHistoryPostPage") == true -> YamiboColors.primary
-                                currentRoute?.startsWith("OtherWebPage") == true || currentRoute?.startsWith("ReaderWebPage") == true -> YamiboColors.primary
-                                currentRoute == "HistoryPage" -> YamiboColors.primary
+                                currentRoute in listOf(
+                                    "MangaHomePage", "FavoritePage", "BBSPage", "HistoryPage"
+                                ) -> topBarContainerColor
+                                currentRoute == "MinePage" ||
+                                        currentRoute?.startsWith("MineHistoryPostPage") == true ||
+                                        currentRoute?.startsWith("OtherWebPage") == true ||
+                                        currentRoute?.startsWith("ReaderWebPage") == true ->
+                                    topBarContainerColor
                                 else -> null
                             }
                             if (statusBarColor != null) {
@@ -702,23 +731,14 @@ fun App(webChromeClient: WebChromeClient) {
                                     },
                                     exitTransition = {
                                         if (targetState.destination.route?.run { startsWith("ReaderPage") || this == "HistoryPage" || startsWith("MineHistoryPostPage") } == true) {
-                                            slideOutHorizontally(
-                                                targetOffsetX = { -it / 3 },
-                                                animationSpec = tween(
-                                                    enterDuration,
-                                                    easing = enterEasing
-                                                )
-                                            )
+                                             fadeOut(tween(150))
                                         } else if (targetState.destination.route?.startsWith("NativeMangaPage") == true || targetState.destination.route in topLevelRoutes) {
                                             ExitTransition.None
                                         } else fadeOut(tween(150))
                                     },
                                     popEnterTransition = {
                                         if (initialState.destination.route?.run { startsWith("ReaderPage") || this == "HistoryPage" || startsWith("MineHistoryPostPage") } == true) {
-                                            slideInHorizontally(
-                                                initialOffsetX = { -it / 3 },
-                                                animationSpec = tween(exitDuration, easing = exitEasing)
-                                            )
+                                             fadeIn(tween(150))
                                         } else if (initialState.destination.route?.startsWith("NativeMangaPage") == true || initialState.destination.route in topLevelRoutes) {
                                             EnterTransition.None
                                         } else fadeIn(tween(150))
@@ -782,10 +802,7 @@ fun App(webChromeClient: WebChromeClient) {
                                     },
                                     exitTransition = {
                                         if (targetState.destination.route?.startsWith("NativeThreadPage") == true) {
-                                            slideOutHorizontally(
-                                                targetOffsetX = { -it / 3 },
-                                                animationSpec = tween(enterDuration, easing = enterEasing)
-                                            )
+                                             fadeOut(tween(150))
                                         } else if (targetState.destination.route in topLevelRoutes) {
                                             ExitTransition.None
                                         } else {
@@ -794,10 +811,7 @@ fun App(webChromeClient: WebChromeClient) {
                                     },
                                     popEnterTransition = {
                                         if (initialState.destination.route?.startsWith("NativeThreadPage") == true) {
-                                            slideInHorizontally(
-                                                initialOffsetX = { -it / 3 },
-                                                animationSpec = tween(exitDuration, easing = exitEasing)
-                                            )
+                                             fadeIn(tween(150))
                                         } else if (initialState.destination.route in topLevelRoutes) {
                                             EnterTransition.None
                                         } else {
@@ -810,10 +824,16 @@ fun App(webChromeClient: WebChromeClient) {
                                     }
                                 ) {
                                     Box(modifier = Modifier.fillMaxSize()) {
-                                        NativeForumPage(
+                                        val forumVM: ForumVM = viewModel()
+                                        NativeForumPageV2(
                                             onThreadClick = { thread ->
                                                 navController.navigate("NativeThreadPage/" + thread.id)
-                                            }
+                                            },
+                                            onOpenWeb = { url ->
+                                                navController.navigate("OtherWebPage/" + Uri.encode(url))
+                                            },
+                                            forumVM = forumVM,
+                                            bottomNavBarVM = bottomNavBarVM
                                         )
                                         Box(
                                             modifier = Modifier
@@ -834,10 +854,7 @@ fun App(webChromeClient: WebChromeClient) {
                                         navArgument("threadId") { type = NavType.StringType }
                                     ),
                                     enterTransition = {
-                                        slideIntoContainer(
-                                            towards = AnimatedContentTransitionScope.SlideDirection.Left,
-                                            animationSpec = tween(enterDuration, easing = enterEasing)
-                                        )
+                                         fadeIn(tween(150))
                                     },
                                     exitTransition = {
                                         fadeOut(tween(150))
@@ -846,23 +863,33 @@ fun App(webChromeClient: WebChromeClient) {
                                         fadeIn(tween(150))
                                     },
                                     popExitTransition = {
-                                        slideOutOfContainer(
-                                            towards = AnimatedContentTransitionScope.SlideDirection.Right,
-                                            animationSpec = tween(exitDuration, easing = exitEasing)
-                                        )
+                                         fadeOut(tween(150))
                                     }
                                 ) { entry ->
                                     val threadId = entry.arguments?.getString("threadId").orEmpty()
+                                    val bbsEntry = remember(navController) {
+                                        navController.getBackStackEntry("BBSPage")
+                                    }
+                                    val forumVM: ForumVM = viewModel(viewModelStoreOwner = bbsEntry)
                                     Box(modifier = Modifier.fillMaxSize()) {
-                                        NativeThreadPage(
+                                        NativeThreadPageV2(
                                             threadId = threadId,
+                                            forumName = forumVM.uiState.value.selectedForum?.name,
                                             onBack = navController::popBackStack,
+                                            onGoHome = {
+                                                forumVM.showForumIndex()
+                                                navController.popBackStack("BBSPage", false)
+                                            },
                                             onOpenLink = { url ->
                                                 val linkedThreadId =
                                                     YamiboPostLinkUtil.extractThreadId(url)
                                                 if (linkedThreadId != null) {
                                                     navController.navigate(
                                                         "NativeThreadPage/" + linkedThreadId
+                                                    )
+                                                } else if (Uri.parse(url).host?.endsWith("yamibo.com") == true) {
+                                                    navController.navigate(
+                                                        "OtherWebPage/" + Uri.encode(url)
                                                     )
                                                 } else {
                                                     runCatching {
@@ -874,6 +901,9 @@ fun App(webChromeClient: WebChromeClient) {
                                                         )
                                                     }
                                                 }
+                                            },
+                                            onOpenWeb = { url ->
+                                                navController.navigate("OtherWebPage/" + Uri.encode(url))
                                             }
                                         )
                                         Box(
@@ -898,13 +928,7 @@ fun App(webChromeClient: WebChromeClient) {
                                     },
                                     exitTransition = {
                                         if (targetState.destination.route?.run { startsWith("ReaderPage") || this == "HistoryPage" || startsWith("MineHistoryPostPage") } == true) {
-                                            slideOutHorizontally(
-                                                targetOffsetX = { -it / 3 },
-                                                animationSpec = tween(
-                                                    enterDuration,
-                                                    easing = enterEasing
-                                                )
-                                            )
+                                             fadeOut(tween(150))
                                         } else if (targetState.destination.route in topLevelRoutes) {
                                             ExitTransition.None
                                         } else fadeOut(tween(150))
@@ -916,10 +940,7 @@ fun App(webChromeClient: WebChromeClient) {
                                             // 这样 HistoryPage 自身已经不画退出动画，MinePage 也不会“从左侧补一段动画”。
                                             initialRoute == "HistoryPage" -> EnterTransition.None
                                             initialRoute?.run { startsWith("ReaderPage") || startsWith("MineHistoryPostPage") } == true -> {
-                                                slideInHorizontally(
-                                                    initialOffsetX = { -it / 3 },
-                                                    animationSpec = tween(exitDuration, easing = exitEasing)
-                                                )
+                                                 fadeIn(tween(150))
                                             }
                                             initialRoute?.startsWith("NativeMangaPage") == true || initialRoute in topLevelRoutes -> {
                                                 EnterTransition.None
@@ -933,10 +954,16 @@ fun App(webChromeClient: WebChromeClient) {
                                     }
                                 ) {
                                     Box(modifier = Modifier.fillMaxSize()) {
-                                        MinePage(
-                                            isSelected = selectedItemIndex == 3,
+                                        NativeMinePage(
                                             navController = navController,
-                                            webChromeClient = webChromeClient
+                                            bottomNavBarVM = bottomNavBarVM,
+                                            onOpenLogin = {
+                                                navController.navigate(
+                                                    "OtherWebPage/" + Uri.encode(
+                                                        "https://bbs.yamibo.com/member.php?mod=logging&action=login&mobile=2"
+                                                    )
+                                                )
+                                            }
                                         )
                                         Box(
                                             modifier = Modifier
@@ -977,21 +1004,69 @@ fun App(webChromeClient: WebChromeClient) {
                                     }
                                 }
                                 composable(
+                                    "NativeSettingsPage",
+                                    enterTransition = {
+                                         fadeIn(tween(150))
+                                    },
+                                    popExitTransition = {
+                                         fadeOut(tween(150))
+                                    }
+                                ) {
+                                    NativeSettingsPage(
+                                        onBack = { navController.popBackStack() },
+                                        onOpenTheme = { navController.navigate("NativeThemePage") },
+                                        onOpenBackup = { navController.navigate("NativeBackupPage") }
+                                    )
+                                }
+                                composable(
+                                    "NativeThemePage",
+                                    enterTransition = {
+                                         fadeIn(tween(150))
+                                    },
+                                    popExitTransition = {
+                                         fadeOut(tween(150))
+                                    }
+                                ) {
+                                    NativeThemePage(
+                                        onBack = { navController.popBackStack() }
+                                    )
+                                }
+                                composable(
+                                    "NativeBackupPage",
+                                    enterTransition = {
+                                         fadeIn(tween(150))
+                                    },
+                                    popExitTransition = {
+                                         fadeOut(tween(150))
+                                    }
+                                ) {
+                                    NativeBackupPage(
+                                        onBack = { navController.popBackStack() }
+                                    )
+                                }
+                                composable(
+                                    "NativeBlocklistPage",
+                                    enterTransition = {
+                                         fadeIn(tween(150))
+                                    },
+                                    popExitTransition = {
+                                         fadeOut(tween(150))
+                                    }
+                                ) {
+                                    NativeBlocklistPage(
+                                        onBack = { navController.popBackStack() }
+                                    )
+                                }
+                                composable(
                                     "ReaderPage/{passageUrl}",
                                     arguments = listOf(navArgument("passageUrl") {
                                         type = NavType.StringType
                                     }),
                                     enterTransition = {
-                                        slideIntoContainer(
-                                            towards = AnimatedContentTransitionScope.SlideDirection.Left,
-                                            animationSpec = tween(enterDuration, easing = enterEasing)
-                                        )
+                                         fadeIn(tween(150))
                                     },
                                     popExitTransition = {
-                                        slideOutOfContainer(
-                                            towards = AnimatedContentTransitionScope.SlideDirection.Right,
-                                            animationSpec = tween(exitDuration, easing = exitEasing)
-                                        )
+                                         fadeOut(tween(150))
                                     }
                                 ) {
                                     it.arguments?.getString("passageUrl")?.let { url ->
@@ -1104,27 +1179,18 @@ fun App(webChromeClient: WebChromeClient) {
                                 composable(
                                     route = "HistoryPage",
                                     enterTransition = {
-                                        slideIntoContainer(
-                                            towards = AnimatedContentTransitionScope.SlideDirection.Left,
-                                            animationSpec = tween(enterDuration, easing = enterEasing)
-                                        )
+                                         fadeIn(tween(150))
                                     },
                                     exitTransition = {
                                         if (targetState.destination.route?.startsWith("MineHistoryPostPage") == true) {
-                                            slideOutHorizontally(
-                                                targetOffsetX = { -it / 3 },
-                                                animationSpec = tween(enterDuration, easing = enterEasing)
-                                            )
+                                             fadeOut(tween(150))
                                         } else {
                                             fadeOut(tween(150))
                                         }
                                     },
                                     popEnterTransition = {
                                         if (initialState.destination.route?.startsWith("MineHistoryPostPage") == true) {
-                                            slideInHorizontally(
-                                                initialOffsetX = { -it / 3 },
-                                                animationSpec = tween(exitDuration, easing = exitEasing)
-                                            )
+                                             fadeIn(tween(150))
                                         } else {
                                             fadeIn(tween(150))
                                         }
@@ -1135,10 +1201,7 @@ fun App(webChromeClient: WebChromeClient) {
                                             // 保留 MineHistoryPostPage -> HistoryPage 的抽屉感，但彻底避免最终退出时历史界面残留。
                                             ExitTransition.None
                                         } else {
-                                            slideOutOfContainer(
-                                                towards = AnimatedContentTransitionScope.SlideDirection.Right,
-                                                animationSpec = tween(exitDuration, easing = exitEasing)
-                                            )
+                                             fadeOut(tween(150))
                                         }
                                     }
                                 ) {
@@ -1178,22 +1241,13 @@ fun App(webChromeClient: WebChromeClient) {
                                     route = "MineHistoryPostPage?url={url}",
                                     arguments = listOf(navArgument("url") { defaultValue = "" }),
                                     enterTransition = {
-                                        slideIntoContainer(
-                                            towards = AnimatedContentTransitionScope.SlideDirection.Left,
-                                            animationSpec = tween(enterDuration, easing = enterEasing)
-                                        )
+                                         fadeIn(tween(150))
                                     },
                                     exitTransition = {
                                         val targetRoute = targetState.destination.route
                                         when {
                                             targetRoute?.startsWith("ReaderPage") == true -> {
-                                                slideOutHorizontally(
-                                                    targetOffsetX = { -it / 3 },
-                                                    animationSpec = tween(
-                                                        enterDuration,
-                                                        easing = enterEasing
-                                                    )
-                                                )
+                                                 fadeOut(tween(150))
                                             }
                                             targetRoute?.startsWith("NativeMangaPage") == true -> {
                                                 ExitTransition.None
@@ -1207,10 +1261,7 @@ fun App(webChromeClient: WebChromeClient) {
                                         val initialRoute = initialState.destination.route
                                         when {
                                             initialRoute?.startsWith("ReaderPage") == true -> {
-                                                slideInHorizontally(
-                                                    initialOffsetX = { -it / 3 },
-                                                    animationSpec = tween(exitDuration, easing = exitEasing)
-                                                )
+                                                 fadeIn(tween(150))
                                             }
                                             initialRoute?.startsWith("NativeMangaPage") == true -> {
                                                 EnterTransition.None
@@ -1221,10 +1272,7 @@ fun App(webChromeClient: WebChromeClient) {
                                         }
                                     },
                                     popExitTransition = {
-                                        slideOutOfContainer(
-                                            towards = AnimatedContentTransitionScope.SlideDirection.Right,
-                                            animationSpec = tween(exitDuration, easing = exitEasing)
-                                        )
+                                         fadeOut(tween(150))
                                     }
                                 ) { backStackEntry ->
                                     val url = URLDecoder.decode(backStackEntry.arguments?.getString("url") ?: "", "utf-8")
@@ -1263,26 +1311,12 @@ fun App(webChromeClient: WebChromeClient) {
                                         navArgument("originalUrl") { defaultValue = "" }
                                     ),
                                     enterTransition = {
-                                        scaleIn(
-                                            initialScale = 0.50f,
-                                            animationSpec = tween(300, easing = FastOutSlowInEasing)
-                                        ) + fadeIn(
-                                            animationSpec = tween(
-                                                300,
-                                                easing = FastOutSlowInEasing
-                                            )
-                                        )
+                                         fadeIn(tween(150))
                                     },
                                     exitTransition = { ExitTransition.None },
                                     popEnterTransition = { EnterTransition.None },
                                     popExitTransition = {
-                                        scaleOut(
-                                            targetScale = 0.8f,
-                                            animationSpec = tween(250, easing = FastOutSlowInEasing)
-                                        ) + fadeOut(
-                                            targetAlpha = 0.01f,
-                                            animationSpec = tween(250, easing = FastOutSlowInEasing)
-                                        )
+                                         fadeOut(tween(150))
                                     }
                                 ) { backStackEntry ->
                                     val url = backStackEntry.arguments?.getString("url") ?: ""
@@ -1308,6 +1342,13 @@ fun App(webChromeClient: WebChromeClient) {
                                     }
                                 )
                             }
+                            LegacyMigrationNoticeDialog(
+                                onOpenBackup = {
+                                    navController.navigate("NativeBackupPage") {
+                                        launchSingleTop = true
+                                    }
+                                }
+                            )
                         }
                     }
                 } else {
@@ -1318,7 +1359,7 @@ fun App(webChromeClient: WebChromeClient) {
                         contentAlignment = Alignment.Center
                     ) {
                         CircularProgressIndicator(
-                            color = darkThemeColor(YamiboColors.secondary) { surfaceVariant }
+                            color = MaterialTheme.colorScheme.primary
                         )
                     }
                 } // isAppInitialized else 结束
