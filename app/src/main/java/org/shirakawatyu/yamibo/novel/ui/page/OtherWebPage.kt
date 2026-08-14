@@ -87,6 +87,9 @@ import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.util.ActivityWebViewLifecycleObserver
 import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
+import org.shirakawatyu.yamibo.novel.util.CookieUtil
+import org.shirakawatyu.yamibo.novel.util.AccountSyncManager
+import org.shirakawatyu.yamibo.novel.util.YamiboSession
 import org.shirakawatyu.yamibo.novel.ui.widget.YamiboToast
 import kotlin.text.Charsets
 import org.shirakawatyu.yamibo.novel.util.PageJsScripts
@@ -128,7 +131,8 @@ private var cachedFullscreenApiOther: FullscreenApiOther? = null
 fun OtherWebPage(
     url: String,
     navController: NavController,
-    webChromeClient: WebChromeClient
+    webChromeClient: WebChromeClient,
+    returnToNativeMineAfterLogin: Boolean = false
 ) {
     val appTheme by GlobalData.appTheme.collectAsState()
     val isDarkMode = appTheme.isDark
@@ -136,6 +140,13 @@ fun OtherWebPage(
     SetStatusBarColor(statusColor)
     val finalUrl = remember(url) {
         if (url.startsWith("http")) url else "${RequestConfig.BASE_URL}/$url"
+    }
+    val returnsToNativeMineSignStatus = remember(finalUrl) {
+        finalUrl.contains("plugin.php?id=zqlj_sign")
+    }
+    val returnsToNativeMineMessageStatus = remember(finalUrl) {
+        finalUrl.contains("home.php?mod=space") &&
+            (finalUrl.contains("do=pm") || finalUrl.contains("do=notice"))
     }
     var canGoBack by remember { mutableStateOf(false) }
     var baseIndex by remember { mutableIntStateOf(-1) }
@@ -147,6 +158,7 @@ fun OtherWebPage(
     var currentUrl by remember { mutableStateOf<String?>(null) }
     var pageTitle by remember { mutableStateOf("") }
     var autoOpenMangaMode by remember { mutableStateOf(false) }
+    var nativeLoginCompleted by rememberSaveable { mutableStateOf(false) }
 
     val mangaDirVM: MangaDirectoryVM = viewModel(
         factory = ViewModelFactory(LocalContext.current.applicationContext)
@@ -159,6 +171,16 @@ fun OtherWebPage(
         viewModel(viewModelStoreOwner = context as ComponentActivity)
 
     val performExit = {
+        if (returnsToNativeMineSignStatus) {
+            navController.previousBackStackEntry
+                ?.savedStateHandle
+                ?.set(NATIVE_MINE_SIGN_RESULT_KEY, true)
+        }
+        if (returnsToNativeMineMessageStatus) {
+            navController.previousBackStackEntry
+                ?.savedStateHandle
+                ?.set(NATIVE_MINE_MESSAGE_RESULT_KEY, true)
+        }
         val window = activity?.window
         if (window != null) {
             val controller = WindowCompat.getInsetsController(window, view)
@@ -279,6 +301,30 @@ fun OtherWebPage(
             )
             this.webChromeClient = webChromeClient
             YamiboWebViewClient.setupDownloadListener(this)
+        }
+    }
+    val completeNativeLogin: (String) -> Unit = { cookie ->
+        if (!nativeLoginCompleted) {
+            nativeLoginCompleted = true
+            CookieUtil.saveCookie(cookie)
+            scope.launch(Dispatchers.IO) {
+                AccountSyncManager.syncCookieAndCheckSign(context, "NATIVE_LOGIN")
+            }
+            navController.previousBackStackEntry
+                ?.savedStateHandle
+                ?.set(NATIVE_MINE_LOGIN_RESULT_KEY, true)
+            navController.popBackStack()
+        }
+    }
+    LaunchedEffect(returnToNativeMineAfterLogin, nativeLoginCompleted) {
+        if (!returnToNativeMineAfterLogin || nativeLoginCompleted) return@LaunchedEffect
+        while (true) {
+            val cookie = YamiboSession.cookieFor(finalUrl)
+            if (YamiboSession.hasAuthenticationCookie(cookie)) {
+                completeNativeLogin(cookie)
+                return@LaunchedEffect
+            }
+            delay(500)
         }
     }
     LaunchedEffect(appTheme) {
@@ -600,6 +646,13 @@ fun OtherWebPage(
 
             override fun onPageFinished(view: WebView?, finishedUrl: String?) {
                 super.onPageFinished(view, finishedUrl)
+                if (returnToNativeMineAfterLogin && !nativeLoginCompleted) {
+                    val cookie = YamiboSession.cookieFor(finishedUrl ?: finalUrl)
+                    if (YamiboSession.hasAuthenticationCookie(cookie)) {
+                        completeNativeLogin(cookie)
+                        return
+                    }
+                }
                 if (!isHistoryCleared) {
                     view?.clearHistory()
                     isHistoryCleared = true

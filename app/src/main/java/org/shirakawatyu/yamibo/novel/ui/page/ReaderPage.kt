@@ -952,7 +952,13 @@ fun ReaderPage(
                             }
                             // 顶栏只显示当前目录章节名，与章节目录保持一致。
                             Column(
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable {
+                                        returnToOriginalPost()
+                                        showSettings = false
+                                    }
+                                    .padding(horizontal = 8.dp, vertical = 12.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
                                 Text(
@@ -979,19 +985,6 @@ fun ReaderPage(
                                     } else {
                                         MaterialTheme.colorScheme.outline
                                     }
-                                )
-                            }
-                            TextButton(
-                                onClick = {
-                                    returnToOriginalPost()
-                                    showSettings = false
-                                }
-                            ) {
-                                Text(
-                                    text = "原帖",
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Bold
                                 )
                             }
                         }

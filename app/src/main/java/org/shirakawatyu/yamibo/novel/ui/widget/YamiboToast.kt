@@ -1,6 +1,9 @@
 package org.shirakawatyu.yamibo.novel.ui.widget
 
 import android.content.Context
+import android.graphics.drawable.ColorDrawable
+import android.view.Gravity
+import android.view.WindowManager
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -24,6 +27,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,11 +35,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.zIndex
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
@@ -188,24 +195,48 @@ fun YamiboToastHost(modifier: Modifier = Modifier) {
         }
     }
 
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .zIndex(220f),
-        contentAlignment = Alignment.BottomCenter
-    ) {
-        val event = displayedEvent
-        androidx.compose.animation.AnimatedVisibility(
-            visible = visible && event != null,
-            enter = fadeIn(animationSpec = tween(200)) +
-                    slideInVertically(initialOffsetY = { 30 }),
-            exit = fadeOut(animationSpec = tween(500)),
-            modifier = Modifier
-                .padding(WindowInsets.navigationBars.asPaddingValues())
-                .padding(start = 24.dp, end = 24.dp, bottom = 28.dp)
+    displayedEvent?.let { event ->
+        // AlertDialog 使用独立窗口，普通布局的 zIndex 无法盖在它上面。
+        // 这里用透明且不拦截触摸的窗口承载胶囊，始终浮在任意页面/弹窗最上层。
+        Dialog(
+            onDismissRequest = {},
+            properties = DialogProperties(
+                dismissOnBackPress = false,
+                dismissOnClickOutside = false,
+                usePlatformDefaultWidth = false
+            )
         ) {
-            event?.let { toast ->
-                YamiboToastPill(message = toast.message)
+            val window = (LocalView.current.parent as? DialogWindowProvider)?.window
+            SideEffect {
+                window?.apply {
+                    clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+                    addFlags(
+                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                    )
+                    setBackgroundDrawable(ColorDrawable(android.graphics.Color.TRANSPARENT))
+                    setLayout(
+                        WindowManager.LayoutParams.MATCH_PARENT,
+                        WindowManager.LayoutParams.MATCH_PARENT
+                    )
+                    setGravity(Gravity.BOTTOM)
+                }
+            }
+            Box(
+                modifier = modifier.fillMaxSize(),
+                contentAlignment = Alignment.BottomCenter
+            ) {
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = visible,
+                    enter = fadeIn(animationSpec = tween(200)) +
+                            slideInVertically(initialOffsetY = { 30 }),
+                    exit = fadeOut(animationSpec = tween(500)),
+                    modifier = Modifier
+                        .padding(WindowInsets.navigationBars.asPaddingValues())
+                        .padding(start = 24.dp, end = 24.dp, bottom = 28.dp)
+                ) {
+                    YamiboToastPill(message = event.message)
+                }
             }
         }
     }

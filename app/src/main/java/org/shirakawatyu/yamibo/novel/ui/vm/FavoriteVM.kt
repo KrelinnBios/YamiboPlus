@@ -413,7 +413,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
 
         val supportedOnly = pendingFiltered.filter { favorite ->
             when (favorite.type) {
-                0 -> true
+                0, 3 -> true
                 1, 2 -> FavoriteTypeResolver.reliableType(favorite) == favorite.type
                 else -> false
             }
@@ -429,7 +429,8 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
         val categoryCounts = mapOf(
             -1 to supportedOnly.size,
             1 to supportedOnly.count { it.type == 1 },
-            2 to supportedOnly.count { it.type == 2 }
+            2 to supportedOnly.count { it.type == 2 },
+            3 to supportedOnly.count { it.type == 3 }
         )
 
         _uiState.update {
@@ -1273,18 +1274,19 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
     /**
      * 下拉刷新后的批量更新检查。
      *
-     * @param categoryType 当前展示的分类：1 只查小说、2 只查漫画，其余值查全部（小说+漫画）。
+     * @param categoryType 当前展示的分类：1 只查小说、2 只查漫画、3 只查其他，其余值查全部。
      * 结果不再走 YamiboToast，而是写入 [FavoriteState.batchRefreshResult]，
      * 由收藏页底部同一个胶囊展示（与“正在刷新”同位置同样式，仅文字不同）。
      */
     fun checkAllFavoritesForUpdates(categoryType: Int = -1) {
         val items = allFavorites.filter { favorite ->
-            favorite.type in 1..2 && (categoryType !in 1..2 || favorite.type == categoryType)
+            favorite.type in 1..3 && (categoryType !in 1..3 || favorite.type == categoryType)
         }
         val checkedUrls = items.map { it.url }.toSet()
         val scopeLabel = when (categoryType) {
             1 -> "小说"
             2 -> "漫画"
+            3 -> "其他收藏"
             else -> "收藏"
         }
         UpdateCheckEngine.ensureInit(applicationContext)
@@ -1347,7 +1349,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
     fun retryFailedUpdateChecks() {
         val failedUrls = _uiState.value.failedUpdateUrls
         val items = allFavorites.filter { favorite ->
-            favorite.url in failedUrls && favorite.type in 1..2
+            favorite.url in failedUrls && favorite.type in 1..3
         }
         val retryUrls = items.map { it.url }.toSet()
         UpdateCheckEngine.ensureInit(applicationContext)

@@ -26,5 +26,19 @@ class ForumActionUrlsTest {
             "https://bbs.yamibo.com/home.php?mod=space&uid=10086&do=doing&view=me&mobile=2",
             ForumActionUrls.userSpace("10086", "doing")
         )
+        assertEquals(
+            "https://bbs.yamibo.com/home.php?mod=spacecp&ac=credit&op=log&mobile=2",
+            ForumActionUrls.creditLog
+        )
+        assertEquals(
+            "https://bbs.yamibo.com/home.php?mod=space&do=pm&page=1&mobile=2",
+            ForumActionUrls.messages
+        )
+        assertEquals(
+            "https://bbs.yamibo.com/home.php?mod=space&do=notice&mobile=2",
+            ForumActionUrls.reminders
+        )
+        assertEquals(ForumActionUrls.messages, ForumActionUrls.messageCenter(hasNewPrompt = false))
+        assertEquals(ForumActionUrls.reminders, ForumActionUrls.messageCenter(hasNewPrompt = true))
     }
 }

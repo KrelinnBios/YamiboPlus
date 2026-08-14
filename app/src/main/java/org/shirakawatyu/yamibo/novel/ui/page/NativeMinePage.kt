@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,11 +19,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
@@ -43,23 +42,24 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.LastBaseline
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
-import kotlinx.coroutines.launch
 import org.shirakawatyu.yamibo.novel.R
 import org.shirakawatyu.yamibo.novel.bean.forum.UserProfile
 import org.shirakawatyu.yamibo.novel.ui.component.YamiboLoadError
@@ -71,6 +71,10 @@ import org.shirakawatyu.yamibo.novel.util.AutoSignManager
 import org.shirakawatyu.yamibo.novel.util.TodaySignStatus
 import org.shirakawatyu.yamibo.novel.util.LanguageModeUtil
 
+internal const val NATIVE_MINE_LOGIN_RESULT_KEY = "native_mine_login_succeeded"
+internal const val NATIVE_MINE_SIGN_RESULT_KEY = "native_mine_sign_returned"
+internal const val NATIVE_MINE_MESSAGE_RESULT_KEY = "native_mine_message_returned"
+
 @Composable
 fun NativeMinePage(
     navController: NavController,
@@ -81,20 +85,57 @@ fun NativeMinePage(
     )
 ) {
     val state by viewModel.uiState.collectAsState()
+    val loginSucceeded by navController.currentBackStackEntry
+        ?.savedStateHandle
+        ?.getStateFlow(NATIVE_MINE_LOGIN_RESULT_KEY, false)
+        ?.collectAsState()
+        ?: remember { mutableStateOf(false) }
+    val signPageReturned by navController.currentBackStackEntry
+        ?.savedStateHandle
+        ?.getStateFlow(NATIVE_MINE_SIGN_RESULT_KEY, false)
+        ?.collectAsState()
+        ?: remember { mutableStateOf(false) }
+    val messagePageReturned by navController.currentBackStackEntry
+        ?.savedStateHandle
+        ?.getStateFlow(NATIVE_MINE_MESSAGE_RESULT_KEY, false)
+        ?.collectAsState()
+        ?: remember { mutableStateOf(false) }
     val componentColors = yamiboComponentColors()
     val headerColor = componentColors.topBarContainer
     val headerContent = componentColors.topBarContent
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val syncedTodaySignStatus by AutoSignManager.todaySignStatus.collectAsState()
     var todaySignStatus by remember { mutableStateOf<TodaySignStatus?>(null) }
-    var isSigning by remember { mutableStateOf(false) }
     val scrollState = rememberScrollState()
     val lastSignStatusRefreshUid = rememberSaveable { mutableStateOf<String?>(null) }
     val lastSignStatusRefreshDate = rememberSaveable { mutableStateOf("") }
 
     LaunchedEffect(syncedTodaySignStatus) {
         syncedTodaySignStatus?.let { todaySignStatus = it }
+    }
+    LaunchedEffect(loginSucceeded) {
+        if (loginSucceeded) {
+            navController.currentBackStackEntry
+                ?.savedStateHandle
+                ?.set(NATIVE_MINE_LOGIN_RESULT_KEY, false)
+            viewModel.refreshProfile()
+        }
+    }
+    LaunchedEffect(signPageReturned) {
+        if (signPageReturned) {
+            navController.currentBackStackEntry
+                ?.savedStateHandle
+                ?.set(NATIVE_MINE_SIGN_RESULT_KEY, false)
+            todaySignStatus = AutoSignManager.getTodaySignStatus(forceRefresh = true)
+        }
+    }
+    LaunchedEffect(messagePageReturned) {
+        if (messagePageReturned) {
+            navController.currentBackStackEntry
+                ?.savedStateHandle
+                ?.set(NATIVE_MINE_MESSAGE_RESULT_KEY, false)
+            viewModel.refreshProfile()
+        }
     }
 
     LaunchedEffect(state.profile?.uid) {
@@ -111,7 +152,12 @@ fun NativeMinePage(
         }
         lastSignStatusRefreshUid.value = uid
         lastSignStatusRefreshDate.value = today
-        todaySignStatus = AutoSignManager.getTodaySignStatus()
+        val cachedStatus = AutoSignManager.getTodaySignStatus()
+        todaySignStatus = if (cachedStatus == TodaySignStatus.SIGNED) {
+            cachedStatus
+        } else {
+            AutoSignManager.getTodaySignStatus(forceRefresh = true)
+        }
     }
     LaunchedEffect(bottomNavBarVM) {
         bottomNavBarVM.scrollToTopEvent.collect { index ->
@@ -178,43 +224,38 @@ fun NativeMinePage(
                     state.profile?.let { profile ->
                         UserProfileCard(
                             profile = profile,
-                            state = state,
                             signStatus = todaySignStatus,
-                            isSigning = isSigning,
                             onOpenProfile = {
                                 val profileUrl =
                                     "https://bbs.yamibo.com/home.php?mod=space" +
                                         "&uid=${profile.uid}&do=profile&mobile=2"
                                 navController.navigate("OtherWebPage/${Uri.encode(profileUrl)}")
                             },
-                            onSignIn = {
-                                if (!isSigning) {
-                                    isSigning = true
-                                    scope.launch {
-                                        AutoSignManager.checkAndSignIfNeeded(context, force = true)
-                                         todaySignStatus = AutoSignManager.getTodaySignStatus(forceRefresh = true)
-                                        // 手动打卡后让下次进入页面再主动刷新一次缓存
-                                        lastSignStatusRefreshDate.value = ""
-                                        isSigning = false
-                                    }
-                                }
+                            onOpenSignInPage = {
+                                val signInUrl = "https://bbs.yamibo.com/plugin.php?id=zqlj_sign&mobile=2"
+                                navController.navigate("OtherWebPage/${Uri.encode(signInUrl)}")
                             },
                             onOpenSpaceSection = { section ->
                                 navController.navigate(
                                     "OtherWebPage/${Uri.encode(ForumActionUrls.userSpace(profile.uid, section))}"
                                 )
+                            },
+                            onOpenCredits = {
+                                navController.navigate("OtherWebPage/${Uri.encode(ForumActionUrls.creditLog)}")
+                            },
+                            onOpenMessages = {
+                                val target = ForumActionUrls.messageCenter(profile.hasNewPrompt)
+                                navController.navigate("OtherWebPage/${Uri.encode(target)}")
+                            },
+                            onOpenUserGroup = {
+                                val userGroupUrl = "https://bbs.yamibo.com/home.php?mod=spacecp&ac=usergroup&mobile=no"
+                                navController.navigate("OtherWebPage/${Uri.encode(userGroupUrl)}")
                             }
                         )
-                    } ?: NotLoggedInCard()
-
-                    if (state.profile == null) {
-                        Button(
-                            onClick = onOpenLogin,
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Text(LanguageModeUtil.displayText("登录百合会论坛"))
-                        }
+                    } ?: if (state.isLoggedIn) {
+                        LoggedInProfilePendingCard(onRetry = viewModel::refreshProfile)
+                    } else {
+                        NotLoggedInCard(onOpenLogin)
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
@@ -268,7 +309,7 @@ fun NativeMinePage(
 
                     Spacer(modifier = Modifier.height(24.dp))
 
-                    if (state.profile != null) {
+                    if (state.isLoggedIn) {
                         Button(
                             onClick = { viewModel.logout() },
                             modifier = Modifier
@@ -292,13 +333,16 @@ fun NativeMinePage(
 @Composable
 private fun UserProfileCard(
     profile: UserProfile,
-    state: MinePageState,
     signStatus: TodaySignStatus?,
-    isSigning: Boolean,
     onOpenProfile: () -> Unit,
-    onSignIn: () -> Unit,
-    onOpenSpaceSection: (String) -> Unit
+    onOpenSignInPage: () -> Unit,
+    onOpenSpaceSection: (String) -> Unit,
+    onOpenCredits: () -> Unit,
+    onOpenMessages: () -> Unit,
+    onOpenUserGroup: () -> Unit
 ) {
+    val totalCredits = profile.totalCredits.takeIf { it > 0 } ?: profile.credits
+    val avatarShape = RoundedCornerShape(6.dp)
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -307,131 +351,203 @@ private fun UserProfileCard(
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         shadowElevation = 2.dp
     ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            // Avatar
-            AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
-                    .data(profile.avatarUrl)
-                    .crossfade(true)
-                    .build(),
-                contentDescription = "打开个人资料",
-                modifier = Modifier
-                    .size(80.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.outlineVariant)
-                    .clickable(onClick = onOpenProfile)
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Username
-            Text(
-                text = LanguageModeUtil.displayText(profile.username.ifEmpty { "未登录" }),
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-
-            // Group
-            if (!profile.groupTitle.isNullOrEmpty()) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = LanguageModeUtil.displayText(profile.groupTitle),
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            Button(
-                onClick = onSignIn,
-                enabled = !isSigning,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(10.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-            ) {
-                if (isSigning) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(17.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                } else {
-                    Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(17.dp))
-                }
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    when (signStatus) {
-                        TodaySignStatus.SIGNED -> LanguageModeUtil.displayText("今日已签到")
-                        TodaySignStatus.NOT_SIGNED -> LanguageModeUtil.displayText("今日尚未签到")
-                        TodaySignStatus.UNKNOWN, null -> LanguageModeUtil.displayText("\u4eca\u65e5\u672a\u7b7e\u5230")
-                    }
-                )
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
+        Column(modifier = Modifier.padding(16.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly
+                verticalAlignment = Alignment.Top
             ) {
-                StatItem(LanguageModeUtil.displayText("\u79ef\u5206"), profile.credits.toString())
-                StatItem(
-                    label = LanguageModeUtil.displayText("\u4e3b\u9898"),
-                    value = profile.threads.toString(),
-                    onClick = { onOpenSpaceSection("thread") }
-                )
-                StatItem(
-                    label = LanguageModeUtil.displayText("\u56de\u590d"),
-                    value = profile.posts.toString(),
-                    onClick = { onOpenSpaceSection("reply") }
-                )
-                StatItem(
-                    label = LanguageModeUtil.displayText("\u65e5\u5fd7"),
-                    value = "\u67e5\u770b",
-                    onClick = { onOpenSpaceSection("blog") }
-                )
-                StatItem(
-                    label = LanguageModeUtil.displayText("\u8bb0\u5f55"),
-                    value = "\u67e5\u770b",
-                    onClick = { onOpenSpaceSection("doing") }
-                )
+                Surface(
+                    modifier = Modifier.size(120.dp).clickable(onClick = onOpenSignInPage),
+                    shape = avatarShape,
+                    color = MaterialTheme.colorScheme.surface,
+                    border = BorderStroke(
+                        if (signStatus == TodaySignStatus.SIGNED) 3.dp else 2.dp,
+                        if (signStatus == TodaySignStatus.SIGNED) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.outlineVariant
+                        }
+                    )
+                ) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current).data(profile.avatarUrl).crossfade(true).build(),
+                        contentDescription = "打开签到页面",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize().clip(avatarShape)
+                    )
+                }
+                Spacer(Modifier.width(14.dp))
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        ProfileActionButton(
+                            text = "消息",
+                            onClick = onOpenMessages,
+                            modifier = Modifier.weight(1f),
+                            showNewBadge = profile.hasNewMessage
+                        )
+                        ProfileActionButton("好友", { onOpenSpaceSection("friend") }, Modifier.weight(1f))
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        ProfileActionButton("主题", { onOpenSpaceSection("thread") }, Modifier.weight(1f))
+                        ProfileActionButton("回复", { onOpenSpaceSection("reply") }, Modifier.weight(1f))
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        ProfileActionButton("日志", { onOpenSpaceSection("blog") }, Modifier.weight(1f))
+                        ProfileActionButton("记录", { onOpenSpaceSection("doing") }, Modifier.weight(1f))
+                    }
+                }
+            }
+            Spacer(Modifier.height(20.dp))
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier
+                        .width(120.dp)
+                        .alignBy(LastBaseline),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    ProfileTextLink(
+                        text = profile.username.ifEmpty { "未登录" },
+                        color = MaterialTheme.colorScheme.primary,
+                        fontSize = 18.sp,
+                        bold = true,
+                        onClick = onOpenProfile
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    ProfileTextLink(
+                        text = profile.groupTitle?.ifEmpty { "未设置" } ?: "未设置",
+                        color = MaterialTheme.colorScheme.secondary,
+                        bold = true,
+                        onClick = onOpenUserGroup
+                    )
+                }
+                Spacer(Modifier.width(14.dp))
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .alignBy(LastBaseline)
+                ) {
+                    ProfileStatText(
+                        totalCredits.toString(),
+                        "总积分",
+                        onOpenCredits,
+                        Modifier.weight(1f).alignBy(LastBaseline)
+                    )
+                    ProfileStatText(
+                        profile.credits.toString(),
+                        "积分",
+                        onOpenCredits,
+                        Modifier.weight(1f).alignBy(LastBaseline)
+                    )
+                    ProfileStatText(
+                        profile.partner.toString(),
+                        "对象",
+                        onOpenCredits,
+                        Modifier.weight(1f).alignBy(LastBaseline)
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-private fun StatItem(label: String, value: String, onClick: (() -> Unit)? = null) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+private fun ProfileTextLink(
+    text: String,
+    onClick: () -> Unit,
+    color: androidx.compose.ui.graphics.Color,
+    fontSize: TextUnit = 14.sp,
+    bold: Boolean = false
+) {
+    Text(
+        text = LanguageModeUtil.displayText(text),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        color = color,
+        fontSize = fontSize,
+        fontWeight = if (bold) FontWeight.Bold else FontWeight.Medium,
+        textAlign = TextAlign.Center,
+        maxLines = 1
+    )
+}
+
+@Composable
+private fun ProfileStatText(
+    value: String,
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .clickable(onClick = onClick)
+            .padding(vertical = 5.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
         Text(
             text = value,
-            modifier = if (onClick == null) Modifier else Modifier.clickable(onClick = onClick),
-            fontSize = 18.sp,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary
+            color = MaterialTheme.colorScheme.onSurface,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1
         )
         Text(
-            text = label,
-            fontSize = 12.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            text = LanguageModeUtil.displayText(label),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 11.sp,
+            maxLines = 1
         )
     }
 }
 
 @Composable
-private fun NotLoggedInCard() {
+private fun ProfileActionButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    showNewBadge: Boolean = false
+) {
+    Box(modifier = modifier.height(34.dp)) {
+        Surface(
+            modifier = Modifier.fillMaxSize().clickable(onClick = onClick),
+            shape = RoundedCornerShape(8.dp),
+            color = MaterialTheme.colorScheme.surface,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(
+                    text = LanguageModeUtil.displayText(text),
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1
+                )
+            }
+        }
+        if (showNewBadge) {
+            Text(
+                text = "NEW",
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 2.dp, end = 4.dp),
+                color = MaterialTheme.colorScheme.error,
+                fontSize = 8.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1
+            )
+        }
+    }
+}
+
+@Composable
+private fun NotLoggedInCard(onOpenLogin: () -> Unit) {
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(12.dp),
+            .padding(12.dp)
+            .clickable(onClick = onOpenLogin),
         shape = RoundedCornerShape(14.dp),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         shadowElevation = 2.dp
@@ -450,10 +566,46 @@ private fun NotLoggedInCard() {
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = LanguageModeUtil.displayText("请先登录账号"),
+                text = LanguageModeUtil.displayText("点击登录百合会论坛"),
                 fontSize = 14.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+        }
+    }
+}
+
+@Composable
+private fun LoggedInProfilePendingCard(onRetry: () -> Unit) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(12.dp),
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        shadowElevation = 2.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .padding(24.dp)
+                .fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = LanguageModeUtil.displayText("已登录"),
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = LanguageModeUtil.displayText("个人资料暂未同步"),
+                fontSize = 14.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Button(onClick = onRetry) {
+                Text(LanguageModeUtil.displayText("重新同步"))
+            }
         }
     }
 }

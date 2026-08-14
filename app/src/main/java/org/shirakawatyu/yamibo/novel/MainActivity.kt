@@ -976,11 +976,7 @@ fun App(webChromeClient: WebChromeClient) {
                                             navController = navController,
                                             bottomNavBarVM = bottomNavBarVM,
                                             onOpenLogin = {
-                                                navController.navigate(
-                                                    "OtherWebPage/" + Uri.encode(
-                                                        "https://bbs.yamibo.com/member.php?mod=logging&action=login&mobile=2"
-                                                    )
-                                                )
+                                                navController.navigate("ForumLoginPage")
                                             }
                                         )
                                         Box(
@@ -1168,6 +1164,16 @@ fun App(webChromeClient: WebChromeClient) {
                                             )
                                         }
                                     }
+                                }
+                                composable(
+                                    "ForumLoginPage"
+                                ) {
+                                    OtherWebPage(
+                                        url = "https://bbs.yamibo.com/member.php?mod=logging&action=login&mobile=2",
+                                        navController = navController,
+                                        webChromeClient = webChromeClient,
+                                        returnToNativeMineAfterLogin = true
+                                    )
                                 }
                                 composable(
                                     "OtherWebPage/{url}",

@@ -91,7 +91,11 @@ class ForumVM(
                             isLoading = false
                         )
                         is org.shirakawatyu.yamibo.novel.bean.forum.ForumThreadPage -> state.copy(
-                            selectedForum = result.forum.copy(headImageUrl = result.forum.headImageUrl ?: state.selectedForum?.headImageUrl),
+                            selectedForum = result.forum.copy(
+                                headImageUrl = result.forum.headImageUrl ?: state.selectedForum?.headImageUrl,
+                                todayPostCount = result.forum.todayPostCount,
+                                rank = result.forum.rank ?: state.selectedForum?.rank
+                            ),
                             threads = result.threads.distinctBy { it.id },
                             page = result.page,
                             totalPages = result.totalPages,
@@ -146,7 +150,12 @@ class ForumVM(
                 if (version != requestVersion || _uiState.value.selectedForum?.id != forum.id) return@onSuccess
                 _uiState.update {
                     it.copy(
-                        selectedForum = result.forum.copy(headImageUrl = result.forum.headImageUrl ?: state.selectedForum?.headImageUrl),
+                        selectedForum = result.forum.copy(
+                            headImageUrl = result.forum.headImageUrl ?: forum.headImageUrl,
+                            todayPostCount = result.forum.todayPostCount.takeIf { count -> count > 0 }
+                                ?: forum.todayPostCount,
+                            rank = result.forum.rank ?: forum.rank
+                        ),
                         threads = result.threads.distinctBy { thread -> thread.id },
                         page = result.page,
                         totalPages = result.totalPages,
@@ -226,6 +235,38 @@ class ForumThreadVM(
 
     fun toggleReverseOrder() {
         _uiState.update { it.copy(reverseOrder = !it.reverseOrder) }
+    }
+
+    fun goToPage(targetPage: Int) {
+        val state = _uiState.value
+        val page = targetPage.coerceIn(1, state.totalPages.coerceAtLeast(1))
+        if (state.isLoading || (page == state.page && state.posts.isNotEmpty())) return
+        val version = ++requestVersion
+        _uiState.update { it.copy(isLoading = true, isLoadingMore = false, error = null) }
+        viewModelScope.launch(Dispatchers.IO) {
+            val authorId = state.takeIf { it.onlyOriginalPoster }?.thread?.author?.id
+            runCatching { repository.getPosts(threadId, page, authorId) }
+                .onSuccess { result ->
+                    if (version != requestVersion) return@onSuccess
+                    _uiState.update {
+                        it.copy(
+                            thread = result.thread,
+                            posts = result.posts.distinctBy { post -> post.id },
+                            page = result.page,
+                            totalPages = result.totalPages,
+                            hasMore = result.hasMore,
+                            isLoading = false
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    if (error is CancellationException) throw error
+                    if (version != requestVersion) return@onFailure
+                    _uiState.update {
+                        it.copy(isLoading = false, error = threadError(error))
+                    }
+                }
+        }
     }
 
     fun loadMore() {

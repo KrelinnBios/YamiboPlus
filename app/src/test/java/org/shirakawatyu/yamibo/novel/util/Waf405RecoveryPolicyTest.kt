@@ -59,6 +59,46 @@ class Waf405RecoveryPolicyTest {
     }
 
     @Test
+    fun probeFailureAfterChallengeInvalidatesNoxAndRecordsRetryableError() {
+        val action = Waf405RecoveryPolicy.postRefreshAction(probeSucceeded = false)
+
+        assertEquals(
+            Waf405RecoveryPolicy.PostRefreshAction.INVALIDATE_AFTER_PROBE_FAILURE,
+            action
+        )
+        assertTrue(action.shouldInvalidateNox)
+        assertEquals("WAF 探测未通过，等待下次挑战", action.errorLog)
+    }
+
+    @Test
+    fun replayedNoxChallengeInvalidatesNoxAndRecordsClearCredentialError() {
+        val action = Waf405RecoveryPolicy.postRefreshAction(
+            probeSucceeded = true,
+            replayStatusCode = 405,
+            replayBodyPreview = "<script>window.__noxExpire = 1</script>"
+        )
+
+        assertEquals(
+            Waf405RecoveryPolicy.PostRefreshAction.INVALIDATE_AFTER_REPLAY_CHALLENGE,
+            action
+        )
+        assertTrue(action.shouldInvalidateNox)
+        assertEquals("WAF 重放仍被拦截，已清凭证", action.errorLog)
+    }
+
+    @Test
+    fun acceptedReplayDoesNotInvalidateNoxOrRecordError() {
+        val action = Waf405RecoveryPolicy.postRefreshAction(
+            probeSucceeded = true,
+            replayStatusCode = 200
+        )
+
+        assertEquals(Waf405RecoveryPolicy.PostRefreshAction.CONTINUE, action)
+        assertFalse(action.shouldInvalidateNox)
+        assertNull(action.errorLog)
+    }
+
+    @Test
     fun staleNoxCookieIsRemovedWithoutDroppingLoginCookies() {
         assertEquals(
             "auth=token; sid=session",

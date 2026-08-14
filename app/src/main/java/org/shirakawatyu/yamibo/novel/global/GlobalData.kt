@@ -27,6 +27,8 @@ class GlobalData {
         var applicationContext: Context? = null
         var displayMetrics: DisplayMetrics? = null
         var currentCookie: String = ""
+        /** 每次退出登录递增，用于让常驻 WebView 丢弃其进程内旧 Cookie 缓存。 */
+        @Volatile var sessionGeneration: Long = 0L
         // 当前登录用户 uid，用于屏蔽功能排除自己发布的帖子/楼层。登录后本地持久化。
         var currentUid by mutableStateOf("")
         // 当前登录用户名和头像

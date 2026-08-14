@@ -15,6 +15,8 @@ import org.shirakawatyu.yamibo.novel.bean.forum.ForumPost
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumPostAttachment
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumPostAuthor
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumPostBlock
+import org.shirakawatyu.yamibo.novel.bean.forum.ForumPoll
+import org.shirakawatyu.yamibo.novel.bean.forum.ForumPollOption
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumPostPage
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumPostRating
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumPostRatingSummary
@@ -25,8 +27,17 @@ import org.shirakawatyu.yamibo.novel.bean.forum.ForumThreadPage
 import org.shirakawatyu.yamibo.novel.util.LanguageModeUtil
 import kotlin.math.ceil
 
+data class ForumPageMetadata(
+    val headImageUrl: String? = null,
+    val todayPostCount: Int? = null,
+    val threadCount: Int? = null,
+    val rank: Int? = null
+)
+
 object ForumApiParser {
     private const val FORUM_ORIGIN = "https://bbs.yamibo.com"
+    private val postEditTimeRegex =
+        Regex("""([0-9]{4}-[0-9]{1,2}-[0-9]{1,2}[ ]*[0-9]{1,2}:[0-9]{2})""")
     private val encodedHtmlTag = Regex(
         """</?([a-z][a-z0-9]*)(?:\s+[^<>]*?)?\s*/?>""",
         RegexOption.IGNORE_CASE
@@ -59,6 +70,25 @@ object ForumApiParser {
         }.filter { it.forums.isNotEmpty() }
 
         return ForumIndex(categories = categories)
+    }
+
+    fun parseFavoriteForums(rawJson: String): List<ForumBoard> {
+        val favoriteArray = variables(rawJson).getJSONArray("list") ?: return emptyList()
+        return favoriteArray.objects().mapNotNull { favorite ->
+            val id = favorite.stringValue("id")
+                ?: favorite.stringValue("fid")
+                ?: return@mapNotNull null
+            val name = cleanText(favorite.getString("title") ?: favorite.getString("name"))
+            if (name.isBlank()) return@mapNotNull null
+            ForumBoard(
+                id = id,
+                name = name,
+                description = cleanText(favorite.getString("description")),
+                threadCount = favorite.intValue("threads"),
+                postCount = favorite.intValue("posts"),
+                todayPostCount = favorite.intValue("todayposts")
+            )
+        }.distinctBy(ForumBoard::id)
     }
 
     fun parseForumBanners(rawHtml: String): List<ForumBanner> {
@@ -95,15 +125,30 @@ object ForumApiParser {
         }.distinctBy(ForumBanner::imageUrl)
     }
 
-    fun parseForumHeadImage(rawHtml: String): String? {
+    fun parseForumPageMetadata(rawHtml: String): ForumPageMetadata {
         val document = Jsoup.parse(rawHtml, "$FORUM_ORIGIN/")
         val image = document.selectFirst(
             "#forum > div.forum-headimg img[src], .forum-headimg img[src]"
-        ) ?: return null
-        return image.absUrl("src").ifBlank {
-            absoluteUrl(image.attr("src")).orEmpty()
-        }.takeIf(String::isNotBlank)
+        )
+        val headImageUrl = image?.let {
+            it.absUrl("src").ifBlank {
+                absoluteUrl(it.attr("src")).orEmpty()
+            }.takeIf(String::isNotBlank)
+        }
+        val statistics = document.selectFirst(".forumdisplay-top p")
+            ?.select("span")
+            .orEmpty()
+            .map { it.text().trim().replace(",", "").toIntOrNull() }
+        return ForumPageMetadata(
+            headImageUrl = headImageUrl,
+            todayPostCount = statistics.getOrNull(0),
+            threadCount = statistics.getOrNull(1),
+            rank = statistics.getOrNull(2)
+        )
     }
+
+    fun parseForumHeadImage(rawHtml: String): String? =
+        parseForumPageMetadata(rawHtml).headImageUrl
 
     fun parseThreadPage(rawJson: String): ForumThreadPage {
         val variables = variables(rawJson)
@@ -178,6 +223,43 @@ object ForumApiParser {
                 parseForumPostRatingSummary(rateLog)?.let { postId to it }
             }
             .toMap()
+    }
+
+    fun parseForumPoll(rawHtml: String): ForumPoll? {
+        val document = Jsoup.parse(rawHtml, "$FORUM_ORIGIN/")
+        val pollForm = document.selectFirst("form#poll") ?: return null
+        val infoLines = pollForm.select(".poll_txt")
+            .map { cleanText(it.text()) }
+            .filter(String::isNotBlank)
+        val typeLine = infoLines.firstOrNull().orEmpty()
+        val participantCount = Regex("""共有[ ]*([0-9]+)[ ]*人""")
+            .find(typeLine)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toIntOrNull()
+        val resultRegex = Regex(
+            """([0-9]+(?:[.][0-9]+)?)%[ ]*[(]([0-9]+)票[)]"""
+        )
+        val options = pollForm.select(".poll_box p").mapNotNull { option ->
+            val text = cleanText(option.selectFirst("label")?.text())
+            val result = resultRegex.find(cleanText(option.selectFirst("em")?.text()))
+                ?: return@mapNotNull null
+            val percent = result.groupValues.getOrNull(1)?.toFloatOrNull()
+                ?: return@mapNotNull null
+            val voteCount = result.groupValues.getOrNull(2)?.toIntOrNull()
+                ?: return@mapNotNull null
+            ForumPollOption(text, percent, voteCount)
+        }
+        if (options.isEmpty()) return null
+        return ForumPoll(
+            typeText = typeLine.substringBefore(',').trim().ifBlank { "投票" },
+            participantCount = participantCount,
+            remainingText = infoLines.drop(1).firstOrNull(),
+            options = options,
+            statusText = pollForm.selectFirst(".poll_box .xi1")
+                ?.let { cleanText(it.text()) }
+                ?.takeIf(String::isNotBlank)
+        )
     }
 
     private fun variables(rawJson: String): JSONObject {
@@ -275,6 +357,7 @@ object ForumApiParser {
         val authorId = value.stringValue("authorid")?.takeUnless { it == "0" }
         val anonymous = value.intValue("anonymous") != 0
         val position = value.intValue("position", value.intValue("number")).coerceAtLeast(1)
+        val rawMessage = value.getString("message")
         return ForumPost(
             id = id,
             threadId = value.stringValue("tid") ?: threadId,
@@ -285,11 +368,23 @@ object ForumApiParser {
                 isAnonymous = anonymous
             ),
             createdAt = cleanText(value.getString("dateline")),
+            editedAt = parsePostEditedAt(rawMessage),
             floor = value.intValue("number", position).coerceAtLeast(position),
             isOriginalPost = value.intValue("first") != 0 || position == 1,
-            blocks = parsePostBlocks(value.getString("message")),
+            blocks = parsePostBlocks(rawMessage),
             attachments = parseAttachments(value["attachments"] ?: value["attachlist"])
         )
+    }
+
+    private fun parsePostEditedAt(rawHtml: String?): String? {
+        if (rawHtml.isNullOrBlank()) return null
+        val statusText = Jsoup.parseBodyFragment(rawHtml, FORUM_ORIGIN)
+            .select(".pstatus")
+            .text()
+        return postEditTimeRegex.find(statusText)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.replace(Regex(" +"), " ")
     }
 
     private fun parseForumPostRatingSummary(rateLog: Element): ForumPostRatingSummary? {
@@ -392,7 +487,7 @@ object ForumApiParser {
     private fun parsePostBlocks(rawHtml: String?): List<ForumPostBlock> {
         if (rawHtml.isNullOrBlank()) return emptyList()
         val document = Jsoup.parseBodyFragment(rawHtml, FORUM_ORIGIN)
-        document.select("script,style,.jammer,[style*=display:none]").remove()
+        document.select("script,style,.jammer,.pstatus,[style*=display:none]").remove()
         val blocks = mutableListOf<ForumPostBlock>()
         val textParts = mutableListOf<ForumPostTextPart>()
 

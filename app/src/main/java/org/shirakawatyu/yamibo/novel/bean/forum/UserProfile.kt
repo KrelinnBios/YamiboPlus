@@ -6,8 +6,12 @@ data class UserProfile(
     val avatarUrl: String?,
     val groupTitle: String?,
     val credits: Int = 0,
+    val totalCredits: Int = 0,
+    val partner: Int = 0,
     val posts: Int = 0,
     val threads: Int = 0,
     val digestCount: Int = 0,
-    val formhash: String = ""
+    val formhash: String = "",
+    val hasNewMessage: Boolean = false,
+    val hasNewPrompt: Boolean = false
 )

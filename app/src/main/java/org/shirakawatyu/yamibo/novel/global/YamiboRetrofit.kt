@@ -410,9 +410,12 @@ class YamiboRetrofit {
 
                         // 挑战后先做一次同源轻量探测，确认 nox 凭证真的被服务端接受，
                         // 避免拿着一张无效凭证重放原请求（重放必然再 405，表现为“刷新永远不成功”）。
-                        if (!probeNoxCookie()) {
+                        val probeAction = Waf405RecoveryPolicy.postRefreshAction(
+                            probeSucceeded = probeNoxCookie()
+                        )
+                        if (probeAction.shouldInvalidateNox) {
                             Log.i(TAG_WAF, "waf405 probe failed, mark nox unverified: ${request.url}")
-                            AppErrorLog.record("WAF 探测未通过，等待下次挑战")
+                            AppErrorLog.record(requireNotNull(probeAction.errorLog))
                             Waf405RecoveryManager.markNoxUnverified()
                             return response
                         }
@@ -424,14 +427,22 @@ class YamiboRetrofit {
                             .build()
                         val replay = chain.proceed(retriedRequest)
                         // 重放仍被 WAF 拦截：清掉凭证，让下一次请求重新挑战而不是继续白重试。
-                        if (isNoxChallengeResponse(replay)) {
+                        val replayPreview = if (replay.code == 405) {
+                            runCatching { replay.peekBody(64 * 1024L).string() }.getOrDefault("")
+                        } else {
+                            ""
+                        }
+                        val replayAction = Waf405RecoveryPolicy.postRefreshAction(
+                            probeSucceeded = true,
+                            replayStatusCode = replay.code,
+                            replayBodyPreview = replayPreview
+                        )
+                        if (replayAction.shouldInvalidateNox) {
                             Log.i(TAG_WAF, "waf405 replay still blocked, mark nox unverified: ${request.url}")
-                            AppErrorLog.record("WAF 重放仍被拦截，已清凭证")
+                            AppErrorLog.record(requireNotNull(replayAction.errorLog))
                             Waf405RecoveryManager.markNoxUnverified()
-                            val preview = runCatching { replay.peekBody(64 * 1024L).string() }
-                                .getOrDefault("")
                             return replay.newBuilder()
-                                .body(preview.toResponseBody(null))
+                                .body(replayPreview.toResponseBody(null))
                                 .build()
                         }
                         return replay
@@ -487,14 +498,6 @@ class YamiboRetrofit {
             okHttpClient.newCall(probeRequest).execute().use { it.isSuccessful }
         } catch (_: Exception) {
             false
-        }
-
-        /** 响应体是否仍是 NOX 挑战页（405 + 特征标记）。 */
-        private fun isNoxChallengeResponse(response: okhttp3.Response): Boolean {
-            if (response.code != 405) return false
-            val preview = runCatching { response.peekBody(64 * 1024L).string() }
-                .getOrDefault("")
-            return Waf405RecoveryPolicy.shouldRefreshForResponse(response.code, "GET", preview)
         }
 
         fun proxyWebViewResource(request: android.webkit.WebResourceRequest): android.webkit.WebResourceResponse? {

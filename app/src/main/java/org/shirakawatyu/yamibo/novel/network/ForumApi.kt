@@ -23,6 +23,9 @@ interface ForumApi {
     @GET("/api/mobile/index.php?module=forumindex&version=4")
     suspend fun getForumIndex(): ResponseBody
 
+    @GET("/api/mobile/index.php?module=myfavforum&version=3")
+    suspend fun getFavoriteForums(): ResponseBody
+
     @GET("/api/mobile/index.php?module=forumdisplay&version=4")
     suspend fun getForumThreads(
         @Query("fid") forumId: String,

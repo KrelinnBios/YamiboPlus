@@ -1,6 +1,8 @@
 package org.shirakawatyu.yamibo.novel.util
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class YamiboSessionTest {
@@ -47,5 +49,18 @@ class YamiboSessionTest {
             "EeqY_2132_auth=secret; EeqY_2132_sid=abc; EeqY_2132_mobile=no",
             YamiboSession.desktopCookie("EeqY_2132_auth=secret; EeqY_2132_sid=abc")
         )
+    }
+
+    @Test
+    fun authenticationCookieValue_acceptsOnlyValidForumAuthenticationCookie() {
+        assertEquals(
+            "member-token",
+            YamiboSession.authenticationCookieValue(
+                "sid=1; EeqY_2132_auth=\"member-token\"; other_auth=other"
+            )
+        )
+        assertTrue(YamiboSession.hasAuthenticationCookie("EeqY_2132_auth=member-token"))
+        assertFalse(YamiboSession.hasAuthenticationCookie("other_auth=member-token"))
+        assertFalse(YamiboSession.hasAuthenticationCookie("EeqY_2132_auth=deleted"))
     }
 }

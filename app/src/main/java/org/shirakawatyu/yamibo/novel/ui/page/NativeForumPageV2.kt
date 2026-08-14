@@ -35,6 +35,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.ClickableText
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -49,6 +50,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -87,6 +89,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
@@ -104,7 +107,9 @@ import org.shirakawatyu.yamibo.novel.bean.forum.ForumPost
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumPostAttachment
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumPostBlock
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumPostRatingSummary
+import org.shirakawatyu.yamibo.novel.bean.forum.ForumPoll
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumThread
+import org.shirakawatyu.yamibo.novel.bean.forum.ForumThreadDetail
 import org.shirakawatyu.yamibo.novel.constant.RequestConfig
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.ui.component.YamiboLoadError
@@ -128,6 +133,10 @@ internal object ForumActionUrls {
     private const val ORIGIN = "https://bbs.yamibo.com"
     val search get() = "$ORIGIN/search.php?mod=forum&mobile=2"
     val home get() = "$ORIGIN/forum.php?mobile=2"
+    val creditLog get() = "$ORIGIN/home.php?mod=spacecp&ac=credit&op=log&mobile=2"
+    val messages get() = "$ORIGIN/home.php?mod=space&do=pm&page=1&mobile=2"
+    val reminders get() = "$ORIGIN/home.php?mod=space&do=notice&mobile=2"
+    fun messageCenter(hasNewPrompt: Boolean) = if (hasNewPrompt) reminders else messages
     fun board(fid: String) = "$ORIGIN/forum.php?mod=forumdisplay&fid=$fid&mobile=2"
     fun desktopBoard(fid: String) = "$ORIGIN/forum.php?mod=forumdisplay&fid=$fid&mobile=no"
     fun newThread(fid: String) = "$ORIGIN/forum.php?mod=post&action=newthread&fid=$fid&mobile=2"
@@ -143,8 +152,11 @@ internal object ForumActionUrls {
         "$ORIGIN/forum.php?mod=misc&action=postreview&tid=$tid&pid=$pid&mobile=2"
     fun rate(tid: String, pid: String) =
         "$ORIGIN/forum.php?mod=misc&action=rate&tid=$tid&pid=$pid&mobile=2"
-    fun userSpace(uid: String, section: String) =
-        "$ORIGIN/home.php?mod=space&uid=$uid&do=$section&view=me&mobile=2"
+    fun userSpace(uid: String, section: String) = when (section) {
+        "reply" -> "$ORIGIN/home.php?mod=space&uid=$uid&do=thread&view=me&type=reply&mobile=2"
+        "thread" -> "$ORIGIN/home.php?mod=space&uid=$uid&do=thread&view=me&mobile=2"
+        else -> "$ORIGIN/home.php?mod=space&uid=$uid&do=$section&view=me&mobile=2"
+    }
 }
 
 private data class NativeForumBlockTarget(
@@ -324,22 +336,43 @@ private fun ForumTopBarV2(
             if (forum == null) {
                 Text(title, Modifier.weight(1f), fontSize = 18.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis)
             } else {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(title, Modifier.weight(1f), fontSize = 18.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(forumText(20027, 39064) + forum.threadCount, style = MaterialTheme.typography.labelMedium)
+                Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        title,
+                        modifier = Modifier.weight(1f),
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Medium,
+                        lineHeight = 22.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Column(
+                        modifier = Modifier.width(76.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(forumText(20027, 39064) + forum.threadCount, color = contentColor, fontSize = 13.sp, maxLines = 1)
+                        Text(forumText(20170, 26085) + forum.todayPostCount, color = contentColor, fontSize = 13.sp, maxLines = 1)
                     }
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(forumText(20170, 26085) + forum.todayPostCount, style = MaterialTheme.typography.labelMedium)
-                        Spacer(Modifier.weight(1f))
-                        forum.rank?.let { rank -> Text(forumText(25490, 21517) + rank, style = MaterialTheme.typography.labelMedium) }
+                    // 相邻搜索/发布图标的可见间距为 24dp；排名两侧保持同样留白。
+                    Spacer(Modifier.width(24.dp))
+                    Column(
+                        modifier = Modifier.width(28.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        Text(forumText(25490, 21517), color = contentColor, fontSize = 12.sp)
+                        Text(forum.rank?.toString() ?: "--", color = contentColor, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                     }
+                    // 搜索 IconButton 自带 12dp 左内边距，这里再补 12dp，合计同为 24dp。
+                    Spacer(Modifier.width(12.dp))
                 }
             }
             Row(content = actions)
         }
     }
 }
+
 private fun currentItemsEmptyV2(state: ForumState) =
     if (state.selectedForum == null) state.categories.isEmpty() else state.threads.isEmpty()
 
@@ -729,17 +762,38 @@ private fun ForumPaginationV2(
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        TextButton(enabled = enabled && page > 1, onClick = { onGoToPage(page - 1) }) {
+        Button(
+            enabled = enabled && page > 1,
+            onClick = { onGoToPage(page - 1) },
+            modifier = Modifier.padding(horizontal = 4.dp),
+            shape = RoundedCornerShape(9.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            colors = forumPaginationButtonColors(),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+        ) {
             Text(forumText(19978, 19968, 39029))
         }
-        TextButton(
+        Button(
             enabled = enabled,
             onClick = {
                 pageInput = page.toString()
                 showPicker = true
-            }
+            },
+            modifier = Modifier.padding(horizontal = 4.dp),
+            shape = RoundedCornerShape(9.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            colors = forumPaginationButtonColors(),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
         ) { Text(forumText(31532) + page + forumText(39029)) }
-        TextButton(enabled = enabled && page < totalPages, onClick = { onGoToPage(page + 1) }) {
+        Button(
+            enabled = enabled && page < totalPages,
+            onClick = { onGoToPage(page + 1) },
+            modifier = Modifier.padding(horizontal = 4.dp),
+            shape = RoundedCornerShape(9.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            colors = forumPaginationButtonColors(),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+        ) {
             Text(forumText(19979, 19968, 39029))
         }
     }
@@ -752,7 +806,10 @@ private fun ForumPaginationV2(
                     value = pageInput,
                     onValueChange = { value -> pageInput = value.filter(Char::isDigit) },
                     singleLine = true,
-                    label = { Text(forumText(31532, 20960, 49, 45, totalPages.coerceAtLeast(1), 39029)) }
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    label = {
+                        Text(forumText(39029, 30721) + " (1-${totalPages.coerceAtLeast(1)})")
+                    }
                 )
             },
             confirmButton = {
@@ -859,6 +916,14 @@ private fun ForumThreadCardV2(thread: ForumThread, onClick: () -> Unit, onLongCl
     }
 }
 
+@Composable
+private fun forumPaginationButtonColors() = ButtonDefaults.buttonColors(
+    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+    contentColor = MaterialTheme.colorScheme.primary,
+    disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.55f),
+    disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NativeThreadPageV2(
@@ -892,6 +957,9 @@ fun NativeThreadPageV2(
     }
     val displayPosts = if (state.reverseOrder) posts.asReversed() else posts
 
+    LaunchedEffect(state.page) {
+        if (state.posts.isNotEmpty()) listState.scrollToItem(0)
+    }
     LaunchedEffect(bottomNavBarVM) {
         bottomNavBarVM.scrollToTopEvent.collect { index ->
             if (index == 2) listState.animateScrollToItem(0)
@@ -950,10 +1018,6 @@ fun NativeThreadPageV2(
                         onClick = { menuOpen = false; onOpenWeb(ForumActionUrls.desktopThread(threadId)) }
                     )
                     DropdownMenuItem(
-                        text = { Text("网页完整功能（投票等）") },
-                        onClick = { menuOpen = false; onOpenWeb(ForumActionUrls.thread(threadId)) }
-                    )
-                    DropdownMenuItem(
                         text = { Text("复制链接") },
                         onClick = {
                             menuOpen = false
@@ -995,7 +1059,7 @@ fun NativeThreadPageV2(
                     listState,
                     onOpenLink,
                     onOpenWeb,
-                    vm::loadMore,
+                    vm::goToPage,
                     { summary -> ratingDialog = summary }
                 ) { post ->
                     if (post.author.id != GlobalData.currentUid) blockTarget = NativeForumBlockTarget(
@@ -1031,61 +1095,104 @@ private fun ThreadBodyV2(
     listState: androidx.compose.foundation.lazy.LazyListState,
     onOpenLink: (String) -> Unit,
     onOpenWeb: (String) -> Unit,
-    onLoadMore: () -> Unit,
+    onGoToPage: (Int) -> Unit,
     onOpenRatings: (ForumPostRatingSummary) -> Unit,
     onLongClick: (ForumPost) -> Unit
 ) {
+    val hasOriginalPost = posts.any { it.isOriginalPost }
     LazyColumn(
         state = listState,
         contentPadding = PaddingValues(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        state.thread?.let { thread ->
-            item("thread-summary") {
-                Surface(Modifier.fillMaxWidth(), RoundedCornerShape(14.dp), MaterialTheme.colorScheme.primaryContainer) {
-                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                        Text(thread.subject, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                        Row(
-    Modifier.fillMaxWidth(),
-    verticalAlignment = Alignment.CenterVertically
-) {
-    Text(
-        "查看 ${thread.viewCount} · 回复 ${thread.replyCount}",
-        Modifier.weight(1f),
-        style = MaterialTheme.typography.labelSmall
-    )
-    if (thread.lastPoster.isNotBlank()) {
-        Text(
-            "最后回复 ${thread.lastPoster}",
-            Modifier.weight(1f),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            style = MaterialTheme.typography.labelSmall,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.End
-        )
-    }
-}
-                        if (state.onlyOriginalPoster) SmallTagV2("只看楼主")
+        if (!hasOriginalPost) {
+            state.thread?.let { thread ->
+                item("thread-summary") {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        ThreadSummaryV2(thread, state.onlyOriginalPoster)
                     }
                 }
             }
         }
-        itemsIndexed(posts, key = { _, post -> post.id }) { index, post ->
+        items(posts, key = { post -> post.id }) { post ->
             ForumPostCardV2(
-                post,
-                cookie,
-                onOpenLink,
-                { onLongClick(post) },
-                { onOpenWeb(ForumActionUrls.reply(post.threadId, state.thread?.forumId.orEmpty(), post.id, state.page)) },
-                { onOpenWeb(ForumActionUrls.comment(post.threadId, post.id)) },
-                { onOpenWeb(ForumActionUrls.rate(post.threadId, post.id)) },
-                onOpenRatings
+                post = post,
+                thread = state.thread.takeIf { post.isOriginalPost },
+                onlyOriginalPoster = state.onlyOriginalPoster,
+                cookie = cookie,
+                onOpenLink = onOpenLink,
+                onLongClick = { onLongClick(post) },
+                onReply = {
+                    onOpenWeb(
+                        ForumActionUrls.reply(
+                            post.threadId,
+                            state.thread?.forumId.orEmpty(),
+                            post.id,
+                            state.page
+                        )
+                    )
+                },
+                onComment = { onOpenWeb(ForumActionUrls.comment(post.threadId, post.id)) },
+                onRate = { onOpenWeb(ForumActionUrls.rate(post.threadId, post.id)) },
+                onOpenRatings = onOpenRatings
             )
-            if (index >= posts.lastIndex - 3) LaunchedEffect(state.page, posts.size) { onLoadMore() }
         }
-        if (state.isLoadingMore) item("loading-more-posts") { LoadingMoreV2() }
+        if (posts.isNotEmpty()) {
+            item("thread-pagination", contentType = "thread-pagination") {
+                ForumPaginationV2(
+                    page = state.page,
+                    totalPages = state.totalPages,
+                    enabled = !state.isLoading,
+                    onGoToPage = onGoToPage
+                )
+            }
+        }
         state.error?.let { item("thread-page-error") { InlineErrorV2(it) } }
+    }
+}
+
+@Composable
+private fun ThreadSummaryV2(
+    thread: ForumThreadDetail,
+    onlyOriginalPoster: Boolean
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.primaryContainer)
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp)
+    ) {
+        Text(
+            text = thread.subject,
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "查看 ${thread.viewCount} · 回复 ${thread.replyCount}",
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.labelSmall
+            )
+            if (thread.lastPoster.isNotBlank()) {
+                Text(
+                    text = "最后回复 ${thread.lastPoster}",
+                    modifier = Modifier.weight(1f),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.End
+                )
+            }
+        }
+        if (onlyOriginalPoster) SmallTagV2("只看楼主")
     }
 }
 
@@ -1093,6 +1200,8 @@ private fun ThreadBodyV2(
 @Composable
 private fun ForumPostCardV2(
     post: ForumPost,
+    thread: ForumThreadDetail?,
+    onlyOriginalPoster: Boolean,
     cookie: String,
     onOpenLink: (String) -> Unit,
     onLongClick: () -> Unit,
@@ -1104,37 +1213,146 @@ private fun ForumPostCardV2(
     Surface(
         modifier = Modifier.fillMaxWidth().combinedClickable(onClick = {}, onLongClick = onLongClick),
         shape = RoundedCornerShape(14.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        border = BorderStroke(
+            1.dp,
+            if (post.isOriginalPost) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.outlineVariant
+            }
+        )
     ) {
-        Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column {
+            thread?.let { ThreadSummaryV2(it, onlyOriginalPoster) }
+            Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    AuthorAvatarV2(post.author.name, post.author.avatarUrl, 40)
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(post.author.name, fontWeight = FontWeight.SemiBold)
+                        Text(post.createdAt, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+                    }
+                    SmallTagV2(if (post.isOriginalPost) "楼主" else "${post.floor} 楼")
+                }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Column(
+                    Modifier.fillMaxWidth().padding(vertical = 6.dp)
+                ) {
+                    ForumPostContentV2(post, cookie, onOpenLink)
+                }
+                post.poll?.let { poll ->
+                    Spacer(Modifier.height(6.dp))
+                    ForumPollV2(poll)
+                }
+                post.ratingSummary?.let { summary ->
+                    Spacer(Modifier.height(6.dp))
+                    ForumPostRatingV2(summary, onOpenRatings)
+                }
+                if (post.ratingSummary != null) Spacer(Modifier.height(6.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    post.editedAt?.let { editedAt ->
+                        Text(
+                            text = "修改于 $editedAt",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
+                    Spacer(Modifier.weight(1f))
+                    SmallActionText("点评", onComment)
+                    SmallActionText("评分", onRate)
+                    SmallActionText("回复", onReply)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ForumPollV2(poll: ForumPoll) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(10.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(9.dp)
+        ) {
             Row(
-                Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                AuthorAvatarV2(post.author.name, post.author.avatarUrl, 40)
-                Spacer(Modifier.width(10.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(post.author.name, fontWeight = FontWeight.SemiBold)
-                    Text(post.createdAt, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+                Text(
+                    text = poll.typeText,
+                    modifier = Modifier.weight(1f),
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                poll.participantCount?.let { count ->
+                    Text(
+                        text = "共有 " + count + " 人参与",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelSmall
+                    )
                 }
-                SmallTagV2(if (post.isOriginalPost) "楼主" else "${post.floor} 楼")
             }
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            Column(
-                Modifier.fillMaxWidth().padding(vertical = 6.dp)
-            ) {
-                ForumPostContentV2(post, cookie, onOpenLink)
+            poll.remainingText?.let { remaining ->
+                Text(
+                    text = remaining,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelSmall
+                )
             }
-            post.ratingSummary?.let { summary ->
-                Spacer(Modifier.height(6.dp))
-                ForumPostRatingV2(summary, onOpenRatings)
+            poll.options.forEach { option ->
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = option.text,
+                            modifier = Modifier.weight(1f),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        val percentText = if (option.percent % 1f == 0f) {
+                            option.percent.toInt().toString()
+                        } else {
+                            option.percent.toString()
+                        }
+                        Text(
+                            text = percentText + "% (" + option.voteCount + "票)",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(5.dp)
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(MaterialTheme.colorScheme.outlineVariant)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth((option.percent / 100f).coerceIn(0f, 1f))
+                                .height(5.dp)
+                                .background(MaterialTheme.colorScheme.primary)
+                        )
+                    }
+                }
             }
-            if (post.ratingSummary != null) Spacer(Modifier.height(6.dp))
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                SmallActionText("点评", onComment)
-                SmallActionText("评分", onRate)
-                SmallActionText("回复", onReply)
+            poll.statusText?.let { status ->
+                Text(
+                    text = status,
+                    color = MaterialTheme.colorScheme.primary,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Medium
+                )
             }
         }
     }
@@ -1519,47 +1737,143 @@ private fun ForumRatingsDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(forumText(26597, 30475, 20840, 37096, 35780, 20998)) },
+        shape = RoundedCornerShape(20.dp),
+        title = {
+            Text(
+                text = "查看全部评分",
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Center,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+        },
         text = {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(max = 420.dp)
                     .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                verticalArrangement = Arrangement.spacedBy(0.dp)
             ) {
-                summary.ratings.forEachIndexed { index, rating ->
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(
-                            forumText(29992, 25143, 21517, 65306) + rating.userName.ifBlank { forumText(21311, 21517) },
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Text(
-                            forumText(35780, 20998, 65306) + rating.score,
-                            color = MaterialTheme.colorScheme.primary,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            forumText(29702, 30001, 65306) + rating.reason.ifBlank { forumText(26080) },
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                        Text(
-                            forumText(26102, 38388, 65306) + rating.createdAt.orEmpty().ifBlank { forumText(26080) },
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.labelSmall
-                        )
-                    }
-                    if (index < summary.ratings.lastIndex) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp, vertical = 8.dp)
+                ) {
+                    Text(
+                        text = "评分",
+                        modifier = Modifier.weight(1f),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                    Text(
+                        text = "用户名",
+                        modifier = Modifier.weight(1.2f),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                    Text(
+                        text = "时间",
+                        modifier = Modifier.weight(1.25f),
+                        textAlign = TextAlign.End,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                if (summary.ratings.isEmpty()) {
+                    Text(
+                        text = "暂无评分明细",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 24.dp),
+                        textAlign = TextAlign.Center,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    summary.ratings.forEach { rating ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 10.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = rating.score.ifBlank { "—" },
+                                modifier = Modifier.weight(1f),
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Text(
+                                text = rating.userName.ifBlank { "未知用户" },
+                                modifier = Modifier.weight(1.2f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Text(
+                                text = rating.createdAt.orEmpty().ifBlank { "—" },
+                                modifier = Modifier.weight(1.25f),
+                                textAlign = TextAlign.End,
+                                maxLines = 1,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
+                        if (rating.reason.isNotBlank()) {
+                            Text(
+                                text = rating.reason,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(MaterialTheme.colorScheme.surfaceContainerLow)
+                                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    }
+                }
+                if (summary.scoreText.isNotBlank() || summary.participantText.isNotBlank()) {
+                    Spacer(Modifier.height(10.dp))
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Text(
+                                text = if (summary.scoreText.isNotBlank()) {
+                                    "总计: " + summary.scoreText
+                                } else {
+                                    summary.participantText
+                                },
+                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                            if (
+                                summary.scoreText.isNotBlank() &&
+                                summary.participantText.isNotBlank()
+                            ) {
+                                Text(
+                                    text = summary.participantText,
+                                    color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f),
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
+                        }
                     }
                 }
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text(forumText(20851, 38381)) }
+            TextButton(onClick = onDismiss) { Text("关闭") }
         }
     )
 }

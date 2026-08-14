@@ -647,7 +647,7 @@ fun HistoryPage(navController: NavController) {
                                 Icon(
                                     Icons.Default.Delete,
                                     contentDescription = "清空",
-                                    tint = MaterialTheme.colorScheme.primary,
+                                    tint = topBarContentColor,
                                     modifier = Modifier.size(23.dp)
                                 )
                             }

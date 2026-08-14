@@ -36,6 +36,15 @@ internal object Waf405RecoveryPolicy {
 
     private val challengeBodyMarkers = listOf("__noxexpire", "/nox_", "gangplank_")
 
+    enum class PostRefreshAction(val errorLog: String?) {
+        CONTINUE(null),
+        INVALIDATE_AFTER_PROBE_FAILURE("WAF 探测未通过，等待下次挑战"),
+        INVALIDATE_AFTER_REPLAY_CHALLENGE("WAF 重放仍被拦截，已清凭证");
+
+        val shouldInvalidateNox: Boolean
+            get() = this != CONTINUE
+    }
+
     fun shouldRecover(
         statusCode: Int,
         method: String,
@@ -54,6 +63,25 @@ internal object Waf405RecoveryPolicy {
         if (!method.equals("GET", ignoreCase = true) || statusCode != 405) return false
         val normalizedBody = bodyPreview.lowercase(Locale.ROOT)
         return challengeBodyMarkers.any(normalizedBody::contains)
+    }
+
+    /** 挑战后仅在探测失败或重放仍为 NOX 挑战时清除刚换新的凭证。 */
+    fun postRefreshAction(
+        probeSucceeded: Boolean,
+        replayStatusCode: Int? = null,
+        replayBodyPreview: String = ""
+    ): PostRefreshAction {
+        if (!probeSucceeded) return PostRefreshAction.INVALIDATE_AFTER_PROBE_FAILURE
+        return if (replayStatusCode != null && shouldRefreshForResponse(
+                replayStatusCode,
+                "GET",
+                replayBodyPreview
+            )
+        ) {
+            PostRefreshAction.INVALIDATE_AFTER_REPLAY_CHALLENGE
+        } else {
+            PostRefreshAction.CONTINUE
+        }
     }
 
     fun withoutNoxCookie(cookieHeader: String): String =

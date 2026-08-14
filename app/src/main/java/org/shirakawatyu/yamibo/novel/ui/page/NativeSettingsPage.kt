@@ -25,7 +25,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -78,7 +77,6 @@ fun NativeSettingsPage(
     val themeMode by GlobalData.themeMode.collectAsState()
     val languageMode by GlobalData.languageMode.collectAsState()
     val isDnsOptimizationEnabled by GlobalData.isDnsOptimizationEnabled.collectAsState()
-    val isAutoVersionUpdateEnabled by GlobalData.isAutoVersionUpdateEnabled.collectAsState()
     val isAutoClearCacheEnabled by GlobalData.isAutoClearCacheEnabled.collectAsState()
     val isCustomDnsEnabled by GlobalData.isCustomDnsEnabled.collectAsState()
     val customDnsUrl by GlobalData.customDnsUrl.collectAsState()
@@ -91,7 +89,6 @@ fun NativeSettingsPage(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var cacheSizeBytes by remember { mutableStateOf(0L) }
-    var isClearingCache by remember { mutableStateOf(false) }
     var showClearCacheDialog by remember { mutableStateOf(false) }
     var showCustomDnsDialog by remember { mutableStateOf(false) }
     var showResetSettingsDialog by remember { mutableStateOf(false) }
@@ -281,52 +278,18 @@ fun NativeSettingsPage(
             )
             HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
 
-            // Auto Version Update
-            SettingSwitchItem(
-                title = "自动更新",
-                subtitle = "启动时自动检查新版本",
-                checked = isAutoVersionUpdateEnabled,
-                onCheckedChange = { enabled ->
-                    GlobalData.isAutoVersionUpdateEnabled.value = enabled
-                    SettingsUtil.saveAutoVersionUpdateMode(enabled)
-                }
-            )
-            HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
-
             // Auto Clear Cache
             SettingSwitchItem(
                 title = "自动清理缓存",
-                subtitle = "每 ${CacheMaintenance.RETENTION_DAYS} 天清理一次",
+                subtitle = "每 ${CacheMaintenance.RETENTION_DAYS} 天清理一次 · 当前缓存 ${formatFileSize(cacheSizeBytes)}",
                 checked = isAutoClearCacheEnabled,
                 onCheckedChange = { enabled ->
                     GlobalData.isAutoClearCacheEnabled.value = enabled
                     SettingsUtil.saveAutoClearCacheMode(enabled)
                     CacheMaintenance.onAutoClearChanged(context, enabled)
-                }
+                },
+                onItemClick = { showClearCacheDialog = true }
             )
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Clear Cache Button
-            Button(
-                onClick = { showClearCacheDialog = true },
-                enabled = !isClearingCache,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-            ) {
-                if (isClearingCache) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.onPrimary,
-                    )
-                    Spacer(Modifier.width(8.dp))
-                }
-                Text(LanguageModeUtil.displayText("清除缓存（${formatFileSize(cacheSizeBytes)}）"))
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
 
             HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
             SettingActionItem(
@@ -365,27 +328,22 @@ fun NativeSettingsPage(
             containerColor = MaterialTheme.colorScheme.surface,
             titleContentColor = MaterialTheme.colorScheme.primary,
             textContentColor = MaterialTheme.colorScheme.onSurface,
-            title = { Text(LanguageModeUtil.displayText("清除缓存"), fontSize = 18.sp) },
+            title = { Text(LanguageModeUtil.displayText("清理缓存"), fontSize = 18.sp) },
             text = {
                 Text(
-                    LanguageModeUtil.displayText("确定要清除所有缓存数据吗？此操作不可恢复。"),
+                    LanguageModeUtil.displayText("当前缓存 ${formatFileSize(cacheSizeBytes)}，确定要清除吗？此操作不可恢复。"),
                     fontSize = 15.sp
                 )
             },
             confirmButton = {
                 TextButton(onClick = {
                     showClearCacheDialog = false
-                    isClearingCache = true
                     scope.launch {
-                        try {
-                            withContext(Dispatchers.IO) {
-                                context.imageLoader.diskCache?.clear()
-                                LocalCacheUtil.getInstance(context).clearAllCache()
-                            }
-                            cacheSizeBytes = 0L
-                        } finally {
-                            isClearingCache = false
+                        withContext(Dispatchers.IO) {
+                            context.imageLoader.diskCache?.clear()
+                            LocalCacheUtil.getInstance(context).clearAllCache()
                         }
+                        cacheSizeBytes = 0L
                     }
                 }) {
                     Text(
@@ -446,11 +404,13 @@ private fun SettingSwitchItem(
     title: String,
     subtitle: String,
     checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
+    onCheckedChange: (Boolean) -> Unit,
+    onItemClick: (() -> Unit)? = null
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .then(if (onItemClick == null) Modifier else Modifier.clickable(onClick = onItemClick))
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

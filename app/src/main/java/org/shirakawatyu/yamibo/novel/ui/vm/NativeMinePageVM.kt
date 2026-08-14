@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import coil.imageLoader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -22,6 +23,7 @@ import org.shirakawatyu.yamibo.novel.ui.state.MinePageState
 import org.shirakawatyu.yamibo.novel.util.AppErrorLog
 import org.shirakawatyu.yamibo.novel.util.CurrentUserUtil
 import org.shirakawatyu.yamibo.novel.util.CookieUtil
+import org.shirakawatyu.yamibo.novel.util.YamiboSession
 import org.shirakawatyu.yamibo.novel.util.reader.LocalCacheUtil
 import java.io.IOException
 
@@ -29,24 +31,38 @@ class NativeMinePageVM(application: Application) : AndroidViewModel(application)
     private val _uiState = MutableStateFlow(MinePageState())
     val uiState = _uiState.asStateFlow()
     private val profileApi: ProfileApi = YamiboRetrofit.getInstance().create(ProfileApi::class.java)
+    private var profileJob: Job? = null
 
     init {
-        if (GlobalData.currentUid.isNotBlank()) refreshProfile()
+        if (YamiboSession.hasAuthenticationCookie(GlobalData.currentCookie)) refreshProfile()
         loadCacheSize()
     }
 
     fun refreshProfile() {
-        viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
+        profileJob?.cancel()
+        if (!YamiboSession.hasAuthenticationCookie(GlobalData.currentCookie)) {
+            _uiState.update {
+                it.copy(profile = null, isLoggedIn = false, isLoading = false, error = null)
+            }
+            return
+        }
+        profileJob = viewModelScope.launch {
+            _uiState.update { it.copy(isLoggedIn = true, isLoading = true, error = null) }
             try {
-                val response = withContext(Dispatchers.IO) {
-                    profileApi.getUserProfile()
-                }
-                val json = withContext(Dispatchers.IO) {
-                    response.string()
-                }
                 val profile = withContext(Dispatchers.IO) {
-                    ProfileApiParser.parseProfile(json)
+                    val mobileProfile = runCatching {
+                        ProfileApiParser.parseProfile(profileApi.getUserProfile().string())
+                    }.getOrNull()
+                    val htmlProfile = runCatching {
+                        ProfileApiParser.parseProfileHtml(profileApi.getUserProfileHtml().string())
+                    }.getOrNull()
+                    when {
+                        htmlProfile != null && mobileProfile != null ->
+                            ProfileApiParser.mergeProfile(htmlProfile, mobileProfile)
+                        htmlProfile != null -> htmlProfile
+                        mobileProfile != null -> mobileProfile
+                        else -> throw IOException("个人资料接口没有返回有效数据")
+                    }
                 }
                 _uiState.update { it.copy(profile = profile, isLoading = false) }
                 withContext(Dispatchers.IO) {
@@ -55,8 +71,9 @@ class NativeMinePageVM(application: Application) : AndroidViewModel(application)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: IOException) {
-                AppErrorLog.record("我的页加载失败：${e.message}")
-                _uiState.update { it.copy(isLoading = false, error = "网络不太稳定，下拉重试一下") }
+                // 已有认证 Cookie 说明登录成功；资料接口临时不可用不应把用户打回未登录页，
+                // 也不记录为会反复打扰用户的登录错误。
+                _uiState.update { it.copy(isLoggedIn = true, isLoading = false, error = null) }
             } catch (e: Exception) {
                 AppErrorLog.record("我的页加载失败：${e.message}")
                 _uiState.update { it.copy(isLoading = false, error = e.message ?: "加载失败") }
@@ -95,10 +112,15 @@ class NativeMinePageVM(application: Application) : AndroidViewModel(application)
     }
 
     fun logout() {
+        profileJob?.cancel()
         CookieUtil.saveCookie("")
         GlobalData.currentCookie = ""
+        GlobalData.sessionGeneration++
+        YamiboSession.clearWebViewSession()
         CurrentUserUtil.clear()
-        _uiState.update { it.copy(profile = null) }
+        _uiState.update {
+            it.copy(profile = null, isLoggedIn = false, isLoading = false, error = null)
+        }
     }
 
     class Factory(private val application: Application) : ViewModelProvider.Factory {

@@ -44,6 +44,27 @@ class ForumApiParserTest {
     }
 
     @Test
+    fun parseFavoriteForums_keepsAccountOrderAndBoardCounts() {
+        val result = ForumApiParser.parseFavoriteForums(
+            """
+            {
+              "Variables": {
+                "list": [
+                  {"id":"30","title":"中文百合漫画区","threads":"20","posts":"80","todayposts":"19"},
+                  {"id":"55","title":"轻小说/译文区","threads":"10","posts":"40","todayposts":"13"}
+                ]
+              }
+            }
+            """.trimIndent()
+        )
+
+        assertEquals(listOf("30", "55"), result.map { it.id })
+        assertEquals("中文百合漫画区", result.first().name)
+        assertEquals(19, result.first().todayPostCount)
+        assertEquals(13, result.last().todayPostCount)
+    }
+
+    @Test
     fun parseThreadPage_decodesTypesAndPagination() {
         val result = ForumApiParser.parseThreadPage(
             """
@@ -154,7 +175,7 @@ class ForumApiParserTest {
                     "position": "1",
                     "number": "1",
                     "first": "1",
-                    "message": "<p>Hello <a href='forum.php?mod=viewthread&amp;tid=572321'>下一主题</a><br><img src='/data/attachment/forum/example.jpg' alt='插图'></p>",
+                    "message": "<i class='pstatus'>本帖最后由 楼主 于 2026-08-12 09:30 编辑</i><p>Hello <a href='forum.php?mod=viewthread&amp;tid=572321'>下一主题</a><br><img src='/data/attachment/forum/example.jpg' alt='插图'></p>",
                     "attachments": {
                       "9": {
                         "aid": "9",
@@ -179,7 +200,9 @@ class ForumApiParserTest {
         val post = result.posts.single()
         assertTrue(post.isOriginalPost)
         assertEquals(1, post.floor)
+        assertEquals("2026-08-12 09:30", post.editedAt)
         val textBlock = post.blocks.filterIsInstance<ForumPostBlock.Text>().single()
+        assertFalse(textBlock.parts.any { it.text.contains("本帖最后由") })
         assertEquals(
             "https://bbs.yamibo.com/forum.php?mod=viewthread&tid=572321",
             textBlock.parts.single { it.url != null }.url
@@ -190,6 +213,44 @@ class ForumApiParserTest {
         )
         assertEquals("资料.pdf", post.attachments.single().filename)
         assertFalse(post.attachments.single().isImage)
+    }
+
+    @Test
+    fun parseForumPoll_readsVotedSingleChoiceResults() {
+        val poll = requireNotNull(
+            ForumApiParser.parseForumPoll(
+                """
+                <form id="poll">
+                  <input type="hidden" name="formhash" value="baa2824d">
+                  <div class="poll_txt">单选投票, 共有 1437 人参与投票</div>
+                  <div class="poll_txt">距结束还有: 252 天 11 小时 11 分钟</div>
+                  <div class="poll_box">
+                    <p>
+                      <label for="option_1">1.不能接受，这很不百合</label>
+                      <em>30.97% (445票)</em>
+                    </p>
+                    <p>
+                      <label for="option_2">2.可以接受，这不是雷点/文笔好就行</label>
+                      <em>57.20% (822票)</em>
+                    </p>
+                    <p>
+                      <label for="option_3">3.其他看法</label>
+                      <em>11.83% (170票)</em>
+                    </p>
+                    <span class="xi1">您已经投过票，谢谢您的参与</span>
+                  </div>
+                </form>
+                """.trimIndent()
+            )
+        )
+
+        assertEquals("单选投票", poll.typeText)
+        assertEquals(1437, poll.participantCount)
+        assertEquals("距结束还有: 252 天 11 小时 11 分钟", poll.remainingText)
+        assertEquals(3, poll.options.size)
+        assertEquals(57.20f, poll.options[1].percent)
+        assertEquals(822, poll.options[1].voteCount)
+        assertEquals("您已经投过票，谢谢您的参与", poll.statusText)
     }
 
     @Test
@@ -339,6 +400,22 @@ class ForumApiParserTest {
         )
 
         assertEquals("https://cdn.example.com/forum-head.webp", result)
+    }
+
+    @Test
+    fun parseForumPageMetadata_readsTodayThemeAndRankFromMobileHeader() {
+        val result = ForumApiParser.parseForumPageMetadata(
+            """
+            <div class="forumdisplay-top">
+              <h2>中文百合漫画区</h2>
+              <p>今日: <span>12</span> | 主题: <span>53777</span> | 排名: <span>2</span></p>
+            </div>
+            """.trimIndent()
+        )
+
+        assertEquals(12, result.todayPostCount)
+        assertEquals(53777, result.threadCount)
+        assertEquals(2, result.rank)
     }
 
 }

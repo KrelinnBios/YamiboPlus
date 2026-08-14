@@ -160,8 +160,10 @@ class MangaHomeVM : ViewModel() {
     // 还会把"stream was reset: PROTOCOL_ERROR"这种吓人的英文直接抛到漫画首页。
     // 统一换成可操作的中文提示；IllegalStateException 携带的是给用户看的中文提示（如"请先登录"），原样保留。
     private fun friendlyError(e: Throwable, fallback: String): String {
+        if (e is IllegalStateException) {
+            return e.message?.takeIf(String::isNotBlank) ?: fallback
+        }
         AppErrorLog.record("漫画首页错误：${e.message}")
-        if (e is IllegalStateException) return e.message?.takeIf(String::isNotBlank) ?: fallback
         val msg = e.message.orEmpty()
         val isNetwork = e is java.io.IOException ||
                 msg.contains("stream was reset", ignoreCase = true) ||

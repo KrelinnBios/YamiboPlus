@@ -19,8 +19,7 @@ object AccountSyncManager {
         val cookieManager = android.webkit.CookieManager.getInstance()
         val currentCookie = cookieManager.getCookie("https://bbs.yamibo.com") ?: ""
 
-        val authMatch = Regex("EeqY_2132_auth=([^;]+)").find(currentCookie)
-        val currentHash = authMatch?.groupValues?.get(1)?.hashCode()
+        val currentHash = YamiboSession.authenticationCookieValue(currentCookie)?.hashCode()
 
         if (isFirstCheck) {
             isFirstCheck = false

@@ -6,6 +6,9 @@ import org.shirakawatyu.yamibo.novel.global.GlobalData
 
 object YamiboSession {
     private const val FORUM_ROOT = "https://bbs.yamibo.com/"
+    const val AUTHENTICATION_COOKIE_NAME = "EeqY_2132_auth"
+    private val INVALID_AUTHENTICATION_COOKIE_VALUES =
+        setOf("delete", "deleted", "expired", "nil", "none", "null")
 
     fun cookieFor(url: String): String {
         val cookieManager = runCatching { CookieManager.getInstance() }.getOrNull()
@@ -19,6 +22,26 @@ object YamiboSession {
         }
         return mergeCookieHeaders(cookieHeaders)
     }
+
+    /**
+     * 论坛是否已登录只由有效的认证 Cookie 决定，不能用个人资料接口是否可解析来推断。
+     */
+    fun hasAuthenticationCookie(cookieHeader: String): Boolean =
+        authenticationCookieValue(cookieHeader) != null
+
+    fun authenticationCookieValue(cookieHeader: String): String? =
+        cookieHeader.split(';').firstNotNullOfOrNull { rawCookie ->
+            val separator = rawCookie.indexOf('=')
+            if (separator <= 0) return@firstNotNullOfOrNull null
+            val name = rawCookie.substring(0, separator).trim()
+            if (name != AUTHENTICATION_COOKIE_NAME) return@firstNotNullOfOrNull null
+            val value = rawCookie.substring(separator + 1).trim()
+                .removeSurrounding("\"")
+                .trim()
+            value.takeIf {
+                it.isNotEmpty() && it.lowercase() !in INVALID_AUTHENTICATION_COOKIE_VALUES
+            }
+        }
 
     internal fun desktopCookie(cookie: String): String {
         var hasMobileCookie = false
@@ -55,6 +78,16 @@ object YamiboSession {
                 setAcceptCookie(true)
                 setCookie(FORUM_ROOT, cookie)
                 setCookie(url, cookie)
+                flush()
+            }
+        }
+    }
+
+    /** 退出登录时清理本应用 WebView 的会话 Cookie，避免常驻页面把旧登录态重新带回请求。 */
+    fun clearWebViewSession() {
+        runCatching {
+            CookieManager.getInstance().apply {
+                removeAllCookies(null)
                 flush()
             }
         }

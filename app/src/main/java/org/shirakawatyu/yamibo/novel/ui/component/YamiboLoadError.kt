@@ -40,9 +40,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.delay
 import org.shirakawatyu.yamibo.novel.ui.widget.YamiboToast
-import org.shirakawatyu.yamibo.novel.ui.widget.YamiboToastPill
 import org.shirakawatyu.yamibo.novel.util.AppErrorLog
 import org.shirakawatyu.yamibo.novel.util.LanguageModeUtil
 
@@ -146,39 +144,20 @@ private fun ErrorLogDialog(onDismiss: () -> Unit) {
 private fun ErrorLogDialogVisible(onDismiss: () -> Unit) {
     val context = LocalContext.current
     val logText = remember { AppErrorLog.snapshot() }
-    var copied by remember { mutableStateOf(false) }
-    LaunchedEffect(copied) {
-        if (copied) {
-            delay(2_000L)
-            copied = false
-        }
-    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(LanguageModeUtil.displayText(chineseText(38169, 35823, 26085, 24535))) },
         text = {
-            Column {
-                Text(
-                    text = logText.ifBlank { LanguageModeUtil.displayText(chineseText(26242, 26080, 26085, 24535)) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 320.dp)
-                        .verticalScroll(rememberScrollState()),
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 11.sp,
-                    lineHeight = 15.sp
-                )
-                if (copied) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 12.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        YamiboToastPill(message = chineseText(26085, 24535, 24050, 22797, 21046))
-                    }
-                }
-            }
+            Text(
+                text = logText.ifBlank { LanguageModeUtil.displayText(chineseText(26242, 26080, 26085, 24535)) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 320.dp)
+                    .verticalScroll(rememberScrollState()),
+                fontFamily = FontFamily.Monospace,
+                fontSize = 11.sp,
+                lineHeight = 15.sp
+            )
         },
         confirmButton = {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -186,7 +165,7 @@ private fun ErrorLogDialogVisible(onDismiss: () -> Unit) {
                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE)
                         as ClipboardManager
                     clipboard.setPrimaryClip(ClipData.newPlainText(null, logText))
-                    copied = true
+                    YamiboToast.show(message = chineseText(26085, 24535, 24050, 22797, 21046))
                 }) {
                     Text(LanguageModeUtil.displayText(chineseText(22797, 21046)))
                 }

@@ -1364,7 +1364,9 @@ fun NativeMangaPage(
                         modifier = Modifier
                             .align(Alignment.Center)
                             .fillMaxWidth()
-                            .padding(start = 72.dp, end = 136.dp)
+                            .padding(horizontal = 56.dp)
+                            .clickable(onClick = returnToOriginalPost)
+                            .padding(horizontal = 8.dp, vertical = 12.dp)
                     )
                     IconButton(
                         onClick = performExit,
@@ -1376,35 +1378,23 @@ fun NativeMangaPage(
                             tint = MaterialTheme.colorScheme.onSurface
                         )
                     }
-                    Row(
-                        modifier = Modifier.align(Alignment.CenterEnd),
-                        verticalAlignment = Alignment.CenterVertically
+                    IconButton(
+                        onClick = onToggleFavorite,
+                        modifier = Modifier.align(Alignment.CenterEnd)
                     ) {
-                        IconButton(onClick = onToggleFavorite) {
-                            Icon(
-                                imageVector = if (isCurrentFavorited) {
-                                    Icons.Filled.Favorite
-                                } else {
-                                    Icons.Outlined.FavoriteBorder
-                                },
-                                contentDescription = if (isCurrentFavorited) "取消收藏" else "收藏",
-                                tint = if (isCurrentFavorited) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.outline
-                                }
-                            )
-                        }
-                        TextButton(
-                            onClick = returnToOriginalPost
-                        ) {
-                            Text(
-                                "原帖",
-                                color = MaterialTheme.colorScheme.primary,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
+                        Icon(
+                            imageVector = if (isCurrentFavorited) {
+                                Icons.Filled.Favorite
+                            } else {
+                                Icons.Outlined.FavoriteBorder
+                            },
+                            contentDescription = if (isCurrentFavorited) "取消收藏" else "收藏",
+                            tint = if (isCurrentFavorited) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.outline
+                            }
+                        )
                     }
                 }
             }

@@ -102,15 +102,31 @@ data class ForumPostRatingSummary(
     val viewAllUrl: String? = null
 )
 
+data class ForumPollOption(
+    val text: String,
+    val percent: Float,
+    val voteCount: Int
+)
+
+data class ForumPoll(
+    val typeText: String,
+    val participantCount: Int?,
+    val remainingText: String?,
+    val options: List<ForumPollOption>,
+    val statusText: String?
+)
+
 data class ForumPost(
     val id: String,
     val threadId: String,
     val author: ForumPostAuthor,
     val createdAt: String,
+    val editedAt: String? = null,
     val floor: Int,
     val isOriginalPost: Boolean,
     val blocks: List<ForumPostBlock>,
     val attachments: List<ForumPostAttachment> = emptyList(),
+    val poll: ForumPoll? = null,
     val ratingSummary: ForumPostRatingSummary? = null
 )
 

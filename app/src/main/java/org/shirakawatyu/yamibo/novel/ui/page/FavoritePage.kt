@@ -158,7 +158,7 @@ fun FavoritePage(
     LaunchedEffect(isRefreshing) {
         if (!isRefreshing && pendingBatchCheck) {
             pendingBatchCheck = false
-            // 小说/漫画分类下下拉刷新只检查当前分类的收藏。
+            // 各分类下下拉刷新只检查当前分类的收藏。
             favoriteVM.checkAllFavoritesForUpdates(favoriteVM.currentCategory)
         }
     }
@@ -217,7 +217,7 @@ fun FavoritePage(
             ),
             OnboardingStep(
                 title = "收藏管理小提示",
-                description = "未识别收藏可长按选择小说、漫画或其他；选择「其他」会标记为 type=3，并立即从收藏页过滤隐藏。这只是过滤，不会删除论坛收藏。"
+                description = "未识别收藏可长按选择小说、漫画或其他；选择「其他」后，可在顶部的「其他」分类中查看。"
             ),
             OnboardingStep(
                 title = "收藏管理小提示",
@@ -424,7 +424,7 @@ fun FavoritePage(
             // 新拉取的收藏最初通常还是 type=0（等待后台识别），此时就要计入提示；
             // 若只统计 1/2，等类型识别完成时 URL 已进入 previousFavoriteUrls，会永久漏报。
             val addedVisibleFavorites = favoriteList.count { favorite ->
-                favorite.url !in previousFavoriteUrls && favorite.type in 0..2
+                favorite.url !in previousFavoriteUrls && favorite.type in 0..3
             }
             if (addedVisibleFavorites > 0) {
                 pendingNewFavoriteCount += addedVisibleFavorites
@@ -456,11 +456,11 @@ fun FavoritePage(
     }
 
     // 分类数据
-    val novelCategoryColor = MaterialTheme.colorScheme.secondary
     val categoryOptions = listOf(
         Triple(-1, "全部", Color.Transparent),
-        Triple(1, "小说", novelCategoryColor),
-        Triple(2, "漫画", MaterialTheme.colorScheme.primary)
+        Triple(1, "小说", MaterialTheme.colorScheme.primary),
+        Triple(2, "漫画", MaterialTheme.colorScheme.primary),
+        Triple(3, "其他", MaterialTheme.colorScheme.onSurfaceVariant)
     )
 
     var currentCategoryId by rememberSaveable { mutableIntStateOf(favoriteVM.currentCategory) }
@@ -550,7 +550,7 @@ fun FavoritePage(
             0 -> listOf("类型：未识别，可手动选择小说、漫画或其他")
             1 -> if (sourceName == null) listOf("类型：小说（手动设置）") else listOf("类型：小说", "分区：$sourceName")
             2 -> if (sourceName == null) listOf("类型：漫画（手动设置）") else listOf("类型：漫画", "分区：$sourceName")
-            3 -> listOf("类型：其他（仅从收藏页过滤，不删除论坛收藏）")
+            3 -> listOf("类型：其他")
             else -> listOf("类型：未知")
         }
     }
@@ -1042,7 +1042,6 @@ fun FavoritePage(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         val neutral = MaterialTheme.colorScheme.onSurfaceVariant
-                        val danger = MaterialTheme.colorScheme.primary
                         val allSelected = searchedFavoriteList.isNotEmpty() &&
                                 selectedItems.size >= searchedFavoriteList.size &&
                                 searchedFavoriteList.all { selectedItems.contains(it.url) }
@@ -1089,7 +1088,7 @@ fun FavoritePage(
                         }
                         ManageActionButton(
                             label = "删除",
-                            tint = danger,
+                            tint = neutral,
                             onClick = {
                                 if (selectedItems.isNotEmpty()) showDeleteConfirmDialog = true
                             }
@@ -1098,7 +1097,7 @@ fun FavoritePage(
                                 Icons.Default.Delete,
                                 "删除",
                                 modifier = Modifier.size(20.dp),
-                                tint = danger
+                                tint = MaterialTheme.colorScheme.primary
                             )
                         }
                     }

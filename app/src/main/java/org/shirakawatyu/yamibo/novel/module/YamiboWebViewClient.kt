@@ -137,6 +137,7 @@ open class YamiboWebViewClient : WebViewClient() {
     }
 
     private var currentCookie = ""
+    private var observedSessionGeneration = GlobalData.sessionGeneration
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private val themeFlashHandler = Handler(Looper.getMainLooper())
     private var themeFlashRevealRunnable: Runnable? = null
@@ -306,6 +307,10 @@ open class YamiboWebViewClient : WebViewClient() {
     }
 
     override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+        if (observedSessionGeneration != GlobalData.sessionGeneration) {
+            currentCookie = ""
+            observedSessionGeneration = GlobalData.sessionGeneration
+        }
         YamiboPostLinkUtil.explicitDesktopTemplateSelection(url)?.let { selected ->
             userSelectedDesktopTemplate = selected
             currentPageUsesDesktopTemplate = selected
