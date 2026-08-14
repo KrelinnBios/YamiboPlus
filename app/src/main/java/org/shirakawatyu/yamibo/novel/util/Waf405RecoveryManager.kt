@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.view.View
 import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.RenderProcessGoneDetail
@@ -25,7 +26,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 internal object Waf405RecoveryPolicy {
-    const val CHALLENGE_TIMEOUT_MS = 18_000L
+    const val CHALLENGE_TIMEOUT_MS = 45_000L
     const val RECENT_SUCCESS_GRACE_MS = 15_000L
     const val SAME_PAGE_RETRY_GUARD_MS = 30_000L
     const val NOX_COOKIE_NAME = "nox_jst_v1"
@@ -217,10 +218,10 @@ object Waf405RecoveryManager {
     ): Boolean {
         if (!isAllowedYamiboUrl(challengeUrl)) return false
         if (isNoxFresh()) return true
-        // 本会话还没换过凭证、但 WebView 里已有 nox（通常是上次使用留下的，
-        // 真实年龄未知）：先信任它，避免每次冷启动都强制挑战一次加重论坛负担；
+        // 冷启动时不要在真正请求前额外发起挑战：没有 nox 时，交给 405 响应
+        // 触发恢复；已有 nox 时也先信任它，避免重复挑战加重论坛负担。
         // 真过期时仍由既有 405 恢复路径兜底。
-        if (lastSuccessfulRefreshMs == 0L && hasNoxCookie()) return false
+        if (lastSuccessfulRefreshMs == 0L) return false
         return refreshAndWait(challengeUrl, userAgent, timeoutMs)
     }
 
@@ -229,11 +230,13 @@ object Waf405RecoveryManager {
         return last > 0L && nowMs - last < Waf405RecoveryPolicy.NOX_RENEW_INTERVAL_MS
     }
 
-    private fun hasNoxCookie(): Boolean = runCatching {
-        Waf405RecoveryPolicy.extractNoxCookieValue(
-            CookieManager.getInstance().getCookie(FORUM_ORIGIN).orEmpty()
-        ) != null
-    }.getOrDefault(false)
+    /**
+     * 探测/重放确认新凭证并未被服务端接受时调用：清零成功时间戳，
+     * 避免 15 秒宽限把无效凭证当成“刚换过新”，导致连续刷新全部白重试。
+     */
+    fun markNoxUnverified() {
+        lastSuccessfulRefreshMs = 0L
+    }
 
     /** OkHttp 线程等待同一次挑战，由调用方根据结果决定是否重放原 GET。 */
     fun refreshAndWait(
@@ -253,7 +256,10 @@ object Waf405RecoveryManager {
         }
         val owner = ownerRef?.get()
             ?.takeUnless { it.isFinishing || it.isDestroyed }
-            ?: return false
+            ?: run {
+                AppErrorLog.record("WAF 挑战跳过：无可用前台页面")
+                return false
+            }
         val signal = synchronized(signalLock) {
             activeSignal ?: RefreshSignal(
                 challengeUrl = challengeUrl,
@@ -271,7 +277,17 @@ object Waf405RecoveryManager {
             }
         }
         return try {
-            signal.latch.await(timeoutMs, TimeUnit.MILLISECONDS) && signal.succeeded
+            val completed = signal.latch.await(timeoutMs, TimeUnit.MILLISECONDS)
+            if (!completed) {
+                // 不能让短时调用者超时后留下一个仍在后台运行的挑战，
+                // 否则后续 405 请求会全部排队到旧挑战结束。
+                mainHandler.post {
+                    if (signal === activeSignal) {
+                        completeRefresh(signal, succeeded = false)
+                    }
+                }
+            }
+            completed && signal.succeeded
         } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
             false
@@ -284,10 +300,12 @@ object Waf405RecoveryManager {
 
         val hiddenWebView = runCatching {
             WebView(activity).apply {
-                layoutParams = FrameLayout.LayoutParams(1, 1).apply {
-                    leftMargin = -10_000
-                    topMargin = -10_000
-                }
+                layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
+                // 正常尺寸、不可见：WAF 挑战脚本在 1x1 离屏视图里可能执行异常
+                visibility = View.INVISIBLE
                 settings.apply {
                     javaScriptEnabled = true
                     domStorageEnabled = true
@@ -383,6 +401,7 @@ object Waf405RecoveryManager {
             cookieManager.flush()
             target.onResume()
             target.loadUrl(signal.challengeUrl, mapOf("Cache-Control" to "no-cache"))
+            AppErrorLog.record("WAF 挑战开始：${signal.challengeUrl}")
             pollForNoxCookie(signal)
         }.onFailure {
             completeRefresh(signal, succeeded = false)
@@ -428,6 +447,7 @@ object Waf405RecoveryManager {
             activeSignal = null
             signal.visibleRetries.toList()
         }
+        AppErrorLog.record(if (succeeded) "WAF 挑战成功" else "WAF 挑战失败或超时")
         cancelRefreshCallbacks()
         runCatching { CookieManager.getInstance().flush() }
         signal.latch.countDown()

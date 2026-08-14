@@ -16,6 +16,7 @@ data class ForumBoard(
     val threadCount: Int = 0,
     val postCount: Int = 0,
     val todayPostCount: Int = 0,
+    val rank: Int? = null,
     val subforums: List<ForumBoard> = emptyList()
 )
 
@@ -58,6 +59,7 @@ data class ForumThreadPage(
     val forum: ForumBoard,
     val threads: List<ForumThread>,
     val page: Int,
+    val totalPages: Int,
     val hasMore: Boolean,
     val availableTypes: Map<String, String> = emptyMap()
 )

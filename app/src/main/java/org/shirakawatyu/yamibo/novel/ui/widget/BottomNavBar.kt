@@ -1,6 +1,5 @@
 package org.shirakawatyu.yamibo.novel.ui.widget
 
-import android.os.SystemClock
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
@@ -27,7 +26,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -39,13 +37,19 @@ import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.ui.theme.yamiboComponentColors
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 
+enum class BottomNavGesture {
+    SingleClick,
+    LongPress
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun BottomNavBar(
     navController: NavController,
     currentRoute: String?,
     navBarVM: BottomNavBarVM,
-    selectedRoute: String? = currentRoute
+    selectedRoute: String? = currentRoute,
+    onGesture: ((index: Int, gesture: BottomNavGesture) -> Boolean)? = null
 ) {
     if (!navBarVM.showBottomNavBar) return
 
@@ -91,32 +95,34 @@ fun BottomNavBar(
             uiState.icons.forEachIndexed { index, icon ->
                 val targetRoute = pageList[index]
                 val selected = baseRoute == targetRoute
-                var lastClickAt by remember(targetRoute) { mutableLongStateOf(0L) }
+                val interactionSource = remember(targetRoute) { MutableInteractionSource() }
                 Box(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight()
                         .combinedClickable(
-                            interactionSource = remember { MutableInteractionSource() },
+                            interactionSource = interactionSource,
                             indication = null,
                             // 单击：仅切换板块；已在本板块内时不做任何事，避免误触重载。
-                            onClick = {
-                                val now = SystemClock.elapsedRealtime()
-                                val isDoubleClick = selected && now - lastClickAt in 1..360
-                                lastClickAt = if (isDoubleClick) 0L else now
-                                navBarVM.returnToHome(
-                                    index,
-                                    currentRoute,
-                                    navController,
-                                    notifyHome = isDoubleClick
-                                )
-                            },
+                             onClick = {
+                                 val handled = onGesture?.invoke(index, BottomNavGesture.SingleClick) == true
+                                 if (!handled && selected) {
+                                     navBarVM.requestScrollToTop(index)
+                                 } else if (!handled) {
+                                     navBarVM.returnToHome(
+                                         index,
+                                         currentRoute,
+                                         navController,
+                                         notifyHome = false
+                                     )
+                                 }
+                             },
                             // 长按：回到该板块主页（论坛首页 / 个人资料 / 漫画首页 / 收藏首页）。
-                            onLongClick = {
-                                navBarVM.returnToHome(
-                                    index, currentRoute, navController, notifyHome = true
-                                )
-                            }
+                             onLongClick = {
+                                 if (onGesture?.invoke(index, BottomNavGesture.LongPress) != true) {
+                                     navBarVM.requestCategoryHome(index, currentRoute, navController)
+                                 }
+                             }
                         ),
                     contentAlignment = Alignment.Center
                 ) {

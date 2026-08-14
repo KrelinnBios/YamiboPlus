@@ -67,9 +67,6 @@ import org.shirakawatyu.yamibo.novel.ui.theme.yamiboComponentColors
 import org.shirakawatyu.yamibo.novel.ui.state.MinePageState
 import org.shirakawatyu.yamibo.novel.ui.vm.NativeMinePageVM
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
-import org.shirakawatyu.yamibo.novel.ui.widget.YamiboToast
-import org.shirakawatyu.yamibo.novel.util.AppUpdateCheckResult
-import org.shirakawatyu.yamibo.novel.util.AppUpdateManager
 import org.shirakawatyu.yamibo.novel.util.AutoSignManager
 import org.shirakawatyu.yamibo.novel.util.TodaySignStatus
 import org.shirakawatyu.yamibo.novel.util.LanguageModeUtil
@@ -89,11 +86,16 @@ fun NativeMinePage(
     val headerContent = componentColors.topBarContent
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val syncedTodaySignStatus by AutoSignManager.todaySignStatus.collectAsState()
     var todaySignStatus by remember { mutableStateOf<TodaySignStatus?>(null) }
     var isSigning by remember { mutableStateOf(false) }
     val scrollState = rememberScrollState()
     val lastSignStatusRefreshUid = rememberSaveable { mutableStateOf<String?>(null) }
     val lastSignStatusRefreshDate = rememberSaveable { mutableStateOf("") }
+
+    LaunchedEffect(syncedTodaySignStatus) {
+        syncedTodaySignStatus?.let { todaySignStatus = it }
+    }
 
     LaunchedEffect(state.profile?.uid) {
         val uid = state.profile?.uid
@@ -110,6 +112,11 @@ fun NativeMinePage(
         lastSignStatusRefreshUid.value = uid
         lastSignStatusRefreshDate.value = today
         todaySignStatus = AutoSignManager.getTodaySignStatus()
+    }
+    LaunchedEffect(bottomNavBarVM) {
+        bottomNavBarVM.scrollToTopEvent.collect { index ->
+            if (index == 3) scrollState.animateScrollTo(0)
+        }
     }
     LaunchedEffect(bottomNavBarVM) {
         bottomNavBarVM.goHomeEvent.collect { route ->
@@ -191,6 +198,11 @@ fun NativeMinePage(
                                         isSigning = false
                                     }
                                 }
+                            },
+                            onOpenSpaceSection = { section ->
+                                navController.navigate(
+                                    "OtherWebPage/${Uri.encode(ForumActionUrls.userSpace(profile.uid, section))}"
+                                )
                             }
                         )
                     } ?: NotLoggedInCard()
@@ -201,7 +213,7 @@ fun NativeMinePage(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                             shape = RoundedCornerShape(12.dp)
                         ) {
-                            Text(LanguageModeUtil.displayText("登录百合会"))
+                            Text(LanguageModeUtil.displayText("登录百合会论坛"))
                         }
                     }
 
@@ -239,21 +251,7 @@ fun NativeMinePage(
                         icon = Icons.Default.SystemUpdate,
                         title = "检查更新",
                         subtitle = "检查新版本",
-                        onClick = {
-                            YamiboToast.show(message = "正在检查更新...")
-                            scope.launch {
-                                when (val result = AppUpdateManager.checkForUpdate()) {
-                                    AppUpdateCheckResult.NoUpdate ->
-                                        YamiboToast.show(message = "已是最新版本")
-
-                                    is AppUpdateCheckResult.UpdateAvailable ->
-                                        YamiboToast.show(message = "发现新版本: ${result.info.versionName}")
-
-                                    is AppUpdateCheckResult.Failed ->
-                                        YamiboToast.show(message = "检查更新失败: ${result.reason}")
-                                }
-                            }
-                        }
+                        onClick = { navController.navigate("NativeUpdatePage") }
                     )
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
                     MenuItem(
@@ -298,7 +296,8 @@ private fun UserProfileCard(
     signStatus: TodaySignStatus?,
     isSigning: Boolean,
     onOpenProfile: () -> Unit,
-    onSignIn: () -> Unit
+    onSignIn: () -> Unit,
+    onOpenSpaceSection: (String) -> Unit
 ) {
     Surface(
         modifier = Modifier
@@ -372,32 +371,49 @@ private fun UserProfileCard(
                     when (signStatus) {
                         TodaySignStatus.SIGNED -> LanguageModeUtil.displayText("今日已签到")
                         TodaySignStatus.NOT_SIGNED -> LanguageModeUtil.displayText("今日尚未签到")
-                        TodaySignStatus.UNKNOWN, null -> LanguageModeUtil.displayText("今日签到")
+                        TodaySignStatus.UNKNOWN, null -> LanguageModeUtil.displayText("\u4eca\u65e5\u672a\u7b7e\u5230")
                     }
                 )
             }
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Stats Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                StatItem(LanguageModeUtil.displayText("帖子"), profile.posts)
-                StatItem(LanguageModeUtil.displayText("主题"), profile.threads)
-                StatItem(LanguageModeUtil.displayText("积分"), profile.credits)
-                StatItem(LanguageModeUtil.displayText("精华"), profile.digestCount)
+                StatItem(LanguageModeUtil.displayText("\u79ef\u5206"), profile.credits.toString())
+                StatItem(
+                    label = LanguageModeUtil.displayText("\u4e3b\u9898"),
+                    value = profile.threads.toString(),
+                    onClick = { onOpenSpaceSection("thread") }
+                )
+                StatItem(
+                    label = LanguageModeUtil.displayText("\u56de\u590d"),
+                    value = profile.posts.toString(),
+                    onClick = { onOpenSpaceSection("reply") }
+                )
+                StatItem(
+                    label = LanguageModeUtil.displayText("\u65e5\u5fd7"),
+                    value = "\u67e5\u770b",
+                    onClick = { onOpenSpaceSection("blog") }
+                )
+                StatItem(
+                    label = LanguageModeUtil.displayText("\u8bb0\u5f55"),
+                    value = "\u67e5\u770b",
+                    onClick = { onOpenSpaceSection("doing") }
+                )
             }
         }
     }
 }
 
 @Composable
-private fun StatItem(label: String, value: Int) {
+private fun StatItem(label: String, value: String, onClick: (() -> Unit)? = null) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
-            text = value.toString(),
+            text = value,
+            modifier = if (onClick == null) Modifier else Modifier.clickable(onClick = onClick),
             fontSize = 18.sp,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.primary

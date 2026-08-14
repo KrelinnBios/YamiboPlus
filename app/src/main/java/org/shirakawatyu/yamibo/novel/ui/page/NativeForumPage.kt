@@ -55,6 +55,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
@@ -160,7 +161,7 @@ fun NativeForumPage(
                     ForumIndexList(state, forumVM::openForum, listState)
                 }
                 else -> {
-                    ForumThreadList(state, onThreadClick, forumVM::loadMore, listState)
+                    ForumThreadList(state, onThreadClick, forumVM::goToPage, listState)
                 }
             }
         }
@@ -268,7 +269,7 @@ private fun ForumBoardRow(
 private fun ForumThreadList(
     state: ForumState,
     onThreadClick: (ForumThread) -> Unit,
-    onLoadMore: () -> Unit,
+    onGoToPage: (Int) -> Unit,
     listState: androidx.compose.foundation.lazy.LazyListState
 ) {
     if (state.threads.isEmpty()) {
@@ -282,7 +283,6 @@ private fun ForumThreadList(
     }
     val stickyThreads = state.threads.filter(ForumThread::isSticky)
     val regularThreads = state.threads.filterNot(ForumThread::isSticky)
-    val visibleThreads = stickyThreads + regularThreads
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize(),
@@ -301,22 +301,24 @@ private fun ForumThreadList(
                 )
             }
         }
-        itemsIndexed(visibleThreads, key = { _, thread -> thread.id }) { index, thread ->
+        itemsIndexed(stickyThreads + regularThreads, key = { _, thread -> thread.id }) { index, thread ->
             ForumThreadRow(thread = thread, onClick = { onThreadClick(thread) })
-            if (index < visibleThreads.lastIndex) {
+            if (index < stickyThreads.size + regularThreads.size - 1) {
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             }
-            if (index >= visibleThreads.lastIndex - 4) {
-                LaunchedEffect(state.page, visibleThreads.size) { onLoadMore() }
-            }
         }
-        if (state.isLoadingMore) {
-            item(key = "loading-more") {
-                Box(
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+        item(key = "forum-pagination") {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(enabled = !state.isLoading && state.page > 1, onClick = { onGoToPage(state.page - 1) }) {
+                    Text("上一页")
+                }
+                TextButton(enabled = !state.isLoading, onClick = {}) { Text("第 ${state.page} 页") }
+                TextButton(enabled = !state.isLoading && state.page < state.totalPages, onClick = { onGoToPage(state.page + 1) }) {
+                    Text("下一页")
                 }
             }
         }
@@ -333,65 +335,6 @@ private fun ForumThreadList(
         }
     }
 }
-
-@Composable
-private fun ForumThreadRow(thread: ForumThread, onClick: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surface)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 11.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            if (thread.isSticky) {
-                Text(
-                    text = "置顶",
-                    color = MaterialTheme.colorScheme.primary,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(end = 7.dp)
-                )
-            }
-            thread.typeName?.let { type ->
-                Text(
-                    text = type,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontSize = 11.sp,
-                    modifier = Modifier.padding(end = 7.dp)
-                )
-            }
-            Text(
-                text = thread.subject,
-                modifier = Modifier.weight(1f),
-                color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-        Text(
-            text = listOf(thread.authorName, thread.createdAt)
-                .filter(String::isNotBlank)
-                .joinToString("  "),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 12.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-        Text(
-            text = "回复 ${thread.replyCount}  ·  查看 ${thread.viewCount}" +
-                thread.lastPoster.takeIf(String::isNotBlank)?.let { "  ·  最后回复 $it" }.orEmpty(),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 11.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-    }
-}
-
 @Composable
 private fun ForumError(message: String, onRetry: () -> Unit) {
     YamiboLoadError(
@@ -401,6 +344,30 @@ private fun ForumError(message: String, onRetry: () -> Unit) {
     )
 }
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun ForumThreadRow(thread: ForumThread, onClick: () -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface)
+            .clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 11.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Text(
+            text = thread.subject,
+            color = MaterialTheme.colorScheme.onSurface,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            text = listOf(thread.authorName, thread.createdAt).filter(String::isNotBlank).joinToString("  "),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 12.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
 @Composable
 fun NativeThreadPage(
     threadId: String,

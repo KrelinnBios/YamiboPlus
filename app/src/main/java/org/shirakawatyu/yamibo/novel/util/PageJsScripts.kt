@@ -373,7 +373,11 @@ object PageJsScripts {
                 if (kind === 'viewthread') {
                     // 大区主题列表只在当前 WebView 内发起一次导航，避免再绕过 Compose 状态后
                     // 调用 loadUrl，与当前点击产生加载竞态。
-                    window.location.assign(navigationTarget(link));
+                    if (window.AndroidSearchNav && window.AndroidSearchNav.navigateToPost) {
+                        navigateToPost(link);
+                    } else {
+                        window.location.assign(navigationTarget(link));
+                    }
                 } else if (window.AndroidSearchNav && window.AndroidSearchNav.navigateToPost) {
                     navigateToPost(link);
                 }

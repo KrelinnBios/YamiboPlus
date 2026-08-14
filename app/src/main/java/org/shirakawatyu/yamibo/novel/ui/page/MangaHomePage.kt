@@ -146,6 +146,11 @@ fun MangaHomePage(
         }
     }
     LaunchedEffect(bottomNavBarVM) {
+        bottomNavBarVM.scrollToTopEvent.collect { index ->
+            if (index == 0) listState.animateScrollToItem(0)
+        }
+    }
+    LaunchedEffect(bottomNavBarVM) {
         bottomNavBarVM.goHomeEvent.collect { route ->
             if (route == "MangaHomePage") {
                 // 只有确实处于搜索态才清空并重新拉取；

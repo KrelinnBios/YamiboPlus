@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.alibaba.fastjson2.JSON
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,6 +17,7 @@ import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.network.MangaApi
 import org.shirakawatyu.yamibo.novel.parser.MangaHtmlParser
 import org.shirakawatyu.yamibo.novel.ui.state.MangaHomeState
+import org.shirakawatyu.yamibo.novel.util.AppErrorLog
 import org.shirakawatyu.yamibo.novel.util.manga.MangaCoverSelector
 import org.shirakawatyu.yamibo.novel.util.manga.MangaTitleCleaner
 
@@ -102,6 +104,7 @@ class MangaHomeVM : ViewModel() {
                     loadCoversProgressive(deduped.take(16).filter { it.coverUrl == null }, version)
                 }
                 .onFailure { error ->
+                    if (error is CancellationException) throw error
                     if (version != refreshVersion) return@onFailure
                     _uiState.update {
                         it.copy(
@@ -139,6 +142,7 @@ class MangaHomeVM : ViewModel() {
                     loadCoversProgressive(appended.take(10).filter { it.coverUrl == null }, requestVersion)
                 }
                 .onFailure { error ->
+                    if (error is CancellationException) throw error
                     if (requestVersion != refreshVersion ||
                         _uiState.value.selectedFid != requestFid
                     ) return@onFailure
@@ -156,6 +160,7 @@ class MangaHomeVM : ViewModel() {
     // 还会把"stream was reset: PROTOCOL_ERROR"这种吓人的英文直接抛到漫画首页。
     // 统一换成可操作的中文提示；IllegalStateException 携带的是给用户看的中文提示（如"请先登录"），原样保留。
     private fun friendlyError(e: Throwable, fallback: String): String {
+        AppErrorLog.record("漫画首页错误：${e.message}")
         if (e is IllegalStateException) return e.message?.takeIf(String::isNotBlank) ?: fallback
         val msg = e.message.orEmpty()
         val isNetwork = e is java.io.IOException ||

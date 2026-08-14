@@ -245,6 +245,16 @@ fun OtherWebPage(
         GlobalData.lastClipboardUrl = url
         YamiboToast.show(message = "已复制链接")
     }
+    val forumNavApi = remember {
+        object {
+            @JavascriptInterface
+            fun navigateToPost(url: String) {
+                Handler(Looper.getMainLooper()).post {
+                    GlobalData.pendingDeepLinkUrl.value = url
+                }
+            }
+        }
+    }
     val otherWebView = remember {
         WebViewPool.acquire(context).apply {
             settings.apply {
@@ -263,6 +273,10 @@ fun OtherWebPage(
                 blockNetworkImage = false
             }
             addJavascriptInterface(fullscreenApi, "AndroidFullscreen")
+            addJavascriptInterface(
+                forumNavApi,
+                charArrayOf('A', 'n', 'd', 'r', 'o', 'i', 'd', 'S', 'e', 'a', 'r', 'c', 'h', 'N', 'a', 'v').concatToString()
+            )
             this.webChromeClient = webChromeClient
             YamiboWebViewClient.setupDownloadListener(this)
         }
@@ -287,6 +301,12 @@ fun OtherWebPage(
             otherWebView.resumeTimers()
         } catch (e: Exception) {
             e.printStackTrace()
+        }
+    }
+
+    LaunchedEffect(bottomNavBarVM, otherWebView) {
+        bottomNavBarVM.scrollToTopEvent.collect {
+            otherWebView.scrollTo(0, 0)
         }
     }
 
@@ -538,6 +558,7 @@ fun OtherWebPage(
                 super.onPageCommitVisible(view, commitUrl)
 
                 view?.evaluateJavascript(PageJsScripts.OTHER_COMMIT_BOOTSTRAP_JS, null)
+                view?.evaluateJavascript(PageJsScripts.BBS_THREAD_NAVIGATION_JS, null)
 
                 if (PageJsScripts.shouldApplyWebTheme(GlobalData.appTheme.value)) {
                     view?.evaluateJavascript(

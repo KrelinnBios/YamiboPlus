@@ -94,6 +94,7 @@ import org.shirakawatyu.yamibo.novel.ui.page.MinePage
 import org.shirakawatyu.yamibo.novel.ui.page.NativeMinePage
 import org.shirakawatyu.yamibo.novel.ui.page.NativeSettingsPage
 import org.shirakawatyu.yamibo.novel.ui.page.NativeThemePage
+import org.shirakawatyu.yamibo.novel.ui.page.NativeUpdatePage
 import org.shirakawatyu.yamibo.novel.ui.page.NativeBackupPage
 import org.shirakawatyu.yamibo.novel.ui.page.NativeBlocklistPage
 import org.shirakawatyu.yamibo.novel.ui.page.NativeMangaPage
@@ -558,6 +559,15 @@ fun App(webChromeClient: WebChromeClient) {
                         val navBackStackEntry by navController.currentBackStackEntryAsState()
                         val currentRoute = navBackStackEntry?.destination?.route
                         val bottomNavBarVM: BottomNavBarVM = viewModel(stateOwner!!)
+                        suspend fun openPendingForumPost(url: String) {
+                            GlobalData.lastClipboardUrl = url
+                            val opened = runCatching {
+                                openNativeForumPost(navController, url)
+                            }.getOrDefault(false)
+                            if (!opened) {
+                                navController.navigate(navController.graph.findStartDestination().route ?: return)
+                            }
+                        }
 
                         // Deep link: 从其他 app 点击百合会链接跳转进来
                         LaunchedEffect(Unit) {
@@ -577,6 +587,13 @@ fun App(webChromeClient: WebChromeClient) {
                                         restoreState = true
                                     }
                                 }
+                            }
+                        }
+                        LaunchedEffect(Unit) {
+                            GlobalData.pendingClipboardUrl.collect { url ->
+                                if (url == null) return@collect
+                                GlobalData.pendingClipboardUrl.value = null
+                                openPendingForumPost(url)
                             }
                         }
                         val context = LocalContext.current
@@ -880,6 +897,7 @@ fun App(webChromeClient: WebChromeClient) {
                                                 forumVM.showForumIndex()
                                                 navController.popBackStack("BBSPage", false)
                                             },
+                                            bottomNavBarVM = bottomNavBarVM,
                                             onOpenLink = { url ->
                                                 val linkedThreadId =
                                                     YamiboPostLinkUtil.extractThreadId(url)
@@ -1016,6 +1034,19 @@ fun App(webChromeClient: WebChromeClient) {
                                         onBack = { navController.popBackStack() },
                                         onOpenTheme = { navController.navigate("NativeThemePage") },
                                         onOpenBackup = { navController.navigate("NativeBackupPage") }
+                                    )
+                                }
+                                composable(
+                                    "NativeUpdatePage",
+                                    enterTransition = {
+                                         fadeIn(tween(150))
+                                    },
+                                    popExitTransition = {
+                                         fadeOut(tween(150))
+                                    }
+                                ) {
+                                    NativeUpdatePage(
+                                        onBack = { navController.popBackStack() }
                                     )
                                 }
                                 composable(

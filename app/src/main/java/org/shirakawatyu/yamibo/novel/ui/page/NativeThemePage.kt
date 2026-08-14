@@ -30,7 +30,7 @@ import androidx.compose.material.icons.filled.Contrast
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.Refresh
+
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -103,15 +103,7 @@ fun NativeThemePage(
                     fontWeight = FontWeight.Medium,
                     color = componentColors.topBarContent
                 )
-                IconButton(
-                    onClick = { updateTheme(YamiboThemePreference()) }
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = "重置主题",
-                        tint = componentColors.topBarContent
-                    )
-                }
+                
             }
         }
 

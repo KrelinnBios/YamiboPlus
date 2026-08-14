@@ -1,5 +1,7 @@
 package org.shirakawatyu.yamibo.novel.global
 
+import android.util.Log
+
 import coil.annotation.ExperimentalCoilApi
 import coil.imageLoader
 import okhttp3.ConnectionPool
@@ -8,11 +10,13 @@ import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.ResponseBody.Companion.toResponseBody
 import okhttp3.dnsoverhttps.DnsOverHttps
 import org.shirakawatyu.yamibo.novel.YamiboApplication
 import org.shirakawatyu.yamibo.novel.constant.RequestConfig
 import org.shirakawatyu.yamibo.novel.util.ForumRedirectCookieUtil
 import org.shirakawatyu.yamibo.novel.util.LanguageModeUtil
+import org.shirakawatyu.yamibo.novel.util.AppErrorLog
 import org.shirakawatyu.yamibo.novel.util.YamiboSession
 import org.shirakawatyu.yamibo.novel.util.Waf405RecoveryManager
 import org.shirakawatyu.yamibo.novel.util.Waf405RecoveryPolicy
@@ -124,6 +128,8 @@ class DynamicDns(private val bootstrapClient: OkHttpClient) : okhttp3.Dns {
 class YamiboRetrofit {
 
     companion object {
+        private const val TAG_WAF = "Waf405"
+
         private val pcUaList = listOf(
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36 Edg/121.0.0.0",
@@ -386,11 +392,15 @@ class YamiboRetrofit {
                         } else {
                             ""
                         }
-                        val refreshed = Waf405RecoveryPolicy.shouldRefreshForResponse(
+                        val isChallenge = Waf405RecoveryPolicy.shouldRefreshForResponse(
                             response.code,
                             request.method,
                             responsePreview
-                        ) && Waf405RecoveryManager.refreshAndWait(
+                        )
+                        if (isChallenge) {
+                            AppErrorLog.record("检测到 WAF 405：${request.url}")
+                        }
+                        val refreshed = isChallenge && Waf405RecoveryManager.refreshAndWait(
                             challengeUrl = request.url.toString(),
                             userAgent = request.header("User-Agent").orEmpty().ifBlank {
                                 YamiboApplication.systemUserAgent.ifBlank { RequestConfig.UA }
@@ -398,12 +408,33 @@ class YamiboRetrofit {
                         )
                         if (!refreshed) return response
 
+                        // 挑战后先做一次同源轻量探测，确认 nox 凭证真的被服务端接受，
+                        // 避免拿着一张无效凭证重放原请求（重放必然再 405，表现为“刷新永远不成功”）。
+                        if (!probeNoxCookie()) {
+                            Log.i(TAG_WAF, "waf405 probe failed, mark nox unverified: ${request.url}")
+                            AppErrorLog.record("WAF 探测未通过，等待下次挑战")
+                            Waf405RecoveryManager.markNoxUnverified()
+                            return response
+                        }
+
                         response.close()
                         sharedConnectionPool.evictAll()
                         val retriedRequest = request.newBuilder()
                             .header("Cookie", YamiboSession.cookieFor(request.url.toString()))
                             .build()
-                        return chain.proceed(retriedRequest)
+                        val replay = chain.proceed(retriedRequest)
+                        // 重放仍被 WAF 拦截：清掉凭证，让下一次请求重新挑战而不是继续白重试。
+                        if (isNoxChallengeResponse(replay)) {
+                            Log.i(TAG_WAF, "waf405 replay still blocked, mark nox unverified: ${request.url}")
+                            AppErrorLog.record("WAF 重放仍被拦截，已清凭证")
+                            Waf405RecoveryManager.markNoxUnverified()
+                            val preview = runCatching { replay.peekBody(64 * 1024L).string() }
+                                .getOrDefault("")
+                            return replay.newBuilder()
+                                .body(preview.toResponseBody(null))
+                                .build()
+                        }
+                        return replay
                     }
                     // 444 没有可用响应体，丢弃后退避换连接重试。
                     response.close()
@@ -440,6 +471,30 @@ class YamiboRetrofit {
             } catch (_: InterruptedException) {
                 Thread.currentThread().interrupt()
             }
+        }
+
+        /**
+         * 同源轻量探测：挑战换新后先确认 nox 凭证真的被服务端接受。
+         * 走同一个 okHttpClient，UA/Referer 等头由应用拦截器补齐；
+         * 此时凭证刚换新（isNoxFresh 为真），不会再次触发续期。
+         */
+        private fun probeNoxCookie(): Boolean = try {
+            val url = "https://bbs.yamibo.com/"
+            val probeRequest = Request.Builder()
+                .url(url)
+                .header("Cookie", YamiboSession.cookieFor(url))
+                .build()
+            okHttpClient.newCall(probeRequest).execute().use { it.isSuccessful }
+        } catch (_: Exception) {
+            false
+        }
+
+        /** 响应体是否仍是 NOX 挑战页（405 + 特征标记）。 */
+        private fun isNoxChallengeResponse(response: okhttp3.Response): Boolean {
+            if (response.code != 405) return false
+            val preview = runCatching { response.peekBody(64 * 1024L).string() }
+                .getOrDefault("")
+            return Waf405RecoveryPolicy.shouldRefreshForResponse(response.code, "GET", preview)
         }
 
         fun proxyWebViewResource(request: android.webkit.WebResourceRequest): android.webkit.WebResourceResponse? {

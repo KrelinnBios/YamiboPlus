@@ -3,17 +3,18 @@ package org.shirakawatyu.yamibo.novel.util
 import android.content.Context
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
-import com.alibaba.fastjson2.JSON
 import org.jsoup.Jsoup
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import okhttp3.ResponseBody
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
-import org.shirakawatyu.yamibo.novel.network.FavoriteApi
 import org.shirakawatyu.yamibo.novel.ui.widget.YamiboToast
 import retrofit2.http.GET
+import retrofit2.http.Header
 import retrofit2.http.Url
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -22,7 +23,10 @@ import java.util.TimeZone
 
 private interface SignApi {
     @GET
-    suspend fun fetchHtml(@Url url: String): ResponseBody
+    suspend fun fetchHtml(
+        @Url url: String,
+        @Header("Referer") referer: String? = null
+    ): ResponseBody
 }
 
 enum class SignTrigger {
@@ -52,7 +56,10 @@ internal object TodaySignStatusCache {
  */
 object AutoSignManager {
     private const val BASE_URL = "https://bbs.yamibo.com/"
+    private const val SIGN_PAGE_URL = "${BASE_URL}plugin.php?id=zqlj_sign"
     private const val MAX_DAILY_RETRIES = 2
+    private val _todaySignStatus = MutableStateFlow<TodaySignStatus?>(null)
+    val todaySignStatus = _todaySignStatus.asStateFlow()
 
     fun getServerTodayPublic(): String = getServerToday()
     private fun getServerToday(): String {
@@ -96,6 +103,7 @@ object AutoSignManager {
         GlobalData.dataStore?.edit {
             it[getSignStatusKey(hash)] = TodaySignStatusCache.encode(date, status)
         }
+        _todaySignStatus.value = status
     }
 
     suspend fun resetQuota(hash: Int? = getCurrentAccountHash()) {
@@ -121,7 +129,10 @@ object AutoSignManager {
         val accountHash = getCurrentAccountHash() ?: return@withContext TodaySignStatus.UNKNOWN
         val today = getServerToday()
         if (!forceRefresh) {
-            getCachedTodaySignStatus(accountHash, today)?.let { return@withContext it }
+            getCachedTodaySignStatus(accountHash, today)?.let {
+                _todaySignStatus.value = it
+                return@withContext it
+            }
         }
 
         val status = runCatching {
@@ -146,6 +157,9 @@ object AutoSignManager {
         }.getOrDefault(TodaySignStatus.UNKNOWN)
 
         saveTodaySignStatus(accountHash, today, status)
+        if (status == TodaySignStatus.UNKNOWN) {
+            _todaySignStatus.value = status
+        }
         status
     }
 
@@ -169,22 +183,17 @@ object AutoSignManager {
         }
 
         try {
-            val favoriteApi = YamiboRetrofit.getInstance().create(FavoriteApi::class.java)
-            val profileResponse = favoriteApi.getFormHash().execute()
-            val json = profileResponse.body()?.string() ?: ""
-            var formHash: String? = null
-            try {
-                val jsonObject = JSON.parseObject(json)
-                formHash = jsonObject?.getJSONObject("Variables")?.getString("formhash")
-            } catch (_: Exception) { }
-            if (formHash.isNullOrEmpty()) {
-                if (force) showToast(context, "登录验证失败，无法打卡")
+            val signApi = YamiboRetrofit.getInstance().create(SignApi::class.java)
+            // 签到校验使用插件页面生成的 formhash。
+            val signPageHtml = signApi.fetchHtml(SIGN_PAGE_URL).string()
+            val formHash = extractSignFormHash(signPageHtml)
+            if (formHash == null) {
+                if (force) showToast(context, "签到页面验证失败，请重新登录后重试")
                 return@withContext
             }
 
-            val signApi = YamiboRetrofit.getInstance().create(SignApi::class.java)
-            val signUrl = "${BASE_URL}plugin.php?id=zqlj_sign&sign=$formHash"
-            val actionResponseHtml = signApi.fetchHtml(signUrl).string()
+            val signUrl = "$SIGN_PAGE_URL&sign=$formHash"
+            val actionResponseHtml = signApi.fetchHtml(signUrl, referer = SIGN_PAGE_URL).string()
 
             if (!force) {
                 if (trigger == SignTrigger.LAUNCH) launchCount++ else resumeCount++
@@ -196,20 +205,28 @@ object AutoSignManager {
                 actionResponseHtml.contains("重复操作")
             ) {
                 saveTodaySignStatus(accountHash, today, TodaySignStatus.SIGNED)
-                if (force) showToast(context, "今日已打卡")
+                if (force) showToast(context, "今日已签到")
             } else if (actionResponseHtml.contains("打卡成功") ||
-                actionResponseHtml.contains("成功") ||
+                actionResponseHtml.contains("签到成功") ||
                 actionResponseHtml.contains("获得了")
             ) {
                 saveTodaySignStatus(accountHash, today, TodaySignStatus.SIGNED)
                 showToast(context, "签到成功")
             } else {
-                if (force) showToast(context, "打卡请求已发送")
+                if (force) showToast(context, "签到未完成，请重新登录后重试")
             }
-        } catch (_: Exception) {
-            if (force) showToast(context, "网络异常，稍后重试")
+        } catch (error: Exception) {
+            AppErrorLog.record("签到请求失败：${error.message}")
+            if (force) showToast(context, "签到请求失败，请稍后重试")
         }
     }
+
+    internal fun extractSignFormHash(html: String): String? =
+        Jsoup.parse(html)
+            .selectFirst("#scbar_form input[name=formhash], input[name=formhash]")
+            ?.attr("value")
+            ?.trim()
+            ?.takeIf(String::isNotEmpty)
 
     private suspend fun showToast(context: Context, msg: String) {
         withContext(Dispatchers.Main) {

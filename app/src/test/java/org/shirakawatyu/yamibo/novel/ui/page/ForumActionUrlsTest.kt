@@ -18,5 +18,13 @@ class ForumActionUrlsTest {
             "https://bbs.yamibo.com/forum.php?mod=misc&action=rate&tid=572320&pid=41559541&mobile=2",
             ForumActionUrls.rate("572320", "41559541")
         )
+        assertEquals(
+            "https://bbs.yamibo.com/home.php?mod=space&uid=10086&do=blog&view=me&mobile=2",
+            ForumActionUrls.userSpace("10086", "blog")
+        )
+        assertEquals(
+            "https://bbs.yamibo.com/home.php?mod=space&uid=10086&do=doing&view=me&mobile=2",
+            ForumActionUrls.userSpace("10086", "doing")
+        )
     }
 }

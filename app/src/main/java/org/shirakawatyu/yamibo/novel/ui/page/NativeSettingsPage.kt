@@ -20,7 +20,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -55,6 +57,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.ui.theme.yamiboComponentColors
+import org.shirakawatyu.yamibo.novel.ui.theme.YamiboThemePreference
 import org.shirakawatyu.yamibo.novel.ui.theme.yamiboSwitchColors
 import org.shirakawatyu.yamibo.novel.ui.widget.YamiboToast
 import org.shirakawatyu.yamibo.novel.util.AutoSignManager
@@ -82,6 +85,7 @@ fun NativeSettingsPage(
     val isAutoSignInEnabled = GlobalData.isAutoSignInEnabled.value
     val isForumBlocklistEnabled by ForumBlocklistManager.enabled.collectAsState()
     val componentColors = yamiboComponentColors()
+    val systemDark = isSystemInDarkTheme()
     val headerColor = componentColors.topBarContainer
     val headerContent = componentColors.topBarContent
     val context = LocalContext.current
@@ -90,6 +94,7 @@ fun NativeSettingsPage(
     var isClearingCache by remember { mutableStateOf(false) }
     var showClearCacheDialog by remember { mutableStateOf(false) }
     var showCustomDnsDialog by remember { mutableStateOf(false) }
+    var showResetSettingsDialog by remember { mutableStateOf(false) }
     var customDnsDraft by remember { mutableStateOf(customDnsUrl) }
 
     fun setLanguageMode(mode: String) {
@@ -99,6 +104,30 @@ fun NativeSettingsPage(
         SettingsUtil.saveLanguageMode(normalized)
         LanguageModeUtil.applyForumCookies(normalized, null)
         LanguageModeUtil.applyLocale(context, normalized)
+    }
+
+    fun restoreDefaultSettings() {
+        val preference = YamiboThemePreference()
+        val resolvedTheme = GlobalData.applyThemePreference(preference, systemDark)
+        SettingsUtil.saveThemePreference(preference, resolvedTheme)
+        setLanguageMode(LanguageModeUtil.SIMPLIFIED)
+        GlobalData.isDnsOptimizationEnabled.value = true
+        SettingsUtil.saveDnsOptimizationEnabled(true)
+        GlobalData.isCustomDnsEnabled.value = false
+        SettingsUtil.saveCustomDnsMode(false)
+        GlobalData.dnsOptimizationMode.value = "auto"
+        SettingsUtil.saveDnsOptimizationMode("auto")
+        GlobalData.customDnsUrl.value = ""
+        SettingsUtil.saveCustomDnsUrl("")
+        customDnsDraft = ""
+        GlobalData.isAutoSignInEnabled.value = true
+        SettingsUtil.saveAutoSignInMode(true)
+        GlobalData.isAutoVersionUpdateEnabled.value = true
+        SettingsUtil.saveAutoVersionUpdateMode(true)
+        GlobalData.isAutoClearCacheEnabled.value = true
+        SettingsUtil.saveAutoClearCacheMode(true)
+        CacheMaintenance.onAutoClearChanged(context, true)
+        ForumBlocklistManager.setEnabled(true)
     }
 
     fun formatFileSize(bytes: Long): String = when {
@@ -142,6 +171,13 @@ fun NativeSettingsPage(
                     fontWeight = FontWeight.Medium,
                     color = headerContent
                 )
+                IconButton(onClick = { showResetSettingsDialog = true }) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = "恢复原始设置",
+                        tint = headerContent
+                    )
+                }
             }
         }
 
@@ -302,6 +338,24 @@ fun NativeSettingsPage(
 
             Spacer(modifier = Modifier.height(24.dp))
         }
+    }
+
+    if (showResetSettingsDialog) {
+        AlertDialog(
+            onDismissRequest = { showResetSettingsDialog = false },
+            title = { Text("恢复原始设置") },
+            text = { Text("将恢复主题和本页所有设置，收藏、历史记录和备份不会受影响。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    restoreDefaultSettings()
+                    showResetSettingsDialog = false
+                    YamiboToast.show(message = "已恢复原始设置")
+                }) { Text("确认") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showResetSettingsDialog = false }) { Text("取消") }
+            }
+        )
     }
 
     // Clear Cache Dialog

@@ -25,6 +25,10 @@ class BottomNavBarVM : ViewModel() {
         private set
     private val _goHomeEvent = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val goHomeEvent = _goHomeEvent.asSharedFlow()
+    private val _categoryHomeEvent = MutableSharedFlow<Int>(extraBufferCapacity = 4)
+    val categoryHomeEvent = _categoryHomeEvent.asSharedFlow()
+    private val _scrollToTopEvent = MutableSharedFlow<Int>(extraBufferCapacity = 4)
+    val scrollToTopEvent = _scrollToTopEvent.asSharedFlow()
 
     fun returnToHome(
         index: Int,
@@ -65,6 +69,25 @@ class BottomNavBarVM : ViewModel() {
             }
         } else {
             _goHomeEvent.tryEmit(targetRoute)
+        }
+    }
+
+    fun requestScrollToTop(index: Int) {
+        if (index !in pageList.indices) return
+        _scrollToTopEvent.tryEmit(index)
+    }
+
+    fun requestCategoryHome(
+        index: Int,
+        currentRoute: String?,
+        navController: NavController
+    ) {
+        if (index !in pageList.indices) return
+        val targetRoute = pageList[index]
+        returnToHome(index, currentRoute, navController, notifyHome = false)
+        viewModelScope.launch {
+            kotlinx.coroutines.delay(64L)
+            _categoryHomeEvent.emit(index)
         }
     }
 

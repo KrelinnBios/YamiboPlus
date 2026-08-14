@@ -159,7 +159,7 @@ fun NativeBlocklistPage(
                     Icon(
                         Icons.Default.Delete,
                         contentDescription = "清空",
-                        tint = MaterialTheme.colorScheme.primary
+                        tint = headerContent
                     )
                 }
             }
@@ -215,6 +215,7 @@ fun NativeBlocklistPage(
                         items(filteredItems, key = { "${it.type}-${it.id}" }) { item ->
                             BlocklistItem(
                                 item = item,
+                                actionColor = headerContent,
                                 onRemove = {
                                     scope.launch(Dispatchers.IO) {
                                         ForumBlocklistManager.remove(item.type, item.id)
@@ -274,6 +275,7 @@ fun NativeBlocklistPage(
 @Composable
 private fun BlocklistItem(
     item: ForumBlockedItem,
+    actionColor: Color,
     onRemove: () -> Unit
 ) {
     Surface(
@@ -310,7 +312,7 @@ private fun BlocklistItem(
                 Icon(
                     Icons.Default.Delete,
                     contentDescription = "移除",
-                    tint = MaterialTheme.colorScheme.primary
+                    tint = actionColor
                 )
             }
         }

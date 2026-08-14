@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -13,6 +14,7 @@ import org.shirakawatyu.yamibo.novel.repository.ForumRepository
 import org.shirakawatyu.yamibo.novel.ui.state.ForumSort
 import org.shirakawatyu.yamibo.novel.ui.state.ForumState
 import org.shirakawatyu.yamibo.novel.ui.state.ForumThreadState
+import org.shirakawatyu.yamibo.novel.util.AppErrorLog
 import java.io.IOException
 
 class ForumVM(
@@ -89,9 +91,10 @@ class ForumVM(
                             isLoading = false
                         )
                         is org.shirakawatyu.yamibo.novel.bean.forum.ForumThreadPage -> state.copy(
-                            selectedForum = result.forum,
+                            selectedForum = result.forum.copy(headImageUrl = result.forum.headImageUrl ?: state.selectedForum?.headImageUrl),
                             threads = result.threads.distinctBy { it.id },
                             page = result.page,
+                            totalPages = result.totalPages,
                             hasMore = result.hasMore,
                             isLoading = false,
                             availableTypes = result.availableTypes
@@ -100,6 +103,7 @@ class ForumVM(
                     }
                 }
             }.onFailure { error ->
+                if (error is CancellationException) throw error
                 if (version != requestVersion) return@onFailure
                 _uiState.update {
                     it.copy(isLoading = false, error = friendlyError(error))
@@ -114,54 +118,66 @@ class ForumVM(
                 if (version == requestVersion) {
                     _uiState.update { it.copy(banners = banners) }
                 }
+            }.onFailure { error ->
+                if (error is CancellationException) throw error
+                AppErrorLog.record("首页头图获取失败：${error.message}")
             }
         }
     }
 
-    fun loadMore() {
+    fun goToPage(targetPage: Int) {
         val state = _uiState.value
         val forum = state.selectedForum ?: return
-        if (state.isLoading || state.isLoadingMore || !state.hasMore) return
-        val version = requestVersion
-        val nextPage = state.page + 1
-        _uiState.update { it.copy(isLoadingMore = true, error = null) }
+        val page = targetPage.coerceIn(1, state.totalPages.coerceAtLeast(1))
+        if (state.isLoading || (page == state.page && state.threads.isNotEmpty())) return
+        val version = ++requestVersion
+        _uiState.update { it.copy(isLoading = true, isLoadingMore = false, error = null) }
         viewModelScope.launch(Dispatchers.IO) {
             runCatching {
                 val filter = if (state.filterType != null) "typeid" else null
                 repository.getThreads(
                     forumId = forum.id,
-                    page = nextPage,
+                    page = page,
                     orderBy = state.sortBy.apiValue,
                     filter = filter,
                     typeId = state.filterType
                 )
+            }.onSuccess { result ->
+                if (version != requestVersion || _uiState.value.selectedForum?.id != forum.id) return@onSuccess
+                _uiState.update {
+                    it.copy(
+                        selectedForum = result.forum.copy(headImageUrl = result.forum.headImageUrl ?: state.selectedForum?.headImageUrl),
+                        threads = result.threads.distinctBy { thread -> thread.id },
+                        page = result.page,
+                        totalPages = result.totalPages,
+                        hasMore = result.hasMore,
+                        isLoading = false
+                    )
+                }
+            }.onFailure { error ->
+                if (error is CancellationException) throw error
+                if (version != requestVersion) return@onFailure
+                _uiState.update { it.copy(isLoading = false, error = friendlyError(error)) }
             }
-                .onSuccess { result ->
-                    if (version != requestVersion || _uiState.value.selectedForum?.id != forum.id) {
-                        return@onSuccess
-                    }
-                    _uiState.update {
-                        it.copy(
-                            threads = (it.threads + result.threads).distinctBy { thread -> thread.id },
-                            page = result.page,
-                            hasMore = result.hasMore,
-                            isLoadingMore = false
-                        )
-                    }
-                }
-                .onFailure { error ->
-                    if (version != requestVersion) return@onFailure
-                    _uiState.update {
-                        it.copy(isLoadingMore = false, error = friendlyError(error))
-                    }
-                }
         }
     }
-
     private fun friendlyError(error: Throwable): String {
+        AppErrorLog.record("论坛错误：${error.message}")
         if (error is IOException) return "网络不太稳定，下拉重试一下"
-        return error.message?.takeIf(String::isNotBlank) ?: "论坛加载失败"
+        return translateDiscuzError(error.message?.takeIf(String::isNotBlank) ?: "论坛加载失败")
     }
+}
+
+private val discuzErrorTranslations = mapOf(
+    "viewperm_none_nopermission" to "查无此区，此区已关闭",
+    "group_nopermission" to "抱歉，您无权访问",
+    "forum_nopermission" to "查无此区，此区已关闭",
+)
+
+private fun translateDiscuzError(raw: String): String {
+    if (!raw.startsWith("mobile:")) return raw
+    val code = raw.removePrefix("mobile:").trim()
+    return discuzErrorTranslations[code] ?: raw
 }
 class ForumThreadVM(
     private val threadId: String,
@@ -235,6 +251,7 @@ class ForumThreadVM(
                     }
                 }
                 .onFailure { error ->
+                    if (error is CancellationException) throw error
                     if (version != requestVersion) return@onFailure
                     _uiState.update {
                         it.copy(isLoadingMore = false, error = threadError(error))
@@ -243,9 +260,11 @@ class ForumThreadVM(
         }
     }
 
-    private fun threadError(error: Throwable): String =
-        if (error is IOException) "网络不太稳定，下拉重试一下"
-        else error.message?.takeIf(String::isNotBlank) ?: "主题加载失败"
+    private fun threadError(error: Throwable): String {
+        AppErrorLog.record("帖子错误：${error.message}")
+        return if (error is IOException) "网络不太稳定，下拉重试一下"
+        else translateDiscuzError(error.message?.takeIf(String::isNotBlank) ?: "主题加载失败")
+    }
 
     companion object {
         fun factory(threadId: String): ViewModelProvider.Factory =

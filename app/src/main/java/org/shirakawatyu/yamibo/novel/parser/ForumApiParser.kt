@@ -144,11 +144,21 @@ object ForumApiParser {
         } else {
             threads.count { !it.isSticky } >= pageSize
         }
+        val totalPages = if (totalThreads > 0) {
+            ceil(totalThreads.toDouble() / pageSize).toInt().coerceAtLeast(1)
+        } else if (hasMore) {
+            page + 1
+        } else {
+            page
+        }
+
+
 
         return ForumThreadPage(
             forum = forum,
             threads = threads,
             page = page,
+            totalPages = totalPages,
             hasMore = hasMore,
             availableTypes = typeNames
         )
@@ -201,6 +211,7 @@ object ForumApiParser {
             threadCount = value.intValue("threads", value.intValue("threadcount")),
             postCount = value.intValue("posts"),
             todayPostCount = value.intValue("todayposts"),
+            rank = value.getString("rank")?.toIntOrNull(),
             subforums = subforums
         )
     }

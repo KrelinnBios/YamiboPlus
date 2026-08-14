@@ -8,6 +8,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import coil.imageLoader
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -18,6 +19,7 @@ import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.network.ProfileApi
 import org.shirakawatyu.yamibo.novel.parser.ProfileApiParser
 import org.shirakawatyu.yamibo.novel.ui.state.MinePageState
+import org.shirakawatyu.yamibo.novel.util.AppErrorLog
 import org.shirakawatyu.yamibo.novel.util.CurrentUserUtil
 import org.shirakawatyu.yamibo.novel.util.CookieUtil
 import org.shirakawatyu.yamibo.novel.util.reader.LocalCacheUtil
@@ -50,9 +52,13 @@ class NativeMinePageVM(application: Application) : AndroidViewModel(application)
                 withContext(Dispatchers.IO) {
                     CurrentUserUtil.saveProfile(profile.uid, profile.username, profile.avatarUrl)
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: IOException) {
+                AppErrorLog.record("我的页加载失败：${e.message}")
                 _uiState.update { it.copy(isLoading = false, error = "网络不太稳定，下拉重试一下") }
             } catch (e: Exception) {
+                AppErrorLog.record("我的页加载失败：${e.message}")
                 _uiState.update { it.copy(isLoading = false, error = e.message ?: "加载失败") }
             }
         }

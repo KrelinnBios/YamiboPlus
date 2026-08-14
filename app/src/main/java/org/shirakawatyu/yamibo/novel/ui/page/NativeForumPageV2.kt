@@ -6,6 +6,8 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,11 +49,13 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -59,6 +63,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
@@ -110,6 +115,8 @@ import org.shirakawatyu.yamibo.novel.ui.theme.yamiboComponentColors
 import org.shirakawatyu.yamibo.novel.ui.vm.ForumThreadVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ForumVM
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
+import org.shirakawatyu.yamibo.novel.ui.vm.FavoriteVM
+import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.util.DarkThemeColors
 import org.shirakawatyu.yamibo.novel.util.LanguageModeUtil
 import org.shirakawatyu.yamibo.novel.util.forum.ForumBlockedItem
@@ -136,6 +143,8 @@ internal object ForumActionUrls {
         "$ORIGIN/forum.php?mod=misc&action=postreview&tid=$tid&pid=$pid&mobile=2"
     fun rate(tid: String, pid: String) =
         "$ORIGIN/forum.php?mod=misc&action=rate&tid=$tid&pid=$pid&mobile=2"
+    fun userSpace(uid: String, section: String) =
+        "$ORIGIN/home.php?mod=space&uid=$uid&do=$section&view=me&mobile=2"
 }
 
 private data class NativeForumBlockTarget(
@@ -174,10 +183,25 @@ fun NativeForumPageV2(
     var menuOpen by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { ForumBlocklistManager.initialize() }
-    LaunchedEffect(state.selectedForum?.id) { listState.scrollToItem(0) }
+    LaunchedEffect(state.selectedForum?.id) {
+        listState.scrollToItem(0)
+    }
     LaunchedEffect(bottomNavBarVM) {
         bottomNavBarVM.goHomeEvent.collect { route ->
             if (route == "BBSPage") {
+                listState.animateScrollToItem(0)
+            }
+        }
+    }
+
+    LaunchedEffect(bottomNavBarVM) {
+        bottomNavBarVM.scrollToTopEvent.collect { index ->
+            if (index == 2) listState.animateScrollToItem(0)
+        }
+    }
+    LaunchedEffect(bottomNavBarVM) {
+        bottomNavBarVM.categoryHomeEvent.collect { index ->
+            if (index == 2) {
                 forumVM.showForumIndex()
                 listState.animateScrollToItem(0)
             }
@@ -190,6 +214,7 @@ fun NativeForumPageV2(
     ) {
         ForumTopBarV2(
             title = state.selectedForum?.name ?: "论坛",
+            forum = state.selectedForum,
             headerColor = headerColor,
             contentColor = headerContent,
             onBack = if (state.selectedForum == null) null else forumVM::showForumIndex
@@ -263,7 +288,7 @@ fun NativeForumPageV2(
                             )
                         }
                     },
-                    forumVM::loadMore,
+                    forumVM::goToPage,
                     listState,
                     blocklistEnabled,
                     blockedItems,
@@ -280,6 +305,7 @@ fun NativeForumPageV2(
 @Composable
 private fun ForumTopBarV2(
     title: String,
+    forum: ForumBoard? = null,
     headerColor: androidx.compose.ui.graphics.Color,
     contentColor: androidx.compose.ui.graphics.Color,
     onBack: (() -> Unit)?,
@@ -287,26 +313,33 @@ private fun ForumTopBarV2(
 ) {
     Surface(color = headerColor, contentColor = contentColor) {
         Row(
-            Modifier.fillMaxWidth().statusBarsPadding().height(56.dp).padding(horizontal = 6.dp),
+            Modifier.fillMaxWidth().statusBarsPadding()
+                .height(if (forum == null) 56.dp else 74.dp)
+                .padding(horizontal = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (onBack == null) Spacer(Modifier.width(48.dp)) else IconButton(onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回")
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, forumText(36820, 22238))
             }
-            Text(
-                title,
-                Modifier.weight(1f),
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Medium,
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            if (forum == null) {
+                Text(title, Modifier.weight(1f), fontSize = 18.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            } else {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(title, Modifier.weight(1f), fontSize = 18.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(forumText(20027, 39064) + forum.threadCount, style = MaterialTheme.typography.labelMedium)
+                    }
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(forumText(20170, 26085) + forum.todayPostCount, style = MaterialTheme.typography.labelMedium)
+                        Spacer(Modifier.weight(1f))
+                        forum.rank?.let { rank -> Text(forumText(25490, 21517) + rank, style = MaterialTheme.typography.labelMedium) }
+                    }
+                }
+            }
             Row(content = actions)
         }
     }
 }
-
 private fun currentItemsEmptyV2(state: ForumState) =
     if (state.selectedForum == null) state.categories.isEmpty() else state.threads.isEmpty()
 
@@ -498,7 +531,7 @@ private fun ForumThreadListV2(
     state: ForumState,
     onThreadClick: (ForumThread) -> Unit,
     onThreadLongClick: (ForumThread) -> Unit,
-    onLoadMore: () -> Unit,
+    onGoToPage: (Int) -> Unit,
     listState: androidx.compose.foundation.lazy.LazyListState,
     blocklistEnabled: Boolean,
     blockedItems: List<ForumBlockedItem>,
@@ -517,7 +550,6 @@ private fun ForumThreadListV2(
     val groupedThreads = remember(visible) { groupForumThreads(visible) }
     val sticky = groupedThreads.sticky
     val regular = groupedThreads.regular
-    val loadMoreIndex = (regular.lastIndex - 4).coerceAtLeast(0)
     val forum = state.selectedForum
     val availableTypes = state.availableTypes
     LazyColumn(
@@ -555,7 +587,11 @@ private fun ForumThreadListV2(
                         FilterChip(
                             selected = state.sortBy == sort,
                             onClick = { onSortChange(sort) },
-                            label = { Text(sort.label) }
+                            label = { Text(sort.label) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                selectedLabelColor = MaterialTheme.colorScheme.onPrimary
+                            )
                         )
                     }
                 }
@@ -567,14 +603,22 @@ private fun ForumThreadListV2(
                             FilterChip(
                                 selected = state.filterType == null,
                                 onClick = { onFilterChange(null) },
-                                label = { Text("全部") }
+                                label = { Text("全部") },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimary
+                                )
                             )
                         }
                         items(availableTypes.entries.toList(), key = { "type-${it.key}" }) { (typeId, typeName) ->
                             FilterChip(
                                 selected = state.filterType == typeId,
                                 onClick = { onFilterChange(typeId) },
-                                label = { Text(typeName) }
+                                label = { Text(typeName) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimary
+                                )
                             )
                         }
                     }
@@ -607,14 +651,21 @@ private fun ForumThreadListV2(
         if (stickyExpanded) items(sticky, key = { "sticky-${it.id}" }) { thread ->
             ForumThreadCardV2(thread, { onThreadClick(thread) }, { onThreadLongClick(thread) })
         }
-        itemsIndexed(
+        items(
             regular,
-            key = { _, thread -> "thread-${thread.id}" },
-            contentType = { _, _ -> "regular-thread" }
-        ) { index, thread ->
+            key = { thread -> "thread-${thread.id}" },
+            contentType = { "regular-thread" }
+        ) { thread ->
             ForumThreadCardV2(thread, { onThreadClick(thread) }, { onThreadLongClick(thread) })
-            if (index == loadMoreIndex && state.hasMore) {
-                LaunchedEffect(state.page, regular.size) { onLoadMore() }
+        }
+        if (visible.isNotEmpty()) {
+            item("forum-pagination", contentType = "forum-pagination") {
+                ForumPaginationV2(
+                    page = state.page,
+                    totalPages = state.totalPages,
+                    enabled = !state.isLoading,
+                    onGoToPage = onGoToPage
+                )
             }
         }
         if (visible.isEmpty() && !state.isLoading) item("empty-threads") {
@@ -622,7 +673,6 @@ private fun ForumThreadListV2(
                 if (state.threads.isEmpty()) "这个板块暂时没有主题" else "主题已按屏蔽设置隐藏"
             )
         }
-        if (state.isLoadingMore) item("loading-more") { LoadingMoreV2() }
         state.error?.let { item("page-error") { InlineErrorV2(it) } }
     }
 }
@@ -663,6 +713,63 @@ private fun ForumHeadImageV2(forum: ForumBoard, imageUrl: String) {
 }
 
 @OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun ForumPaginationV2(
+    page: Int,
+    totalPages: Int,
+    enabled: Boolean,
+    onGoToPage: (Int) -> Unit
+) {
+    var showPicker by rememberSaveable { mutableStateOf(false) }
+    var pageInput by rememberSaveable(page) { mutableStateOf(page.toString()) }
+    val requestedPage = pageInput.toIntOrNull()
+    val validPage = requestedPage?.takeIf { it in 1..totalPages.coerceAtLeast(1) }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        TextButton(enabled = enabled && page > 1, onClick = { onGoToPage(page - 1) }) {
+            Text(forumText(19978, 19968, 39029))
+        }
+        TextButton(
+            enabled = enabled,
+            onClick = {
+                pageInput = page.toString()
+                showPicker = true
+            }
+        ) { Text(forumText(31532) + page + forumText(39029)) }
+        TextButton(enabled = enabled && page < totalPages, onClick = { onGoToPage(page + 1) }) {
+            Text(forumText(19979, 19968, 39029))
+        }
+    }
+    if (showPicker) {
+        AlertDialog(
+            onDismissRequest = { showPicker = false },
+            title = { Text(forumText(36339, 36716, 39029, 30721)) },
+            text = {
+                TextField(
+                    value = pageInput,
+                    onValueChange = { value -> pageInput = value.filter(Char::isDigit) },
+                    singleLine = true,
+                    label = { Text(forumText(31532, 20960, 49, 45, totalPages.coerceAtLeast(1), 39029)) }
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = validPage != null,
+                    onClick = {
+                        validPage?.let(onGoToPage)
+                        showPicker = false
+                    }
+                ) { Text(forumText(36339, 36716)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPicker = false }) { Text(forumText(21462, 28040)) }
+            }
+        )
+    }
+}
 @Composable
 private fun ForumThreadCardV2(thread: ForumThread, onClick: () -> Unit, onLongClick: () -> Unit) {
     Surface(
@@ -761,6 +868,7 @@ fun NativeThreadPageV2(
     onGoHome: () -> Unit,
     onOpenLink: (String) -> Unit,
     onOpenWeb: (String) -> Unit,
+    bottomNavBarVM: BottomNavBarVM,
     vm: ForumThreadVM = viewModel(key = "NativeThreadPageV2-$threadId", factory = ForumThreadVM.factory(threadId))
 ) {
     val state by vm.uiState.collectAsState()
@@ -768,31 +876,40 @@ fun NativeThreadPageV2(
     val enabled by ForumBlocklistManager.enabled.collectAsState()
     val blockedItems by ForumBlocklistManager.items.collectAsState()
     val context = LocalContext.current
+    val favoriteVM: FavoriteVM = viewModel(
+        factory = ViewModelFactory(context.applicationContext)
+    )
     val listState = rememberLazyListState()
     val pullState = rememberPullToRefreshState()
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val componentColors = yamiboComponentColors()
     var menuOpen by remember { mutableStateOf(false) }
     var blockTarget by remember { mutableStateOf<NativeForumBlockTarget?>(null) }
+    var ratingDialog by remember { mutableStateOf<ForumPostRatingSummary?>(null) }
     val forumId = state.thread?.forumId.orEmpty()
     val posts = state.posts.filterNot {
         isBlocked(ForumBlockedItem.TYPE_POST, it.id, it.author.id, enabled, blockedItems)
     }
     val displayPosts = if (state.reverseOrder) posts.asReversed() else posts
 
+    LaunchedEffect(bottomNavBarVM) {
+        bottomNavBarVM.scrollToTopEvent.collect { index ->
+            if (index == 2) listState.animateScrollToItem(0)
+        }
+    }
+
     Column(
         Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
             .padding(bottom = navBottom + 50.dp)
     ) {
         ForumTopBarV2(
-            state.thread?.forumName?.takeIf(String::isNotBlank)
+            title = state.thread?.forumName?.takeIf(String::isNotBlank)
                 ?: forumName?.takeIf(String::isNotBlank)
                 ?: "论坛",
-            componentColors.topBarContainer,
-            componentColors.topBarContent,
-            onBack
-        ) {
-            IconButton(onClick = { onOpenWeb(ForumActionUrls.search) }) {
+            headerColor = componentColors.topBarContainer,
+            contentColor = componentColors.topBarContent,
+            onBack = onBack        ) {
+            if (false) IconButton(onClick = { onOpenWeb(ForumActionUrls.search) }) {
                 Icon(Icons.Default.Search, "搜索论坛")
             }
             Box {
@@ -807,12 +924,34 @@ fun NativeThreadPageV2(
                         onClick = { menuOpen = false; vm.toggleReverseOrder() }
                     )
                     DropdownMenuItem(
+                        text = { Text(forumText(25910, 34255, 20027, 39064)) },
+                        onClick = {
+                            menuOpen = false
+                            favoriteVM.toggleFavorite(
+                                ForumActionUrls.thread(threadId),
+                                state.thread?.subject.orEmpty(),
+                                threadId
+                            ) { message -> YamiboToast.show(message = message) }
+                        }
+                    )
+                    if (false) DropdownMenuItem(
                         text = { Text("返回首页") },
-                        onClick = { menuOpen = false; onGoHome() }
+                        onClick = {
+                            menuOpen = false
+                            favoriteVM.toggleFavorite(
+                                ForumActionUrls.thread(threadId),
+                                state.thread?.subject.orEmpty(),
+                                threadId
+                            ) { message -> YamiboToast.show(message = message) }
+                        }
                     )
                     DropdownMenuItem(
                         text = { Text("电脑版") },
                         onClick = { menuOpen = false; onOpenWeb(ForumActionUrls.desktopThread(threadId)) }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("网页完整功能（投票等）") },
+                        onClick = { menuOpen = false; onOpenWeb(ForumActionUrls.thread(threadId)) }
                     )
                     DropdownMenuItem(
                         text = { Text("复制链接") },
@@ -856,7 +995,8 @@ fun NativeThreadPageV2(
                     listState,
                     onOpenLink,
                     onOpenWeb,
-                    vm::loadMore
+                    vm::loadMore,
+                    { summary -> ratingDialog = summary }
                 ) { post ->
                     if (post.author.id != GlobalData.currentUid) blockTarget = NativeForumBlockTarget(
                         ForumBlockedItem.TYPE_POST,
@@ -878,6 +1018,9 @@ fun NativeThreadPageV2(
         }
     }
     blockTarget?.let { NativeBlockMenuV2(it) { blockTarget = null } }
+    ratingDialog?.let { summary ->
+        ForumRatingsDialog(summary) { ratingDialog = null }
+    }
 }
 
 @Composable
@@ -889,6 +1032,7 @@ private fun ThreadBodyV2(
     onOpenLink: (String) -> Unit,
     onOpenWeb: (String) -> Unit,
     onLoadMore: () -> Unit,
+    onOpenRatings: (ForumPostRatingSummary) -> Unit,
     onLongClick: (ForumPost) -> Unit
 ) {
     LazyColumn(
@@ -936,7 +1080,7 @@ private fun ThreadBodyV2(
                 { onOpenWeb(ForumActionUrls.reply(post.threadId, state.thread?.forumId.orEmpty(), post.id, state.page)) },
                 { onOpenWeb(ForumActionUrls.comment(post.threadId, post.id)) },
                 { onOpenWeb(ForumActionUrls.rate(post.threadId, post.id)) },
-                onOpenWeb
+                onOpenRatings
             )
             if (index >= posts.lastIndex - 3) LaunchedEffect(state.page, posts.size) { onLoadMore() }
         }
@@ -955,7 +1099,7 @@ private fun ForumPostCardV2(
     onReply: () -> Unit,
     onComment: () -> Unit,
     onRate: () -> Unit,
-    onOpenRatings: (String) -> Unit
+    onOpenRatings: (ForumPostRatingSummary) -> Unit
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth().combinedClickable(onClick = {}, onLongClick = onLongClick),
@@ -963,7 +1107,10 @@ private fun ForumPostCardV2(
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
         Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 AuthorAvatarV2(post.author.name, post.author.avatarUrl, 40)
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
@@ -973,10 +1120,16 @@ private fun ForumPostCardV2(
                 SmallTagV2(if (post.isOriginalPost) "楼主" else "${post.floor} 楼")
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            ForumPostContentV2(post, cookie, onOpenLink)
+            Column(
+                Modifier.fillMaxWidth().padding(vertical = 6.dp)
+            ) {
+                ForumPostContentV2(post, cookie, onOpenLink)
+            }
             post.ratingSummary?.let { summary ->
+                Spacer(Modifier.height(6.dp))
                 ForumPostRatingV2(summary, onOpenRatings)
             }
+            if (post.ratingSummary != null) Spacer(Modifier.height(6.dp))
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 SmallActionText("点评", onComment)
@@ -990,47 +1143,56 @@ private fun ForumPostCardV2(
 @Composable
 private fun ForumPostRatingV2(
     summary: ForumPostRatingSummary,
-    onOpenRatings: (String) -> Unit
+    onOpenRatings: (ForumPostRatingSummary) -> Unit
 ) {
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().clickable { onOpenRatings(summary) },
         shape = RoundedCornerShape(10.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant
+        color = MaterialTheme.colorScheme.surfaceContainerLow
     ) {
         Column(
             Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
+            Text(forumText(35780, 20998), fontWeight = FontWeight.SemiBold)
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("评分", fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.weight(1f))
                 if (summary.participantText.isNotBlank()) {
                     Text(
                         summary.participantText,
+                        modifier = Modifier.weight(1f),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.labelSmall
                     )
                 }
                 if (summary.scoreText.isNotBlank()) {
-                    Spacer(Modifier.width(8.dp))
                     Text(
                         summary.scoreText,
+                        modifier = Modifier.weight(1f),
+                        textAlign = TextAlign.Center,
                         color = MaterialTheme.colorScheme.primary,
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold
                     )
                 }
+                Text(
+                    forumText(29702, 30001),
+                    modifier = Modifier.weight(1f),
+                    textAlign = TextAlign.End,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelSmall
+                )
             }
             if (summary.ratings.isNotEmpty()) {
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                summary.ratings.forEach { rating ->
+                summary.ratings.take(5).forEach { rating ->
                     Row(
                         Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.Top
                     ) {
                         Text(
-                            rating.userName.ifBlank { "匿名" },
-                            Modifier.weight(2f),
+                            rating.userName.ifBlank { forumText(21311, 21517) },
+                            Modifier.weight(1f),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             style = MaterialTheme.typography.labelSmall,
@@ -1039,6 +1201,7 @@ private fun ForumPostRatingV2(
                         Text(
                             rating.score,
                             Modifier.weight(1f),
+                            textAlign = TextAlign.Center,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             color = MaterialTheme.colorScheme.primary,
@@ -1047,7 +1210,8 @@ private fun ForumPostRatingV2(
                         )
                         Text(
                             rating.reason,
-                            Modifier.weight(3f),
+                            Modifier.weight(1f),
+                            textAlign = TextAlign.End,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1055,19 +1219,19 @@ private fun ForumPostRatingV2(
                         )
                     }
                 }
-            }
-            summary.viewAllUrl?.takeIf(String::isNotBlank)?.let { url ->
-                TextButton(
-                    onClick = { onOpenRatings(url) },
-                    modifier = Modifier.align(Alignment.End)
-                ) {
-                    Text("查看全部评分")
+                if (summary.ratings.size > 5) {
+                    Text(
+                        text = "…",
+                        modifier = Modifier.fillMaxWidth(),
+                        textAlign = TextAlign.Center,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.titleMedium
+                    )
                 }
             }
         }
     }
 }
-
 @Composable
 private fun ForumPostContentV2(post: ForumPost, cookie: String, onOpenLink: (String) -> Unit) {
     if (post.blocks.isEmpty() && post.attachments.isEmpty()) {
@@ -1348,3 +1512,56 @@ private fun ForumAttachmentRowV2(attachment: ForumPostAttachment, onOpenLink: (S
         }
     }
 }
+@Composable
+private fun ForumRatingsDialog(
+    summary: ForumPostRatingSummary,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(forumText(26597, 30475, 20840, 37096, 35780, 20998)) },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 420.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                summary.ratings.forEachIndexed { index, rating ->
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            forumText(29992, 25143, 21517, 65306) + rating.userName.ifBlank { forumText(21311, 21517) },
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            forumText(35780, 20998, 65306) + rating.score,
+                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            forumText(29702, 30001, 65306) + rating.reason.ifBlank { forumText(26080) },
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Text(
+                            forumText(26102, 38388, 65306) + rating.createdAt.orEmpty().ifBlank { forumText(26080) },
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
+                    if (index < summary.ratings.lastIndex) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(forumText(20851, 38381)) }
+        }
+    )
+}
+private fun forumText(vararg codePoints: Int): String =
+    codePoints.map(Int::toChar).toCharArray().concatToString()

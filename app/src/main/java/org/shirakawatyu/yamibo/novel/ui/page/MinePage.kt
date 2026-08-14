@@ -496,13 +496,12 @@ fun MinePage(
         }
     }
     historyApi.onShowHistory = { navController.navigate("HistoryPage") }
-    var pendingSearchUrl by remember { mutableStateOf<String?>(null) }
     val searchNavApi = remember {
         object {
             @JavascriptInterface
             fun navigateToPost(url: String) {
                 Handler(Looper.getMainLooper()).post {
-                    pendingSearchUrl = url
+                    GlobalData.pendingDeepLinkUrl.value = url
                 }
             }
         }
@@ -776,10 +775,10 @@ fun MinePage(
         }
     }
 
-    LaunchedEffect(pendingSearchUrl) {
-        val url = pendingSearchUrl ?: return@LaunchedEffect
-        startLoading(mineWebView, url)
-        pendingSearchUrl = null
+    LaunchedEffect(bottomNavBarVM, mineWebView) {
+        bottomNavBarVM.scrollToTopEvent.collect {
+            mineWebView.scrollTo(0, 0)
+        }
     }
 
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -1168,6 +1167,7 @@ fun MinePage(
 
                 // 使用外部提取的特定于 MinePage 的脚本常量
                 view?.evaluateJavascript(PageJsScripts.MINE_COMMIT_BOOTSTRAP_JS, null)
+                view?.evaluateJavascript(PageJsScripts.BBS_THREAD_NAVIGATION_JS, null)
                 injectForumBlocker(view)
 
                 if (PageJsScripts.shouldApplyWebTheme(GlobalData.appTheme.value)) {

@@ -20,6 +20,7 @@ data class ForumState(
     val selectedForum: ForumBoard? = null,
     val threads: List<ForumThread> = emptyList(),
     val page: Int = 1,
+    val totalPages: Int = 1,
     val hasMore: Boolean = false,
     val isLoading: Boolean = false,
     val isLoadingMore: Boolean = false,
