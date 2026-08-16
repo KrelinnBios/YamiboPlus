@@ -104,6 +104,7 @@ import org.shirakawatyu.yamibo.novel.bean.Favorite
 import org.shirakawatyu.yamibo.novel.bean.MangaUpdateCheckStrategy
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.item.FavoriteItem
+import org.shirakawatyu.yamibo.novel.openNativeForumPost
 import org.shirakawatyu.yamibo.novel.ui.theme.yamiboComponentColors
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.FavoriteVM
@@ -913,7 +914,11 @@ fun FavoritePage(
                                             favoriteVM.clearMangaUpdateCheckFlag(item.url)
                                             openMangaFavorite(item)
                                         }
-                                        else -> navController.navigate("OtherWebPage/$encodedUrl")
+                                        else -> coroutineScope.launch {
+                                            if (!openNativeForumPost(navController, item.url)) {
+                                                navController.navigate("OtherWebPage/$encodedUrl")
+                                            }
+                                        }
                                     }
                                 }
                                 val knownType = favoriteVM.getReliableFavoriteType(item)

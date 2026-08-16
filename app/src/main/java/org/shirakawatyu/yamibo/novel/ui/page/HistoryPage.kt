@@ -70,6 +70,7 @@ import androidx.navigation.NavController
 import kotlinx.coroutines.launch
 import org.shirakawatyu.yamibo.novel.bean.HistoryEntry
 import org.shirakawatyu.yamibo.novel.global.GlobalData
+import org.shirakawatyu.yamibo.novel.openNativeForumPost
 import org.shirakawatyu.yamibo.novel.ui.theme.yamiboComponentColors
 import org.shirakawatyu.yamibo.novel.ui.widget.OnboardingOverlay
 import org.shirakawatyu.yamibo.novel.ui.widget.OnboardingStep
@@ -895,8 +896,15 @@ fun HistoryPage(navController: NavController) {
                                                 selectedUrls + entry.url
                                             }
                                         } else {
-                                            val encodedUrl = URLEncoder.encode(entry.url, "utf-8")
-                                            navController.navigate("MineHistoryPostPage?url=$encodedUrl")
+                                            scope.launch {
+                                                if (!openNativeForumPost(navController, entry.url)) {
+                                                    val encodedUrl =
+                                                        URLEncoder.encode(entry.url, "utf-8")
+                                                    navController.navigate(
+                                                        "MineHistoryPostPage?url=$encodedUrl"
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
                                     .padding(horizontal = 14.dp, vertical = 12.dp),

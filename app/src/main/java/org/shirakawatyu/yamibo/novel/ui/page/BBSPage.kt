@@ -1062,7 +1062,10 @@ fun BBSPage(
     LaunchedEffect(isSelected, webView, pendingUrl) {
         if (!isSelected) return@LaunchedEffect
 
-        val directUrl = YamiboPostLinkUtil.normalizePostUrl(pendingUrl)
+        val directUrl = pendingUrl?.let {
+            YamiboPostLinkUtil.normalizePostUrl(it)
+                ?: YamiboPostLinkUtil.normalizeUserSpaceUrl(it)
+        }
         if (directUrl != null) {
             GlobalData.pendingClipboardUrl.value = null
             startLoading(directUrl)

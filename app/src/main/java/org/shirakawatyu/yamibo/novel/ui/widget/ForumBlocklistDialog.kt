@@ -58,7 +58,7 @@ import org.shirakawatyu.yamibo.novel.util.forum.ForumBlockedItem
 import org.shirakawatyu.yamibo.novel.util.forum.ForumBlocklistManager
 
 /** 由屏蔽项构造可跳转的原帖链接（统一经 YamiboPostLinkUtil 归一化为 bbs + mobile=2）。 */
-private fun blockedItemPostUrl(item: ForumBlockedItem): String? {
+internal fun blockedItemPostUrl(item: ForumBlockedItem): String? {
     if (item.type == ForumBlockedItem.TYPE_USER) {
         return "https://bbs.yamibo.com/home.php?mod=space&uid=${item.id}&do=profile&mobile=2"
     }
@@ -217,6 +217,18 @@ fun ForumBlocklistDialog(
                                 }
                                 val authorLine = when {
                                     item.type == ForumBlockedItem.TYPE_USER -> "UID ${item.id}"
+                                    item.type == ForumBlockedItem.TYPE_POST &&
+                                        item.threadTitle.isNotBlank() ->
+                                        listOfNotNull(
+                                            item.title.ifBlank { null },
+                                            when {
+                                                item.authorName.isNotBlank() && item.authorUid.isNotBlank() ->
+                                                    "${item.authorName}（UID ${item.authorUid}）"
+                                                item.authorName.isNotBlank() -> item.authorName
+                                                item.authorUid.isNotBlank() -> "UID ${item.authorUid}"
+                                                else -> null
+                                            }
+                                        ).joinToString(" · ")
                                     item.authorName.isNotBlank() && item.authorUid.isNotBlank() ->
                                         "${item.authorName}（UID ${item.authorUid}）"
                                     item.authorName.isNotBlank() -> item.authorName
@@ -261,7 +273,11 @@ fun ForumBlocklistDialog(
                                     Spacer(Modifier.width(9.dp))
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
-                                            text = item.title.ifBlank { item.id },
+                                            text = if (item.type == ForumBlockedItem.TYPE_POST && item.threadTitle.isNotBlank()) {
+                                                item.threadTitle
+                                            } else {
+                                                item.title.ifBlank { item.id }
+                                            },
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
                                             color = MaterialTheme.colorScheme.primary,

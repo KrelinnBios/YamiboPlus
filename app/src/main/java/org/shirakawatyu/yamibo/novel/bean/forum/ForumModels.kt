@@ -92,7 +92,8 @@ data class ForumPostRating(
     val userName: String,
     val score: String,
     val reason: String = "",
-    val createdAt: String? = null
+    val createdAt: String? = null,
+    val authorUid: String? = null
 )
 
 data class ForumPostRatingSummary(

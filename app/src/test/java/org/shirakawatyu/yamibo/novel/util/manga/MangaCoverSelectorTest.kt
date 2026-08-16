@@ -1,5 +1,6 @@
 package org.shirakawatyu.yamibo.novel.util.manga
 
+import com.alibaba.fastjson2.JSON
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -65,5 +66,59 @@ class MangaCoverSelectorTest {
         """.trimIndent()
 
         assertNull(MangaCoverSelector.firstCoverUrl(listOf(message)))
+    }
+
+    @Test
+    fun firstCoverUrl_readsLazyLoadedImageAttributes() {
+        val message = """
+            <img src="static/image/common/none.gif"
+                 data-original="data/attachment/forum/202608/cover.webp">
+        """.trimIndent()
+
+        assertEquals(
+            "https://bbs.yamibo.com/data/attachment/forum/202608/cover.webp",
+            MangaCoverSelector.firstCoverUrl(listOf(message))
+        )
+    }
+
+    @Test
+    fun attachmentImageUrls_supportsAttachListArrays() {
+        val attachList = JSON.parseArray(
+            """
+            [
+              {
+                "aid": "123",
+                "url": "data/attachment/forum",
+                "attachment": "202608/cover.png",
+                "isimage": "1"
+              }
+            ]
+            """.trimIndent()
+        )
+
+        assertEquals(
+            listOf("https://bbs.yamibo.com/data/attachment/forum/202608/cover.png"),
+            MangaCoverSelector.attachmentImageUrls(attachList)
+        )
+    }
+
+    @Test
+    fun attachmentImageUrls_fallsBackToAttachmentEndpointForImageWithoutPath() {
+        val attachments = JSON.parseObject(
+            """
+            {
+              "456": {
+                "aid": "456",
+                "filename": "cover.jpg",
+                "isimage": "1"
+              }
+            }
+            """.trimIndent()
+        )
+
+        assertEquals(
+            listOf("https://bbs.yamibo.com/forum.php?mod=attachment&aid=456"),
+            MangaCoverSelector.attachmentImageUrls(attachments)
+        )
     }
 }

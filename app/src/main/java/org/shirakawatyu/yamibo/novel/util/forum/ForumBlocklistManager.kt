@@ -30,7 +30,9 @@ data class ForumBlockedItem @JSONCreator constructor(
     @JSONField(name = "authorUid")
     val authorUid: String = "",
     @JSONField(name = "authorName")
-    val authorName: String = ""
+    val authorName: String = "",
+    @JSONField(name = "threadTitle")
+    val threadTitle: String = ""
 ) {
     companion object {
         const val TYPE_THREAD = "thread"
@@ -115,7 +117,8 @@ object ForumBlocklistManager {
         id: String,
         title: String = "",
         authorUid: String = "",
-        authorName: String = ""
+        authorName: String = "",
+        threadTitle: String = ""
     ) {
         val normalizedType = normalizeType(type) ?: return
         val normalizedId = id.trim().takeIf { it.matches(Regex("\\d+")) } ?: return
@@ -138,7 +141,8 @@ object ForumBlocklistManager {
                     id = normalizedId,
                     title = title.trim().ifBlank { fallbackTitle },
                     authorUid = normalizedAuthorUid,
-                    authorName = normalizedAuthorName
+                    authorName = normalizedAuthorName,
+                    threadTitle = threadTitle.trim()
                 )
                 persistItems(next)
             }

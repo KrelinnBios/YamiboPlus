@@ -2062,13 +2062,6 @@ fun MinePage(
                             mineDialog = MineDialogState.None
                             GlobalData.pendingClipboardUrl.value = url
                             GlobalData.lastClipboardUrl = url
-                            navController.navigate("BBSPage") {
-                                popUpTo(navController.graph.findStartDestination().id) {
-                                    saveState = true
-                                }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
                         }
                     )
                 }

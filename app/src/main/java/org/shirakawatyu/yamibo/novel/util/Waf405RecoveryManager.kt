@@ -30,6 +30,7 @@ internal object Waf405RecoveryPolicy {
     const val RECENT_SUCCESS_GRACE_MS = 15_000L
     const val SAME_PAGE_RETRY_GUARD_MS = 30_000L
     const val NOX_COOKIE_NAME = "nox_jst_v1"
+    const val CF_CLEARANCE_COOKIE_NAME = "cf_clearance"
     // 论坛挑战凭证约 30 分钟过期；在还剩约 5 分钟余量时按需换新。
     const val NOX_RENEW_INTERVAL_MS = 25L * 60L * 1000L
     const val NOX_RENEW_TIMEOUT_MS = 12_000L
@@ -37,7 +38,15 @@ internal object Waf405RecoveryPolicy {
     // 防止“挑战失败 → 重试 → 再失败”的紧密循环把服务器和日志都打爆。
     const val FAILED_CHALLENGE_COOLDOWN_MS = 30_000L
 
-    private val challengeBodyMarkers = listOf("__noxexpire", "/nox_", "gangplank_")
+    private val challengeBodyMarkers = listOf(
+        "__noxexpire",
+        "/nox_",
+        "gangplank_",
+        "cf-chl-",
+        "challenge-platform",
+        "cloudflare",
+        "turnstile"
+    )
 
     enum class PostRefreshAction(val errorLog: String?) {
         CONTINUE(null),
@@ -53,7 +62,7 @@ internal object Waf405RecoveryPolicy {
         method: String,
         isMainFrame: Boolean,
         isYamiboUrl: Boolean
-    ): Boolean = statusCode == 405 &&
+    ): Boolean = (statusCode == 405 || statusCode == 403) &&
             method.equals("GET", ignoreCase = true) &&
             isMainFrame &&
             isYamiboUrl
@@ -63,7 +72,9 @@ internal object Waf405RecoveryPolicy {
         method: String,
         bodyPreview: String
     ): Boolean {
-        if (!method.equals("GET", ignoreCase = true) || statusCode != 405) return false
+        if (!method.equals("GET", ignoreCase = true) ||
+            (statusCode != 405 && statusCode != 403)
+        ) return false
         val normalizedBody = bodyPreview.lowercase(Locale.ROOT)
         return challengeBodyMarkers.any(normalizedBody::contains)
     }
@@ -149,6 +160,9 @@ object Waf405RecoveryManager {
 
         @Volatile
         var succeeded = false
+
+        @Volatile
+        var cloudflareCookieBefore: String? = null
 
         val visibleRetries = mutableListOf<VisibleRetry>()
     }
@@ -371,18 +385,18 @@ object Waf405RecoveryManager {
                     allowContentAccess = false
                     javaScriptCanOpenWindowsAutomatically = false
                     mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-                    loadsImagesAutomatically = false
-                    blockNetworkImage = true
+                    loadsImagesAutomatically = true
+                    blockNetworkImage = false
                     cacheMode = WebSettings.LOAD_DEFAULT
                     userAgentString = signal.userAgent
                 }
-                CookieManager.getInstance().setAcceptThirdPartyCookies(this, false)
+                CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
                 webViewClient = object : WebViewClient() {
                     override fun shouldOverrideUrlLoading(
                         view: WebView?,
                         request: WebResourceRequest?
                     ): Boolean = request?.isForMainFrame == true &&
-                            !isAllowedYamiboUrl(request.url?.toString())
+                            !isAllowedChallengeResourceUrl(request.url?.toString())
 
                     override fun onPageStarted(
                         view: WebView?,
@@ -421,7 +435,8 @@ object Waf405RecoveryManager {
                     ) {
                         super.onReceivedHttpError(view, request, errorResponse)
                         if (request?.isForMainFrame == true &&
-                            errorResponse?.statusCode != 405
+                            errorResponse?.statusCode != 405 &&
+                            errorResponse?.statusCode != 403
                         ) {
                             completeRefresh(activeSignal, succeeded = false)
                         }
@@ -474,6 +489,10 @@ object Waf405RecoveryManager {
 
         cancelRefreshCallbacks()
         val cookieManager = CookieManager.getInstance()
+        signal.cloudflareCookieBefore = cookieValue(
+            cookieManager.getCookie(FORUM_ORIGIN).orEmpty(),
+            Waf405RecoveryPolicy.CF_CLEARANCE_COOKIE_NAME
+        )
         cookieManager.setAcceptCookie(true)
         val cookiesWithoutNox = Waf405RecoveryPolicy.withoutNoxCookie(
             YamiboSession.cookieFor(signal.challengeUrl)
@@ -519,7 +538,13 @@ object Waf405RecoveryManager {
                     CookieManager.getInstance().getCookie(FORUM_ORIGIN).orEmpty()
                 }.getOrDefault("")
                 val jsCookie = noxCookieFromJs.get()
+                val currentCloudflareCookie = cookieValue(
+                    currentCookies,
+                    Waf405RecoveryPolicy.CF_CLEARANCE_COOKIE_NAME
+                )
                 if (Waf405RecoveryPolicy.extractNoxCookieValue(currentCookies) != null ||
+                    (currentCloudflareCookie != null &&
+                        currentCloudflareCookie != signal.cloudflareCookieBefore) ||
                     (jsCookie?.let { Waf405RecoveryPolicy.extractNoxCookieValue(it) } != null)
                 ) {
                     // 如果 CookieManager 没读到但 JS 读到了，把它写回 CookieManager 让后续请求可用。
@@ -609,6 +634,22 @@ object Waf405RecoveryManager {
 
     private fun defaultUserAgent(): String =
         YamiboApplication.systemUserAgent.ifBlank { RequestConfig.UA }
+
+    private fun cookieValue(cookieHeader: String, name: String): String? =
+        cookieHeader.split(';')
+            .map(String::trim)
+            .firstOrNull { it.substringBefore('=').equals(name, ignoreCase = true) }
+            ?.substringAfter('=', "")
+            ?.takeIf(String::isNotBlank)
+
+    private fun isAllowedChallengeResourceUrl(rawUrl: String?): Boolean {
+        val uri = rawUrl?.let { runCatching { Uri.parse(it) }.getOrNull() } ?: return false
+        val host = uri.host?.lowercase().orEmpty()
+        return isAllowedYamiboUrl(rawUrl) ||
+            host == "challenges.cloudflare.com" ||
+            host.endsWith(".cloudflare.com") ||
+            host == "cloudflare.com"
+    }
 
     private fun isAllowedYamiboUrl(rawUrl: String?): Boolean {
         val uri = rawUrl?.let { runCatching { Uri.parse(it) }.getOrNull() } ?: return false

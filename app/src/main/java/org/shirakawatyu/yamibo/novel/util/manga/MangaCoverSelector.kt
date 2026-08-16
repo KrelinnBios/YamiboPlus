@@ -1,11 +1,21 @@
 package org.shirakawatyu.yamibo.novel.util.manga
 
+import com.alibaba.fastjson2.JSONArray
+import com.alibaba.fastjson2.JSONObject
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 
 object MangaCoverSelector {
     private const val BASE_URL = "https://bbs.yamibo.com/"
-    private val imageAttributes = listOf("zoomfile", "file", "zsrc", "data-src", "src")
+    private val imageAttributes = listOf(
+        "zoomfile",
+        "file",
+        "zsrc",
+        "data-src",
+        "data-original",
+        "data-lazy-src",
+        "src"
+    )
     private val imageExtensionRegex = Regex("\\.(?:jpg|jpeg|png|webp|gif|bmp)(?:[?#].*)?$", RegexOption.IGNORE_CASE)
     private val ignoredImageParts = listOf(
         "smiley",
@@ -34,22 +44,48 @@ object MangaCoverSelector {
         }
     }
 
-    fun attachmentImageUrl(urlPrefix: String?, attachmentPath: String?): String? {
-        val path = attachmentPath?.trim()?.takeIf(String::isNotBlank) ?: return null
-        val raw = urlPrefix
-            ?.trim()
-            ?.takeIf(String::isNotBlank)
-            ?.let { prefix ->
-                val absolutePrefix = if (prefix.startsWith("http://") || prefix.startsWith("https://")) {
-                    prefix
-                } else {
-                    BASE_URL.trimEnd('/') + "/" + prefix.trimStart('/')
-                }
-                absolutePrefix.trimEnd('/') + "/" + path.trimStart('/')
-            }
-            ?: path
+    fun attachmentImageUrls(raw: Any?): List<String> {
+        val attachments = when (raw) {
+            is JSONArray -> (0 until raw.size).mapNotNull(raw::getJSONObject)
+            is JSONObject -> raw.values.mapNotNull { it as? JSONObject }
+            else -> emptyList()
+        }
+        return attachments.mapNotNull { attachment ->
+            attachmentImageUrl(
+                urlPrefix = attachment.getString("url"),
+                attachmentPath = attachment.getString("attachment"),
+                attachmentId = attachment.getString("aid"),
+                fileName = attachment.getString("filename"),
+                isImage = attachment.getIntValue("isimage") != 0
+            )
+        }
+    }
+
+    fun attachmentImageUrl(
+        urlPrefix: String?,
+        attachmentPath: String?,
+        attachmentId: String? = null,
+        fileName: String? = null,
+        isImage: Boolean = false
+    ): String? {
+        val prefix = urlPrefix?.trim().orEmpty()
+        val path = attachmentPath?.trim().orEmpty()
+        val raw = when {
+            path.startsWith("http://", ignoreCase = true) ||
+                path.startsWith("https://", ignoreCase = true) ||
+                path.startsWith("//") -> path
+            prefix.isNotBlank() && path.isNotBlank() ->
+                prefix.trimEnd('/') + "/" + path.trimStart('/')
+            path.isNotBlank() -> path
+            prefix.isNotBlank() -> prefix
+            !attachmentId.isNullOrBlank() ->
+                "forum.php?mod=attachment&aid=${attachmentId.trim()}"
+            else -> return null
+        }
         val url = normalizeImageUrl(raw) ?: return null
-        return url.takeIf { imageExtensionRegex.containsMatchIn(it.substringBefore('?')) }
+        val hasImageExtension = sequenceOf(url, fileName.orEmpty())
+            .any { imageExtensionRegex.containsMatchIn(it.substringBefore('?')) }
+        return url.takeIf { isImage || hasImageExtension }
     }
 
     private fun imageUrl(image: Element): String? {

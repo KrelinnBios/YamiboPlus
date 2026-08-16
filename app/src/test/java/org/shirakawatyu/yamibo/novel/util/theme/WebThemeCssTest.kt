@@ -1,6 +1,5 @@
 package org.shirakawatyu.yamibo.novel.util.theme
 
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -9,14 +8,13 @@ import org.shirakawatyu.yamibo.novel.ui.theme.YamiboAppTheme
 class WebThemeCssTest {
     @Test
     fun classicThemesKeepTheirEstablishedRules() {
-        assertEquals(
-            LIGHT_MODE_CSS_RULES_CLASSIC,
-            webThemeCssRules(YamiboAppTheme.CLASSIC_LIGHT)
-        )
-        assertEquals(
-            DARK_MODE_CSS_RULES_CLASSIC,
-            webThemeCssRules(YamiboAppTheme.BLUE_BLACK)
-        )
+        val classicLight = webThemeCssRules(YamiboAppTheme.CLASSIC_LIGHT)
+        val blueBlack = webThemeCssRules(YamiboAppTheme.BLUE_BLACK)
+
+        assertTrue(classicLight.containsAll(LIGHT_MODE_CSS_RULES_CLASSIC))
+        assertTrue(blueBlack.containsAll(DARK_MODE_CSS_RULES_CLASSIC))
+        assertTrue(classicLight.any { it.contains("body.pg_space") })
+        assertTrue(blueBlack.any { it.contains("body.pg_space") })
     }
 
     @Test

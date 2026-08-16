@@ -8,6 +8,27 @@ import org.shirakawatyu.yamibo.novel.ui.theme.YamiboAppTheme
 
 object PageJsScripts {
 
+    private val RESTORE_SPACE_SIGNATURE_COLORS_JS = """
+        (function() {
+            function restore() {
+                try {
+                    var nodes = document.querySelectorAll(
+                        'body.pg_space .myinfo_list .sig [color],' +
+                        'body.pg_space .myinfo_list .sig [style*="color"]'
+                    );
+                    for (var i = 0; i < nodes.length; i++) {
+                        var node = nodes[i];
+                        var color = node.getAttribute('color') || node.style.color || '';
+                        if (color) node.style.setProperty('color', color, 'important');
+                    }
+                } catch (e) {}
+            }
+            restore();
+            setTimeout(restore, 300);
+            setTimeout(restore, 1000);
+        })();
+    """.trimIndent()
+
     fun shouldApplyWebTheme(theme: YamiboAppTheme): Boolean =
         theme != YamiboAppTheme.CLASSIC_LIGHT || LIGHT_MODE_CSS_RULES_CLASSIC.isNotEmpty()
 
@@ -1166,6 +1187,90 @@ $styleString
                 (document.body || document.documentElement).appendChild(style);
                 window.__yamiboEditorDark = true;
                 yamiboStyleEditorFrames(true);
+
+                // 兜底：用 JS inline style 强制覆盖 Discuz CSS 无法被 !important 覆盖的元素
+                function yamiboForceInlineStyles() {
+                    try {
+                        // 侧栏 .appl 背景
+                        var applEls = document.querySelectorAll('.appl');
+                        for (var i = 0; i < applEls.length; i++) {
+                            applEls[i].style.setProperty('background', '#0d141d', 'important');
+                            applEls[i].style.setProperty('background-color', '#0d141d', 'important');
+                            applEls[i].style.setProperty('background-image', 'none', 'important');
+                        }
+                        // 用户组表头 .tdats .c0 h4（原橙色 #F60）
+                        var h4Els = document.querySelectorAll('.tdats .c0 h4');
+                        for (var j = 0; j < h4Els.length; j++) {
+                            h4Els[j].style.setProperty('background', '#121b27', 'important');
+                            h4Els[j].style.setProperty('background-color', '#121b27', 'important');
+                            h4Els[j].style.setProperty('background-image', 'none', 'important');
+                            h4Els[j].style.setProperty('color', '#edf4fb', 'important');
+                        }
+                        // 表头 .tdats .h th（原浅灰渐变）
+                        var thEls = document.querySelectorAll('.tdats .h th');
+                        for (var k = 0; k < thEls.length; k++) {
+                            thEls[k].style.setProperty('background', '#121b27', 'important');
+                            thEls[k].style.setProperty('background-color', '#121b27', 'important');
+                            thEls[k].style.setProperty('background-image', 'none', 'important');
+                            thEls[k].style.setProperty('color', '#c7d8ea', 'important');
+                        }
+                        // 侧栏容器 .ct2_a 背景图
+                        var ct2aEls = document.querySelectorAll('.ct2_a');
+                        for (var l = 0; l < ct2aEls.length; l++) {
+                            ct2aEls[l].style.setProperty('background', '#0d141d', 'important');
+                            ct2aEls[l].style.setProperty('background-color', '#0d141d', 'important');
+                            ct2aEls[l].style.setProperty('background-image', 'none', 'important');
+                        }
+                        // .tdats 表格所有行（非交替行也强制深色）
+                        var tdatsTrEls = document.querySelectorAll('.tdats tr');
+                        for (var m = 0; m < tdatsTrEls.length; m++) {
+                            var bg = (m % 2 === 0) ? '#121b27' : '#182332';
+                            tdatsTrEls[m].style.setProperty('background', bg, 'important');
+                            tdatsTrEls[m].style.setProperty('background-color', bg, 'important');
+                            tdatsTrEls[m].style.setProperty('background-image', 'none', 'important');
+                        }
+                        // .tdats 所有 td/th 单元格
+                        var tdatsCellEls = document.querySelectorAll('.tdats td, .tdats th');
+                        for (var n = 0; n < tdatsCellEls.length; n++) {
+                            tdatsCellEls[n].style.setProperty('background', 'transparent', 'important');
+                            tdatsCellEls[n].style.setProperty('background-color', 'transparent', 'important');
+                            tdatsCellEls[n].style.setProperty('background-image', 'none', 'important');
+                            tdatsCellEls[n].style.setProperty('color', '#c7d8ea', 'important');
+                        }
+                        // 更宽泛：#ct 内所有 table/tr/td/th（兜底整个内容区表格）
+                        var ctTableEls = document.querySelectorAll('#ct table, #ct tr, #ct td, #ct th');
+                        for (var p = 0; p < ctTableEls.length; p++) {
+                            var el = ctTableEls[p];
+                            el.style.setProperty('background', '#121b27', 'important');
+                            el.style.setProperty('background-color', '#121b27', 'important');
+                            el.style.setProperty('background-image', 'none', 'important');
+                            el.style.setProperty('color', '#c7d8ea', 'important');
+                        }
+                        // .bm.bw0 外层容器
+                        var bmBw0Els = document.querySelectorAll('.bm.bw0, .bm.bw0 .bm_c');
+                        for (var q = 0; q < bmBw0Els.length; q++) {
+                            bmBw0Els[q].style.setProperty('background', '#121b27', 'important');
+                            bmBw0Els[q].style.setProperty('background-color', '#121b27', 'important');
+                            bmBw0Els[q].style.setProperty('background-image', 'none', 'important');
+                        }
+                    } catch (e) {}
+                }
+                yamiboForceInlineStyles();
+                // 延迟重试：Discuz 异步加载的 CSS 可能覆盖 inline style
+                setTimeout(yamiboForceInlineStyles, 500);
+                setTimeout(yamiboForceInlineStyles, 1500);
+                // 用户组页面：循环持续强制覆盖（Discuz CSS 可能多次重渲染）
+                if (/\bpg_spacecp\b/.test(document.body.className || '') || /spacecp/.test(location.href)) {
+                    var pgSpacecpInterval = setInterval(function() {
+                        yamiboForceInlineStyles();
+                        // 10 秒后停止循环（避免性能问题）
+                        if (!document.body || !document.querySelector('.tdats')) {
+                            clearInterval(pgSpacecpInterval);
+                        }
+                    }, 300);
+                    setTimeout(function() { clearInterval(pgSpacecpInterval); }, 10000);
+                }
+                $RESTORE_SPACE_SIGNATURE_COLORS_JS
             })();
         """.trimIndent()
     }
@@ -1198,6 +1303,7 @@ $styleString
 $styleString
                 ].join('\n');
                 (document.body || document.documentElement).appendChild(style);
+                $RESTORE_SPACE_SIGNATURE_COLORS_JS
             })();
         """.trimIndent()
     }

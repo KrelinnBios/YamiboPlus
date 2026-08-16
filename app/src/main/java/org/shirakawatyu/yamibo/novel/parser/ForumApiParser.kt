@@ -361,12 +361,14 @@ object ForumApiParser {
                     val cells = row.select("td")
                     if (cells.size <= userIndex) return@mapNotNull null
                     // 用户名单元格可能包含头像链接（无文本），优先取带文本的链接。
-                    val userName = cells[userIndex].select("a[href]")
+                    val userAnchor = cells[userIndex].select("a[href]")
                         .firstOrNull { cleanText(it.text()).isNotBlank() }
+                    val userName = userAnchor
                         ?.let { cleanText(it.text()) }
                         ?.takeIf(String::isNotBlank)
                         ?: cleanText(cells[userIndex].text())
                     if (userName.isBlank()) return@mapNotNull null
+                    val authorUid = userAnchor?.attr("href")?.let(::extractUidFromSpaceUrl)
                     val scoreText = cells.getOrNull(scoreIndex)
                         ?.let { cleanText(it.text()) }
                         .orEmpty()
@@ -389,7 +391,8 @@ object ForumApiParser {
                         reason = reason,
                         createdAt = cells.getOrNull(timeIndex)
                             ?.let { cleanText(it.text()) }
-                            ?.takeIf(String::isNotBlank)
+                            ?.takeIf(String::isNotBlank),
+                        authorUid = authorUid
                     )
                 }
                 if (ratings.isNotEmpty()) return ratings
@@ -423,7 +426,15 @@ object ForumApiParser {
                             .firstOrNull()
                             ?.let { cleanText(it.text()) }
                             .orEmpty(),
-                        createdAt = createdAt
+                        createdAt = createdAt,
+                        authorUid = row.select("a[href]")
+                            .firstOrNull {
+                                val href = it.attr("href")
+                                href.contains("space-uid", ignoreCase = true) ||
+                                    href.contains("uid=", ignoreCase = true)
+                            }
+                            ?.attr("href")
+                            ?.let(::extractUidFromSpaceUrl)
                     )
                 } else {
                     // 无用户名列 → 可能是理由行（div.flex 单独一行）或“查看全部评分”行。

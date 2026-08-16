@@ -101,7 +101,7 @@ class MangaHomeVM : ViewModel() {
                             hasMore = loaded.isNotEmpty()
                         )
                     }
-                    loadCoversProgressive(deduped.take(6).filter { it.coverUrl == null }, version)
+                    loadCoversProgressive(deduped.take(16).filter { it.coverUrl == null }, version)
                 }
                 .onFailure { error ->
                     if (error is CancellationException) throw error
@@ -139,7 +139,7 @@ class MangaHomeVM : ViewModel() {
                             hasMore = loaded.isNotEmpty()
                         )
                     }
-                    loadCoversProgressive(appended.take(4).filter { it.coverUrl == null }, requestVersion)
+                    loadCoversProgressive(appended.take(10).filter { it.coverUrl == null }, requestVersion)
                 }
                 .onFailure { error ->
                     if (error is CancellationException) throw error
@@ -320,14 +320,8 @@ class MangaHomeVM : ViewModel() {
             if (index != 0 && threadAuthorId.isNotBlank() && postAuthorId != threadAuthorId) continue
 
             messages += post.getString("message").orEmpty()
-            val attachments = post.getJSONObject("attachments") ?: continue
-            attachments.keys.forEach { key ->
-                val attachment = attachments.getJSONObject(key) ?: return@forEach
-                MangaCoverSelector.attachmentImageUrl(
-                    urlPrefix = attachment.getString("url"),
-                    attachmentPath = attachment.getString("attachment")
-                )?.let(attachmentUrls::add)
-            }
+            val attachments = post["attachments"] ?: post["attachlist"]
+            attachmentUrls += MangaCoverSelector.attachmentImageUrls(attachments)
         }
 
         return MangaCoverSelector.firstCoverUrl(messages, attachmentUrls)

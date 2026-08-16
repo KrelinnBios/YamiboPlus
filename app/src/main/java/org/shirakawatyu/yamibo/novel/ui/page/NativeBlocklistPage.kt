@@ -2,10 +2,12 @@ package org.shirakawatyu.yamibo.novel.ui.page
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -16,9 +18,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
@@ -45,8 +49,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
@@ -55,6 +59,7 @@ import kotlinx.coroutines.withContext
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.ui.theme.yamiboComponentColors
 import org.shirakawatyu.yamibo.novel.ui.widget.YamiboToast
+import org.shirakawatyu.yamibo.novel.ui.widget.blockedItemPostUrl
 import org.shirakawatyu.yamibo.novel.ui.widget.favorite.FavoriteTopSearchField
 import org.shirakawatyu.yamibo.novel.util.forum.ForumBlockedItem
 import org.shirakawatyu.yamibo.novel.util.forum.ForumBlocklistManager
@@ -62,7 +67,8 @@ import org.shirakawatyu.yamibo.novel.util.forum.ForumBlocklistManager
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NativeBlocklistPage(
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onOpenPost: (String) -> Unit = {}
 ) {
     val componentColors = yamiboComponentColors()
     val headerColor = componentColors.topBarContainer
@@ -72,7 +78,7 @@ fun NativeBlocklistPage(
     var searchText by remember { mutableStateOf("") }
     var isSearchBarExpanded by remember { mutableStateOf(false) }
     var showClearDialog by remember { mutableStateOf(false) }
-    val tabs = listOf("全部", "帖子", "用户")
+    val tabs = listOf("全部", "主题", "楼层", "用户")
 
     val syncState by ForumBlocklistManager.syncState.collectAsState()
     var wasSyncing by remember { mutableStateOf(false) }
@@ -91,15 +97,18 @@ fun NativeBlocklistPage(
     }
 
     val items by ForumBlocklistManager.items.collectAsState()
-    val filteredItems = remember(items, searchText, selectedTab) {
-        items.filter { item ->
+    val orderedItems = items.asReversed()
+    val filteredItems = remember(orderedItems, searchText, selectedTab) {
+        orderedItems.filter { item ->
             val matchesSearch = searchText.isEmpty() ||
                 item.id.contains(searchText, ignoreCase = true) ||
-                item.title.contains(searchText, ignoreCase = true)
+                item.title.contains(searchText, ignoreCase = true) ||
+                item.threadTitle.contains(searchText, ignoreCase = true)
             val matchesTab = when (selectedTab) {
                 0 -> true
                 1 -> item.type == "thread"
-                2 -> item.type == "user"
+                2 -> item.type == "post"
+                3 -> item.type == "user"
                 else -> true
             }
             matchesSearch && matchesTab
@@ -215,7 +224,6 @@ fun NativeBlocklistPage(
                         items(filteredItems, key = { "${it.type}-${it.id}" }) { item ->
                             BlocklistItem(
                                 item = item,
-                                actionColor = headerContent,
                                 onRemove = {
                                     scope.launch(Dispatchers.IO) {
                                         ForumBlocklistManager.remove(item.type, item.id)
@@ -223,6 +231,9 @@ fun NativeBlocklistPage(
                                             YamiboToast.show(message = "已移除")
                                         }
                                     }
+                                },
+                                onOpenPost = { url ->
+                                    onOpenPost(url)
                                 }
                             )
                         }
@@ -275,46 +286,97 @@ fun NativeBlocklistPage(
 @Composable
 private fun BlocklistItem(
     item: ForumBlockedItem,
-    actionColor: Color,
-    onRemove: () -> Unit
+    onRemove: () -> Unit,
+    onOpenPost: (String) -> Unit
 ) {
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp),
-        shape = MaterialTheme.shapes.small,
-        color = MaterialTheme.colorScheme.surface
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        shape = RoundedCornerShape(14.dp),
+        tonalElevation = 0.dp,
+        shadowElevation = 1.dp
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp),
+                .clickable {
+                    blockedItemPostUrl(item)?.let(onOpenPost)
+                }
+                .padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = item.title.ifEmpty { item.id },
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
+            Surface(
+                shape = RoundedCornerShape(50),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
+            ) {
                 Text(
                     text = when (item.type) {
-                        "thread" -> "帖子"
-                        "user" -> "用户"
+                        ForumBlockedItem.TYPE_THREAD -> "主题"
+                        ForumBlockedItem.TYPE_POST -> "楼层"
+                        ForumBlockedItem.TYPE_USER -> "用户"
                         else -> item.type
                     },
-                    fontSize = 12.sp,
+                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                    fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            IconButton(onClick = onRemove) {
+            Spacer(Modifier.width(9.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = if (item.type == ForumBlockedItem.TYPE_POST && item.threadTitle.isNotBlank()) {
+                        item.threadTitle
+                    } else {
+                        item.title.ifEmpty { item.id }
+                    },
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = blocklistItemMeta(item, item.title),
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            IconButton(
+                onClick = onRemove,
+                modifier = Modifier.size(32.dp)
+            ) {
                 Icon(
-                    Icons.Default.Delete,
+                    Icons.Default.Close,
                     contentDescription = "移除",
-                    tint = actionColor
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                    modifier = Modifier.size(16.dp)
                 )
             }
         }
+    }
+}
+
+private fun blocklistItemMeta(item: ForumBlockedItem, floorTitle: String = ""): String {
+    val authorPart = when {
+        item.authorName.isNotBlank() && item.authorUid.isNotBlank() ->
+            "${item.authorName}（UID ${item.authorUid}）"
+        item.authorName.isNotBlank() -> item.authorName
+        item.authorUid.isNotBlank() -> "UID ${item.authorUid}"
+        else -> null
+    }
+    return when (item.type) {
+        ForumBlockedItem.TYPE_USER -> "UID ${item.id}"
+        ForumBlockedItem.TYPE_POST -> if (floorTitle.isNotBlank() && item.threadTitle.isNotBlank()) {
+            listOfNotNull(floorTitle, authorPart).joinToString(" · ")
+        } else {
+            authorPart ?: "ID ${item.id}"
+        }
+        else -> authorPart ?: "ID ${item.id}"
     }
 }

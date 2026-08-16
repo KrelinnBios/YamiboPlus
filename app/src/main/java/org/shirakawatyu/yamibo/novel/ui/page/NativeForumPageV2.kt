@@ -202,7 +202,8 @@ private data class NativeForumBlockTarget(
     val id: String,
     val title: String,
     val authorUid: String = "",
-    val authorName: String = ""
+    val authorName: String = "",
+    val threadTitle: String = ""
 )
 
 private fun isBlocked(type: String, id: String, authorUid: String?, enabled: Boolean, items: List<ForumBlockedItem>) =
@@ -230,7 +231,6 @@ fun NativeForumPageV2(
     val headerColor = componentColors.topBarContainer
     val headerContent = componentColors.topBarContent
     var blockTarget by remember { mutableStateOf<NativeForumBlockTarget?>(null) }
-    var menuOpen by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { ForumBlocklistManager.initialize() }
     LaunchedEffect(state.selectedForum?.id) {
@@ -275,33 +275,26 @@ fun NativeForumPageV2(
             contentColor = headerContent,
             onBack = if (state.selectedForum == null) null else forumVM::showForumIndex
         ) {
-            IconButton(onClick = { onOpenWeb(ForumActionUrls.search) }) {
-                Icon(Icons.Default.Search, "搜索论坛")
-            }
             state.selectedForum?.let { forum ->
+                val forumFavorited = forumVM.isForumFavorited(forum.id)
+                IconButton(onClick = {
+                    forumVM.toggleForumFavorite(forum) { success, message ->
+                        YamiboToast.show(message = message)
+                    }
+                }) {
+                    Icon(
+                        imageVector = if (forumFavorited) Icons.Filled.Favorite
+                        else Icons.Outlined.FavoriteBorder,
+                        contentDescription = if (forumFavorited) "取消收藏" else "收藏本版",
+                        tint = if (forumFavorited) headerContent
+                        else headerContent.copy(alpha = 0.62f)
+                    )
+                }
+                IconButton(onClick = { onOpenWeb(ForumActionUrls.search) }) {
+                    Icon(Icons.Default.Search, "搜索论坛")
+                }
                 IconButton(onClick = { onOpenWeb(ForumActionUrls.newThread(forum.id)) }) {
                     Icon(Icons.Default.Add, "发表主题")
-                }
-                Box {
-                    IconButton(onClick = { menuOpen = true }) {
-                        Icon(Icons.Default.MoreVert, "更多")
-                    }
-                    DropdownMenu(menuOpen, { menuOpen = false }) {
-                        val forumFavorited = forumVM.isForumFavorited(forum.id)
-                        DropdownMenuItem(
-                            text = { Text(if (forumFavorited) "取消收藏" else "收藏本版") },
-                            onClick = {
-                                menuOpen = false
-                                forumVM.toggleForumFavorite(forum) { success, message ->
-                                    YamiboToast.show(message = message)
-                                }
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("电脑版") },
-                            onClick = { menuOpen = false; onOpenWeb(ForumActionUrls.desktopBoard(forum.id)) }
-                        )
-                    }
                 }
             }
         }
@@ -1047,8 +1040,21 @@ fun NativeThreadPageV2(
     var imagePreview by remember { mutableStateOf<ForumImagePreview?>(null) }
     val isLoggedIn = GlobalData.currentUid.isNotBlank()
     val forumId = state.thread?.forumId.orEmpty()
-    val posts = state.posts.filterNot {
-        isBlocked(ForumBlockedItem.TYPE_POST, it.id, it.author.id, enabled, blockedItems)
+    val posts = state.posts.mapNotNull { post ->
+        if (isBlocked(ForumBlockedItem.TYPE_POST, post.id, post.author.id, enabled, blockedItems)) {
+            null
+        } else {
+            val comments = post.comments.filterNot {
+                isBlocked(ForumBlockedItem.TYPE_USER, it.authorUid.orEmpty(), it.authorUid, enabled, blockedItems)
+            }
+            val ratingSummary = post.ratingSummary?.let { summary ->
+                val ratings = summary.ratings.filterNot {
+                    isBlocked(ForumBlockedItem.TYPE_USER, it.authorUid.orEmpty(), it.authorUid, enabled, blockedItems)
+                }
+                if (ratings.isEmpty()) null else summary.copy(ratings = ratings)
+            }
+            post.copy(comments = comments, ratingSummary = ratingSummary)
+        }
     }
     val displayPosts = if (state.reverseOrder) posts.asReversed() else posts
 
@@ -1144,7 +1150,7 @@ fun NativeThreadPageV2(
                     Icon(
                         Icons.AutoMirrored.Filled.MenuBook,
                         contentDescription = "阅读模式",
-                        tint = componentColors.topBarContent.copy(alpha = 0.62f)
+                        tint = componentColors.topBarContent
                     )
                 }
             }
@@ -1193,10 +1199,6 @@ fun NativeThreadPageV2(
                                 threadId
                             ) { message -> YamiboToast.show(message = message) }
                         }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("电脑版") },
-                        onClick = { menuOpen = false; onOpenWeb(ForumActionUrls.desktopThread(threadId)) }
                     )
                 }
             }
@@ -1282,7 +1284,8 @@ fun NativeThreadPageV2(
                         post.id,
                         "${post.floor} 楼",
                         post.author.id.orEmpty(),
-                        post.author.name
+                        post.author.name,
+                        state.thread?.subject.orEmpty()
                     )
                 }
             }
@@ -2050,9 +2053,9 @@ private fun NativeBlockMenuV2(target: NativeForumBlockTarget, onDismiss: () -> U
                 )
                 if (target.authorName.isNotBlank()) {
                     Text(
-                        "作者：${target.authorName}",
+                        "用户：${target.authorName}",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall,
+                        style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.padding(top = 3.dp)
                     )
                 }
@@ -2087,7 +2090,8 @@ private fun NativeBlockMenuV2(target: NativeForumBlockTarget, onDismiss: () -> U
                             target.id,
                             target.title,
                             target.authorUid,
-                            target.authorName
+                            target.authorName,
+                            target.threadTitle
                         )
                         onDismiss()
                     }
@@ -2296,6 +2300,8 @@ private fun ForumRatingsDialog(
     loadAll: ((Result<List<ForumPostRating>>) -> Unit) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val blocklistEnabled by ForumBlocklistManager.enabled.collectAsState()
+    val blockedItems by ForumBlocklistManager.items.collectAsState()
     var ratings by remember { mutableStateOf<List<ForumPostRating>?>(null) }
     var loadError by remember { mutableStateOf<String?>(null) }
 
@@ -2303,9 +2309,18 @@ private fun ForumRatingsDialog(
         loadAll { result ->
             result
                 .onSuccess { fullRatings ->
+                    val visibleRatings = fullRatings.filterNot {
+                        isBlocked(
+                            ForumBlockedItem.TYPE_USER,
+                            it.authorUid.orEmpty(),
+                            it.authorUid,
+                            blocklistEnabled,
+                            blockedItems
+                        )
+                    }
                     // 完整评分接口的部分模板不返回理由，使用帖子预览中已有的理由补齐；
                     // 完整接口有值时优先保留服务端返回值。
-                    ratings = fullRatings.map { rating ->
+                    ratings = visibleRatings.map { rating ->
                         if (rating.reason.isNotBlank()) {
                             rating
                         } else {
@@ -2322,7 +2337,15 @@ private fun ForumRatingsDialog(
         }
     }
 
-    val displayRatings = ratings ?: summary.ratings
+    val displayRatings = (ratings ?: summary.ratings).filterNot {
+        isBlocked(
+            ForumBlockedItem.TYPE_USER,
+            it.authorUid.orEmpty(),
+            it.authorUid,
+            blocklistEnabled,
+            blockedItems
+        )
+    }
     val showLoading = ratings == null && loadError == null
 
     AlertDialog(

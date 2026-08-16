@@ -153,6 +153,7 @@ import org.shirakawatyu.yamibo.novel.ui.widget.YamiboToast
 import org.shirakawatyu.yamibo.novel.ui.widget.reader.ContentViewer
 import org.shirakawatyu.yamibo.novel.ui.widget.reader.CustomStatusBar
 import org.shirakawatyu.yamibo.novel.util.OnboardingUtil
+import org.shirakawatyu.yamibo.novel.util.YamiboPostLinkUtil
 import org.shirakawatyu.yamibo.novel.util.favorite.FavoriteUtil
 import org.shirakawatyu.yamibo.novel.util.manga.MangaTitleCleaner
 import org.shirakawatyu.yamibo.novel.util.reader.ReaderReturnBridge
@@ -493,17 +494,30 @@ fun ReaderPage(
                     val navigateAction = {
                         if (previousRoute == "BBSPage" || previousRoute == "MinePage") {
                             navController.navigateUp()
-                        } else if (previousRoute?.startsWith("ReaderWebPage") == true) {
-                            // ReaderWebPage 可能已经停在别的页/取消了只看楼主。
-                            // 先发一次校正请求，再露出已有 WebView，这样"原贴"看到的是阅读器当前网页页码。
-                            readerVM.scheduleDiskCacheRefresh()
-                            ReaderReturnBridge.requestOriginalPost(returnContext.originalPostUrl)
-                            navController.navigateUp()
                         } else {
+                            // 优先原生帖子页：无论从哪进入阅读器，返回原帖都展示原生界面。
+                            val originalUrl = returnContext.originalPostUrl
+                            val threadId = ReaderReturnBridge.extractTid(originalUrl)
+                                ?: YamiboPostLinkUtil.extractThreadId(originalUrl)
                             readerVM.scheduleDiskCacheRefresh()
-                            navController.navigate("ReaderWebPage/${ReaderReturnBridge.encodeRouteArg(returnContext.originalPostUrl)}") {
-                                navController.currentDestination?.id?.let { currentId ->
-                                    popUpTo(currentId) { inclusive = true }
+                            if (threadId != null) {
+                                navController.navigate("NativeThreadPage/$threadId") {
+                                    navController.currentDestination?.id?.let { currentId ->
+                                        popUpTo(currentId) { inclusive = true }
+                                    }
+                                }
+                            } else if (previousRoute?.startsWith("ReaderWebPage") == true) {
+                                // ReaderWebPage 可能已经停在别的页/取消了只看楼主。
+                                // 先发一次校正请求，再露出已有 WebView，这样"原贴"看到的是阅读器当前网页页码。
+                                ReaderReturnBridge.requestOriginalPost(originalUrl)
+                                navController.navigateUp()
+                            } else {
+                                navController.navigate(
+                                    "ReaderWebPage/${ReaderReturnBridge.encodeRouteArg(originalUrl)}"
+                                ) {
+                                    navController.currentDestination?.id?.let { currentId ->
+                                        popUpTo(currentId) { inclusive = true }
+                                    }
                                 }
                             }
                         }

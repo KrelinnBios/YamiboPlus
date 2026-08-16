@@ -50,6 +50,28 @@ object YamiboPostLinkUtil {
     }
 
     /**
+     * 归一化个人空间主页链接（home.php?mod=space&uid=xxx），统一转为 bbs + mobile=2，
+     * 供 BBSPage 直接加载。非个人空间主页链接返回 null。
+     */
+    fun normalizeUserSpaceUrl(url: String?): String? {
+        val parsed = url?.toHttpUrlOrNull() ?: return null
+        if (parsed.host.lowercase() !in validHosts) return null
+        if (!parsed.encodedPath.equals("/home.php", ignoreCase = true)) return null
+        if (!parsed.queryParameter("mod").equals("space", ignoreCase = true)) return null
+        if (parsed.queryParameter("uid").isNullOrBlank()) return null
+        return parsed.newBuilder()
+            .scheme("https")
+            .host("bbs.yamibo.com")
+            .apply {
+                if (parsed.queryParameter("mobile").isNullOrBlank()) {
+                    addQueryParameter("mobile", "2")
+                }
+            }
+            .build()
+            .toString()
+    }
+
+    /**
      * 论坛页内点击帖子时沿用当前页面模板。页面脚本可直接根据 DOM 判断电脑版，
      * 避免无 mobile 参数的电脑版 SEO 链接先被直达流程补成 mobile=2。
      */

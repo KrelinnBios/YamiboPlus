@@ -99,6 +99,12 @@ import org.shirakawatyu.yamibo.novel.ui.page.NativeFeedbackPage
 import org.shirakawatyu.yamibo.novel.ui.page.NativeErrorLogPage
 import org.shirakawatyu.yamibo.novel.ui.page.NativeBackupPage
 import org.shirakawatyu.yamibo.novel.ui.page.NativeBlocklistPage
+import org.shirakawatyu.yamibo.novel.ui.page.NativeMessageCenterPage
+import org.shirakawatyu.yamibo.novel.ui.page.NativeFriendPage
+import org.shirakawatyu.yamibo.novel.ui.page.NativeDoingPage
+import org.shirakawatyu.yamibo.novel.ui.page.NativeBlogPage
+import org.shirakawatyu.yamibo.novel.ui.page.NativeBlogDetailPage
+import org.shirakawatyu.yamibo.novel.ui.page.NativeUserThreadsPage
 import org.shirakawatyu.yamibo.novel.ui.page.NativeMangaPage
 import org.shirakawatyu.yamibo.novel.ui.page.NativeForumPageV2
 import org.shirakawatyu.yamibo.novel.ui.page.NativeThreadPageV2
@@ -270,7 +276,7 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
     }
 }
-private suspend fun openNativeForumPost(
+suspend fun openNativeForumPost(
     navController: NavController,
     url: String
 ): Boolean {
@@ -594,6 +600,25 @@ fun App(webChromeClient: WebChromeClient) {
                         LaunchedEffect(Unit) {
                             GlobalData.pendingClipboardUrl.collect { url ->
                                 if (url == null) return@collect
+                                GlobalData.lastClipboardUrl = url
+                                // 个人空间主页 / findpost 楼层直达：保留 pendingUrl，
+                                // 交给 BBSPage 加载（楼层可随 302 锚点定位）。
+                                val isFloorLink = url.contains(
+                                    "goto=findpost",
+                                    ignoreCase = true
+                                )
+                                if (YamiboPostLinkUtil.normalizeUserSpaceUrl(url) != null ||
+                                    YamiboPostLinkUtil.normalizePostUrl(url) != null && isFloorLink
+                                ) {
+                                    navController.navigate("BBSPage") {
+                                        popUpTo(navController.graph.findStartDestination().id) {
+                                            saveState = true
+                                        }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
+                                    return@collect
+                                }
                                 GlobalData.pendingClipboardUrl.value = null
                                 openPendingForumPost(url)
                             }
@@ -849,7 +874,11 @@ fun App(webChromeClient: WebChromeClient) {
                                                 navController.navigate("NativeThreadPage/" + thread.id)
                                             },
                                             onOpenWeb = { url ->
-                                                navController.navigate("OtherWebPage/" + Uri.encode(url))
+                                                coroutineScope.launch {
+                                                    if (!openNativeForumPost(navController, url)) {
+                                                        navController.navigate("OtherWebPage/" + Uri.encode(url))
+                                                    }
+                                                }
                                             },
                                             forumVM = forumVM,
                                             bottomNavBarVM = bottomNavBarVM
@@ -934,7 +963,11 @@ fun App(webChromeClient: WebChromeClient) {
                                                 }
                                             },
                                             onOpenWeb = { url ->
-                                                navController.navigate("OtherWebPage/" + Uri.encode(url))
+                                                coroutineScope.launch {
+                                                    if (!openNativeForumPost(navController, url)) {
+                                                        navController.navigate("OtherWebPage/" + Uri.encode(url))
+                                                    }
+                                                }
                                             },
                                             onOpenManga = { tid ->
                                                 val mangaUrl = URLEncoder.encode(
@@ -1134,7 +1167,135 @@ fun App(webChromeClient: WebChromeClient) {
                                     }
                                 ) {
                                     NativeBlocklistPage(
-                                        onBack = { navController.popBackStack() }
+                                        onBack = { navController.popBackStack() },
+                                        onOpenPost = { url ->
+                                            GlobalData.pendingClipboardUrl.value = url
+                                            GlobalData.lastClipboardUrl = url
+                                        }
+                                    )
+                                }
+                                composable(
+                                    "NativeMessageCenterPage",
+                                    enterTransition = {
+                                         fadeIn(tween(150))
+                                    },
+                                    popExitTransition = {
+                                         fadeOut(tween(150))
+                                    }
+                                ) {
+                                    NativeMessageCenterPage(
+                                        navController = navController,
+                                        uid = GlobalData.currentUid,
+                                        onOpenConversation = { item ->
+                                            navController.navigate(
+                                                "OtherWebPage/" + Uri.encode(item.url)
+                                            )
+                                        },
+                                        onOpenNotice = { item ->
+                                            navController.navigate(
+                                                "OtherWebPage/" + Uri.encode(item.url)
+                                            )
+                                        }
+                                    )
+                                }
+                                composable(
+                                    "NativeFriendPage",
+                                    enterTransition = {
+                                         fadeIn(tween(150))
+                                    },
+                                    popExitTransition = {
+                                         fadeOut(tween(150))
+                                    }
+                                ) {
+                                    NativeFriendPage(
+                                        navController = navController,
+                                        uid = GlobalData.currentUid,
+                                        onOpenFriendSpace = { item ->
+                                            navController.navigate(
+                                                "OtherWebPage/" + Uri.encode(item.spaceUrl)
+                                            )
+                                        },
+                                        onOpenPm = { item ->
+                                            navController.navigate(
+                                                "OtherWebPage/" + Uri.encode(item.pmUrl)
+                                            )
+                                        }
+                                    )
+                                }
+                                composable(
+                                    "NativeDoingPage",
+                                    enterTransition = {
+                                         fadeIn(tween(150))
+                                    },
+                                    popExitTransition = {
+                                         fadeOut(tween(150))
+                                    }
+                                ) {
+                                    NativeDoingPage(
+                                        navController = navController,
+                                        uid = GlobalData.currentUid
+                                    )
+                                }
+                                composable(
+                                    "NativeBlogPage",
+                                    enterTransition = {
+                                         fadeIn(tween(150))
+                                    },
+                                    popExitTransition = {
+                                         fadeOut(tween(150))
+                                    }
+                                ) {
+                                    NativeBlogPage(
+                                        navController = navController,
+                                        uid = GlobalData.currentUid,
+                                        onOpenBlog = { item ->
+                                            navController.navigate(
+                                                "NativeBlogDetailPage/" + Uri.encode(item.url)
+                                            )
+                                        },
+                                        onOpenBlogAction = { url ->
+                                            navController.navigate("OtherWebPage/" + Uri.encode(url))
+                                        }
+                                    )
+                                }
+                                composable(
+                                    "NativeBlogDetailPage/{url}",
+                                    arguments = listOf(
+                                        navArgument("url") { type = NavType.StringType }
+                                    ),
+                                    enterTransition = { fadeIn(tween(150)) },
+                                    popExitTransition = { fadeOut(tween(150)) }
+                                ) { entry ->
+                                    val blogUrl = Uri.decode(entry.arguments?.getString("url").orEmpty())
+                                    NativeBlogDetailPage(
+                                        navController = navController,
+                                        url = blogUrl,
+                                        onOpenWeb = { actionUrl ->
+                                            navController.navigate("OtherWebPage/" + Uri.encode(actionUrl))
+                                        }
+                                    )
+                                }
+                                composable(
+                                    "NativeUserThreadsPage?tab={tab}",
+                                    arguments = listOf(
+                                        navArgument("tab") { defaultValue = "thread" }
+                                    ),
+                                    enterTransition = {
+                                         fadeIn(tween(150))
+                                    },
+                                    popExitTransition = {
+                                         fadeOut(tween(150))
+                                    }
+                                ) { entry ->
+                                    NativeUserThreadsPage(
+                                        navController = navController,
+                                        uid = GlobalData.currentUid,
+                                        initialTab = entry.arguments?.getString("tab") ?: "thread",
+                                        onOpenThread = { item ->
+                                            navController.navigate(
+                                                "NativeThreadPage/" + item.tid
+                                            )
+                                        }
                                     )
                                 }
                                 composable(

@@ -411,7 +411,7 @@ class YamiboRetrofit {
                             request.method == "GET" &&
                             isRateLimitedResponse(response)
                     if (!canRetryResponse) {
-                        val responsePreview = if (response.code == 405) {
+                        val responsePreview = if (response.code == 405 || response.code == 403) {
                             runCatching { response.peekBody(64 * 1024L).string() }
                                 .getOrDefault("")
                         } else {
@@ -432,6 +432,16 @@ class YamiboRetrofit {
                             }
                         )
                         if (!refreshed) return response
+
+                        if (response.code == 403) {
+                            // Cloudflare/Turnstile 403：挑战 WebView 已经刷新 Cookie，直接重放原请求。
+                            response.close()
+                            sharedConnectionPool.evictAll()
+                            val retriedRequest = request.newBuilder()
+                                .header("Cookie", YamiboSession.cookieFor(request.url.toString()))
+                                .build()
+                            return chain.proceed(retriedRequest)
+                        }
 
                         // 挑战后先做一次同源轻量探测，确认 nox 凭证真的被服务端接受，
                         // 避免拿着一张无效凭证重放原请求（重放必然再 405，表现为“刷新永远不成功”）。

@@ -224,16 +224,26 @@ fun NativeMinePage(
                                 navController.navigate("OtherWebPage/${Uri.encode(signInUrl)}")
                             },
                             onOpenSpaceSection = { section ->
-                                navController.navigate(
-                                    "OtherWebPage/${Uri.encode(ForumActionUrls.userSpace(profile.uid, section))}"
-                                )
+                                when (section) {
+                                    "friend" -> navController.navigate("NativeFriendPage")
+                                    "doing" -> navController.navigate("NativeDoingPage")
+                                    "blog" -> navController.navigate("NativeBlogPage")
+                                    "thread" -> navController.navigate(
+                                        "NativeUserThreadsPage?tab=thread"
+                                    )
+                                    "reply" -> navController.navigate(
+                                        "NativeUserThreadsPage?tab=reply"
+                                    )
+                                    else -> navController.navigate(
+                                        "OtherWebPage/${Uri.encode(ForumActionUrls.userSpace(profile.uid, section))}"
+                                    )
+                                }
                             },
                             onOpenCredits = {
                                 navController.navigate("OtherWebPage/${Uri.encode(ForumActionUrls.creditLog)}")
                             },
                             onOpenMessages = {
-                                val target = ForumActionUrls.messageCenter(profile.hasNewPrompt)
-                                navController.navigate("OtherWebPage/${Uri.encode(target)}")
+                                navController.navigate("NativeMessageCenterPage")
                             },
                             onOpenUserGroup = {
                                 val userGroupUrl = "https://bbs.yamibo.com/home.php?mod=spacecp&ac=usergroup&mobile=no"

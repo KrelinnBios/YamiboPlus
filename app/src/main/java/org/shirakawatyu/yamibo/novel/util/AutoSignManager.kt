@@ -8,10 +8,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.ResponseBody
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
+import org.shirakawatyu.yamibo.novel.network.FavoriteApi
+import org.shirakawatyu.yamibo.novel.parser.ProfileApiParser
 import org.shirakawatyu.yamibo.novel.ui.widget.YamiboToast
 import retrofit2.http.GET
 import retrofit2.http.Header
@@ -56,8 +60,11 @@ internal object TodaySignStatusCache {
  */
 object AutoSignManager {
     private const val BASE_URL = "https://bbs.yamibo.com/"
-    private const val SIGN_PAGE_URL = "${BASE_URL}plugin.php?id=zqlj_sign"
+    private const val SIGN_PAGE_URL = "${BASE_URL}plugin.php?id=zqlj_sign&mobile=2"
+    private const val SIGN_REFERER_URL =
+        "${BASE_URL}home.php?mod=space&do=profile&mycenter=1&mobile=2"
     private const val MAX_DAILY_RETRIES = 2
+    private val signMutex = Mutex()
     private val _todaySignStatus = MutableStateFlow<TodaySignStatus?>(null)
     val todaySignStatus = _todaySignStatus.asStateFlow()
 
@@ -119,10 +126,7 @@ object AutoSignManager {
 
         if (savedDate != today) return true
 
-        return when (trigger) {
-            SignTrigger.LAUNCH -> launchCount < MAX_DAILY_RETRIES
-            SignTrigger.RESUME -> resumeCount < MAX_DAILY_RETRIES
-        }
+        return launchCount + resumeCount < MAX_DAILY_RETRIES
     }
 
     suspend fun getTodaySignStatus(forceRefresh: Boolean = false): TodaySignStatus = withContext(Dispatchers.IO) {
@@ -167,7 +171,8 @@ object AutoSignManager {
         context: Context,
         trigger: SignTrigger = SignTrigger.LAUNCH,
         force: Boolean = false
-    ) = withContext(Dispatchers.IO) {
+    ) = signMutex.withLock {
+        withContext(Dispatchers.IO) {
         val accountHash = getCurrentAccountHash() ?: return@withContext
         val today = getServerToday()
         var (savedDate, launchCount, resumeCount) = getCurrentQuota(accountHash)
@@ -178,27 +183,36 @@ object AutoSignManager {
         }
 
         if (!force) {
-            val currentCount = if (trigger == SignTrigger.LAUNCH) launchCount else resumeCount
-            if (currentCount >= MAX_DAILY_RETRIES) return@withContext
+            if (launchCount + resumeCount >= MAX_DAILY_RETRIES) return@withContext
+            if (trigger == SignTrigger.LAUNCH) launchCount++ else resumeCount++
+            // 先消耗次数，403/网络异常也不能被启动和恢复回调反复重试。
+            updateQuota(accountHash, today, launchCount, resumeCount)
         }
 
         try {
-            val signApi = YamiboRetrofit.getInstance().create(SignApi::class.java)
-            // 签到校验使用插件页面生成的 formhash。
-            val signPageHtml = signApi.fetchHtml(SIGN_PAGE_URL).string()
-            val formHash = extractSignFormHash(signPageHtml)
+            // 使用移动 API 的 formhash，避免直接抓插件页面触发 403/WAF。
+            val profileResponse = YamiboRetrofit.getInstance()
+                .create(FavoriteApi::class.java)
+                .getFormHash()
+                .execute()
+            val formHash = if (profileResponse.isSuccessful) {
+                profileResponse.body()
+                    ?.string()
+                    ?.let { runCatching { ProfileApiParser.parseProfile(it).formhash }.getOrNull() }
+                    ?.takeIf(String::isNotBlank)
+            } else {
+                null
+            }
             if (formHash == null) {
                 if (force) showToast(context, "签到页面验证失败，请重新登录后重试")
                 return@withContext
             }
 
             val signUrl = "$SIGN_PAGE_URL&sign=$formHash"
-            val actionResponseHtml = signApi.fetchHtml(signUrl, referer = SIGN_PAGE_URL).string()
-
-            if (!force) {
-                if (trigger == SignTrigger.LAUNCH) launchCount++ else resumeCount++
-                updateQuota(accountHash, today, launchCount, resumeCount)
-            }
+            val actionResponseHtml = YamiboRetrofit.getInstance()
+                .create(SignApi::class.java)
+                .fetchHtml(signUrl, referer = SIGN_REFERER_URL)
+                .string()
 
             if (actionResponseHtml.contains("已经打过卡了") ||
                 actionResponseHtml.contains("今日已打卡") ||
@@ -216,8 +230,10 @@ object AutoSignManager {
                 if (force) showToast(context, "签到未完成，请重新登录后重试")
             }
         } catch (error: Exception) {
-            AppErrorLog.record("签到请求失败：${error.message}")
+            val detail = error.message ?: error::class.simpleName.orEmpty()
+            AppErrorLog.record("签到请求失败：$detail")
             if (force) showToast(context, "签到请求失败，请稍后重试")
+        }
         }
     }
 

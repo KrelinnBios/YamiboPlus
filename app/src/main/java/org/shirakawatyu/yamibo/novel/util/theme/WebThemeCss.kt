@@ -10,12 +10,15 @@ import java.util.Locale
 internal fun webThemeCssRules(
     theme: YamiboAppTheme,
     pureBlack: Boolean = false
-): List<String> = when {
+): List<String> {
+    val baseRules = when {
     !pureBlack && theme == YamiboAppTheme.CLASSIC_LIGHT -> LIGHT_MODE_CSS_RULES_CLASSIC
     !pureBlack && theme == YamiboAppTheme.BLUE_BLACK -> DARK_MODE_CSS_RULES_CLASSIC
     else -> runCatching { recolorClassicWebRules(theme, pureBlack) }
         .getOrDefault(emptyList())
         .ifEmpty { DARK_MODE_CSS_RULES_CLASSIC }
+    }
+    return baseRules + mobileSpaceThemeCssRules(theme, pureBlack)
 }
 
 internal fun webThemeEditorCss(
@@ -96,4 +99,40 @@ private fun Color.toRgbaCss(alpha: Double): String {
     val g = (argb shr 8) and 0xFF
     val b = argb and 0xFF
     return String.format(Locale.ROOT, "rgba(%d, %d, %d, %.2f)", r, g, b, alpha)
+}
+
+/**
+ * 手机版空间页没有 Compose 容器，不能直接读取 MaterialTheme 的颜色。
+ * 用当前应用 ColorScheme 生成覆盖层，避免个人资料页继续使用固定黑色/米色卡片。
+ */
+private fun mobileSpaceThemeCssRules(
+    theme: YamiboAppTheme,
+    pureBlack: Boolean
+): List<String> {
+    val scheme = theme.effectiveScheme(pureBlack)
+    val isDark = theme.isDark
+    val topBar = if (isDark) scheme.primaryContainer else scheme.primary
+    val topBarContent = if (isDark) scheme.onPrimaryContainer else scheme.onPrimary
+    val card = scheme.surface
+    val cardLow = scheme.surfaceContainerLow
+    val cardHigh = scheme.surfaceContainerHigh
+    val outline = scheme.outlineVariant
+    val link = scheme.primary
+
+    return listOf(
+        "body.pg_space, body.pg_spacecp { background-color: ${scheme.background.toCssHex()} !important; color: ${scheme.onBackground.toCssHex()} !important; }",
+        "body.pg_space .header, body.pg_spacecp .header { background-color: ${topBar.toCssHex()} !important; border-color: ${outline.toCssHex()} !important; color: ${topBarContent.toCssHex()} !important; }",
+        "body.pg_space .header h2, body.pg_space .header h2 a, body.pg_space .header a, body.pg_space .header i, body.pg_spacecp .header h2, body.pg_spacecp .header h2 a, body.pg_spacecp .header a, body.pg_spacecp .header i { color: ${topBarContent.toCssHex()} !important; }",
+        "body.pg_space .user_box, body.pg_space .myinfo_list, body.pg_space .myinfo_list_ico, body.pg_space .myinfo_list_ico ul { background-color: ${card.toCssHex()} !important; border-color: ${outline.toCssHex()} !important; }",
+        "body.pg_space .myinfo_list_ico li, body.pg_space .myinfo_list_ico li a { background-color: ${cardLow.toCssHex()} !important; border-color: ${outline.toCssHex()} !important; color: ${scheme.onSurface.toCssHex()} !important; }",
+        "body.pg_space .user_avatar .name { color: ${link.toCssHex()} !important; }",
+        "body.pg_space .user_box, body.pg_space .myinfo_list, body.pg_space .myinfo_list li, body.pg_space .myinfo_list .sig { color: ${scheme.onSurface.toCssHex()} !important; }",
+        "body.pg_space .user_box li span, body.pg_space .myinfo_list li span { color: ${scheme.onSurfaceVariant.toCssHex()} !important; }",
+        "body.pg_space .myinfo_list li span.mtxt { background-color: ${scheme.primaryContainer.toCssHex()} !important; color: ${scheme.onPrimaryContainer.toCssHex()} !important; }",
+        "body.pg_space .user_avatar { background-color: ${cardHigh.toCssHex()} !important; border-color: ${outline.toCssHex()} !important; }",
+        "body.pg_space .btn_exit .pn { background-color: ${topBar.toCssHex()} !important; color: ${topBarContent.toCssHex()} !important; border-color: ${outline.toCssHex()} !important; }",
+        "body.pg_space .dhnv, body.pg_spacecp .dhnv { background-color: ${card.toCssHex()} !important; border-color: ${outline.toCssHex()} !important; }",
+        "body.pg_space .dhnv a, body.pg_spacecp .dhnv a { color: ${scheme.onSurfaceVariant.toCssHex()} !important; }",
+        "body.pg_space .dhnv a.mon, body.pg_spacecp .dhnv a.mon { color: ${link.toCssHex()} !important; border-bottom-color: ${link.toCssHex()} !important; }"
+    )
 }
