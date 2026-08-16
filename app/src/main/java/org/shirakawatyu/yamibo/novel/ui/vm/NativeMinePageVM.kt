@@ -65,6 +65,7 @@ class NativeMinePageVM(application: Application) : AndroidViewModel(application)
                     }
                 }
                 _uiState.update { it.copy(profile = profile, isLoading = false) }
+                GlobalData.currentFormHash = profile.formhash
                 withContext(Dispatchers.IO) {
                     CurrentUserUtil.saveProfile(profile.uid, profile.username, profile.avatarUrl)
                 }
@@ -115,6 +116,7 @@ class NativeMinePageVM(application: Application) : AndroidViewModel(application)
         profileJob?.cancel()
         CookieUtil.saveCookie("")
         GlobalData.currentCookie = ""
+        GlobalData.currentFormHash = ""
         GlobalData.sessionGeneration++
         YamiboSession.clearWebViewSession()
         CurrentUserUtil.clear()

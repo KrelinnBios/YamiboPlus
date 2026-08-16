@@ -114,6 +114,7 @@ import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.module.CoilWebViewProxy
 import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
 import org.shirakawatyu.yamibo.novel.ui.component.YamiboLoadError
+import org.shirakawatyu.yamibo.novel.ui.theme.effectiveScheme
 import org.shirakawatyu.yamibo.novel.ui.theme.yamiboSwitchColors
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
@@ -514,7 +515,9 @@ fun MinePage(
         val webView = minePageVM.getOrAcquireWebView(context)
 
         if (GlobalData.isDarkMode.value) {
-            webView.setBackgroundColor(0xFF0D141D.toInt())
+            webView.setBackgroundColor(
+                GlobalData.appTheme.value.effectiveScheme(GlobalData.pureBlackMode.value).background.toArgb()
+            )
         }
 
         if (isNew) {
@@ -596,14 +599,15 @@ fun MinePage(
 
     LaunchedEffect(appTheme, isForumBlocklistEnabled, forumBlockedItems) {
         mineWebView.setBackgroundColor(
-            appTheme.scheme.background.toArgb()
+            appTheme.effectiveScheme(GlobalData.pureBlackMode.value).background.toArgb()
         )
         mineWebView.evaluateJavascript(
             PageJsScripts.getThemeSetJs(
                 isDarkMode,
                 GlobalData.darkModeTheme.value,
                 GlobalData.lightModeTheme.value,
-                GlobalData.appTheme.value
+                GlobalData.appTheme.value,
+                pureBlack = GlobalData.pureBlackMode.value
             ),
             null
         )
@@ -652,7 +656,8 @@ fun MinePage(
                     GlobalData.isDarkMode.value,
                     GlobalData.darkModeTheme.value,
                     GlobalData.lightModeTheme.value,
-                    GlobalData.appTheme.value
+                    GlobalData.appTheme.value,
+                    pureBlack = GlobalData.pureBlackMode.value
                 ),
                 null
             )
@@ -1082,7 +1087,8 @@ fun MinePage(
                             GlobalData.darkModeTheme.value,
                             GlobalData.lightModeTheme.value,
                             desktopFitScale,
-                            appTheme = GlobalData.appTheme.value
+                            appTheme = GlobalData.appTheme.value,
+                            pureBlack = GlobalData.pureBlackMode.value
                         )
                         return WebResourceResponse(
                             "text/html",
@@ -1176,7 +1182,8 @@ fun MinePage(
                             GlobalData.isDarkMode.value,
                             GlobalData.darkModeTheme.value,
                             GlobalData.lightModeTheme.value,
-                            GlobalData.appTheme.value
+                            GlobalData.appTheme.value,
+                            pureBlack = GlobalData.pureBlackMode.value
                         ), null
                     )
                 }

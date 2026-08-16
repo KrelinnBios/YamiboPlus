@@ -9,12 +9,21 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumBoard
+import org.shirakawatyu.yamibo.novel.bean.forum.ForumCategory
+import org.shirakawatyu.yamibo.novel.bean.forum.ForumPoll
+import org.shirakawatyu.yamibo.novel.bean.forum.ForumPost
+import org.shirakawatyu.yamibo.novel.bean.forum.ForumPostRating
+import org.shirakawatyu.yamibo.novel.bean.forum.ForumRatePopout
+import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.repository.ForumRepository
 import org.shirakawatyu.yamibo.novel.ui.state.ForumSort
 import org.shirakawatyu.yamibo.novel.ui.state.ForumState
 import org.shirakawatyu.yamibo.novel.ui.state.ForumThreadState
 import org.shirakawatyu.yamibo.novel.util.AppErrorLog
+import org.shirakawatyu.yamibo.novel.util.browser.ForumVerificationRequiredException
+import org.shirakawatyu.yamibo.novel.util.favorite.FavoriteAddUtil
 import java.io.IOException
 
 class ForumVM(
@@ -60,6 +69,89 @@ class ForumVM(
         if (_uiState.value.filterType == typeId) return
         _uiState.update { it.copy(filterType = typeId, threads = emptyList(), page = 1) }
         refresh()
+    }
+
+    /**
+     * 判断板块当前是否已收藏（以首页「我收藏的版块」分类为数据源）
+     */
+    fun isForumFavorited(forumId: String): Boolean {
+        return _uiState.value.categories
+            .firstOrNull { it.id == FAVORITE_FORUMS_CATEGORY_ID }
+            ?.forums?.any { it.id == forumId } == true
+    }
+
+    /**
+     * 收藏/取消收藏板块。远端操作成功后直接更新本地 categories 中
+     * 「我收藏的版块」分类，菜单与收藏板块列表随之自动刷新，无需重新拉取首页。
+     */
+    fun toggleForumFavorite(
+        forum: ForumBoard,
+        onResult: (success: Boolean, message: String) -> Unit
+    ) {
+        if (GlobalData.currentUid.isBlank()) {
+            onResult(false, "请先登录后再收藏")
+            return
+        }
+        val wasFavorited = isForumFavorited(forum.id)
+        viewModelScope.launch(Dispatchers.IO) {
+            val success = if (wasFavorited) {
+                FavoriteAddUtil.removeForumFavorite(forum.id)
+            } else {
+                FavoriteAddUtil.addForumFavorite(forum.id)
+            }
+            if (success) {
+                _uiState.update { state ->
+                    state.copy(categories = updateFavoriteCategory(state.categories, forum, wasFavorited))
+                }
+            }
+            val message = when {
+                !success && wasFavorited -> "取消收藏失败，请稍后重试"
+                !success -> "收藏失败，请稍后重试"
+                wasFavorited -> "已取消收藏"
+                else -> "已收藏本版"
+            }
+            withContext(Dispatchers.Main) { onResult(success, message) }
+        }
+    }
+
+    /**
+     * 远端操作成功后同步「我收藏的版块」分类：取消时移除板块，收藏时插入到分类首位。
+     */
+    private fun updateFavoriteCategory(
+        categories: List<ForumCategory>,
+        forum: ForumBoard,
+        wasFavorited: Boolean
+    ): List<ForumCategory> {
+        val index = categories.indexOfFirst { it.id == FAVORITE_FORUMS_CATEGORY_ID }
+        if (wasFavorited) {
+            if (index < 0) return categories
+            val updated = categories[index].copy(
+                forums = categories[index].forums.filterNot { it.id == forum.id }
+            )
+            return if (updated.forums.isEmpty()) {
+                categories.filterIndexed { i, _ -> i != index }
+            } else {
+                categories.toMutableList().apply { set(index, updated) }
+            }
+        }
+        val favoriteCategory = ForumCategory(
+            id = FAVORITE_FORUMS_CATEGORY_ID,
+            name = "我收藏的版块",
+            forums = listOf(forum)
+        )
+        return if (index < 0) {
+            listOf(favoriteCategory) + categories
+        } else {
+            val updated = categories[index].copy(
+                forums = (listOf(forum) + categories[index].forums).distinctBy { it.id }
+            )
+            categories.toMutableList().apply { set(index, updated) }
+        }
+    }
+
+    companion object {
+        /** 与 [org.shirakawatyu.yamibo.novel.repository.ForumRepository] 生成的收藏板块分类 ID 保持一致 */
+        private const val FAVORITE_FORUMS_CATEGORY_ID = "favorite-forums"
     }
 
     fun refresh() {
@@ -202,7 +294,15 @@ class ForumThreadVM(
 
     fun refresh() {
         val version = ++requestVersion
-        _uiState.update { it.copy(isLoading = true, isLoadingMore = false, error = null, page = 1) }
+        _uiState.update {
+            it.copy(
+                isLoading = true,
+                isLoadingMore = false,
+                error = null,
+                verificationUrl = null,
+                page = 1
+            )
+        }
         viewModelScope.launch(Dispatchers.IO) {
             val authorId = _uiState.value.takeIf { it.onlyOriginalPoster }?.thread?.author?.id
             runCatching { repository.getPosts(threadId, 1, authorId) }
@@ -215,13 +315,21 @@ class ForumThreadVM(
                             page = result.page,
                             totalPages = result.totalPages,
                             hasMore = result.hasMore,
-                            isLoading = false
+                            isLoading = false,
+                            verificationUrl = null,
+                            threadHtml = result.html
                         )
                     }
                 }
                 .onFailure { error ->
                     if (version != requestVersion) return@onFailure
-                    _uiState.update { it.copy(isLoading = false, error = threadError(error)) }
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            error = threadError(error),
+                            verificationUrl = verificationUrl(error)
+                        )
+                    }
                 }
         }
     }
@@ -242,7 +350,14 @@ class ForumThreadVM(
         val page = targetPage.coerceIn(1, state.totalPages.coerceAtLeast(1))
         if (state.isLoading || (page == state.page && state.posts.isNotEmpty())) return
         val version = ++requestVersion
-        _uiState.update { it.copy(isLoading = true, isLoadingMore = false, error = null) }
+        _uiState.update {
+            it.copy(
+                isLoading = true,
+                isLoadingMore = false,
+                error = null,
+                verificationUrl = null
+            )
+        }
         viewModelScope.launch(Dispatchers.IO) {
             val authorId = state.takeIf { it.onlyOriginalPoster }?.thread?.author?.id
             runCatching { repository.getPosts(threadId, page, authorId) }
@@ -255,7 +370,9 @@ class ForumThreadVM(
                             page = result.page,
                             totalPages = result.totalPages,
                             hasMore = result.hasMore,
-                            isLoading = false
+                            isLoading = false,
+                            verificationUrl = null,
+                            threadHtml = result.html
                         )
                     }
                 }
@@ -263,7 +380,11 @@ class ForumThreadVM(
                     if (error is CancellationException) throw error
                     if (version != requestVersion) return@onFailure
                     _uiState.update {
-                        it.copy(isLoading = false, error = threadError(error))
+                        it.copy(
+                            isLoading = false,
+                            error = threadError(error),
+                            verificationUrl = verificationUrl(error)
+                        )
                     }
                 }
         }
@@ -274,7 +395,9 @@ class ForumThreadVM(
         if (state.isLoading || state.isLoadingMore || !state.hasMore) return
         val nextPage = state.page + 1
         val version = requestVersion
-        _uiState.update { it.copy(isLoadingMore = true, error = null) }
+        _uiState.update {
+            it.copy(isLoadingMore = true, error = null, verificationUrl = null)
+        }
         viewModelScope.launch(Dispatchers.IO) {
             val authorId = state.takeIf { it.onlyOriginalPoster }?.thread?.author?.id
             runCatching { repository.getPosts(threadId, nextPage, authorId) }
@@ -287,7 +410,9 @@ class ForumThreadVM(
                             page = result.page,
                             totalPages = result.totalPages,
                             hasMore = result.hasMore,
-                            isLoadingMore = false
+                            isLoadingMore = false,
+                            verificationUrl = null,
+                            threadHtml = result.html.ifBlank { it.threadHtml }
                         )
                     }
                 }
@@ -295,7 +420,181 @@ class ForumThreadVM(
                     if (error is CancellationException) throw error
                     if (version != requestVersion) return@onFailure
                     _uiState.update {
-                        it.copy(isLoadingMore = false, error = threadError(error))
+                        it.copy(
+                            isLoadingMore = false,
+                            error = threadError(error),
+                            verificationUrl = verificationUrl(error)
+                        )
+                    }
+                }
+        }
+    }
+
+    fun votePoll(poll: ForumPoll, optionIds: List<String>, onResult: (String) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { repository.votePoll(poll, optionIds) }
+                .onSuccess {
+                    onResult("投票成功，正在刷新")
+                    refresh()
+                }
+                .onFailure { error ->
+                    if (error is CancellationException) throw error
+                    onResult(error.message ?: "投票失败，请稍后重试")
+                }
+        }
+    }
+
+    fun submitComment(post: ForumPost, message: String, onResult: (String) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { repository.commentPost(post.threadId, post.id, message, post.commentForm) }
+                .onSuccess {
+                    onResult("点评已发表")
+                    refresh()
+                }
+                .onFailure { error ->
+                    if (error is CancellationException) throw error
+                    onResult(error.message ?: "点评失败，请稍后重试")
+                }
+        }
+    }
+
+    /** 拉取评分弹窗（可选分值 / 常用理由 / formhash），供评分对话框使用。 */
+    fun loadRatePopout(post: ForumPost, onResult: (Result<ForumRatePopout>) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            onResult(
+                runCatching {
+                    repository.getRatePopout(
+                        threadId = post.threadId,
+                        postId = post.id,
+                        fallbackFormHash = post.rateForm?.formHash
+                    )
+                }
+            )
+        }
+    }
+
+    /** 拉取楼层完整评分列表，供“查看全部评分”对话框使用。 */
+    fun loadAllRatings(post: ForumPost, onResult: (Result<List<ForumPostRating>>) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            onResult(
+                runCatching { repository.getAllRatings(post.threadId, post.id) }
+            )
+        }
+    }
+
+    fun submitRate(
+        post: ForumPost,
+        score: Int,
+        reason: String,
+        formHash: String?,
+        onResult: (String) -> Unit
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                repository.ratePost(
+                    threadId = post.threadId,
+                    postId = post.id,
+                    score = score,
+                    reason = reason,
+                    formHash = formHash ?: post.rateForm?.formHash
+                )
+            }
+                .onSuccess {
+                    onResult("评分已提交")
+                    refresh()
+                }
+                .onFailure { error ->
+                    if (error is CancellationException) throw error
+                    onResult(error.message ?: "评分失败，请稍后重试")
+                }
+        }
+    }
+
+    fun submitReply(message: String, quotePost: ForumPost?, onResult: (String) -> Unit) {
+        // 直接回复主题时提前校验最小字数（论坛普遍要求 21 字符），
+        // 避免白跑一次网络请求；引用回复最终会拼上引用内容，交给服务端判定。
+        if (quotePost == null && message.trim().length < MIN_REPLY_CHARS) {
+            onResult("回复内容至少需要 $MIN_REPLY_CHARS 个字符（当前 ${message.trim().length} 个）")
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                repository.replyThread(
+                    threadId = threadId,
+                    forumId = _uiState.value.thread?.forumId.orEmpty(),
+                    message = message,
+                    quotePost = quotePost
+                )
+            }
+                .onSuccess { result ->
+                    onResult(result)
+                    refreshToLastPage()
+                }
+                .onFailure { error ->
+                    if (error is CancellationException) throw error
+                    onResult(error.message ?: "回复失败，请稍后重试")
+                }
+        }
+    }
+
+    /**
+     * 回复成功后新楼层位于主题末页，直接跳到末页展示，避免回到首页看不到刚发的回复。
+     */
+    fun refreshToLastPage() {
+        val version = ++requestVersion
+        _uiState.update {
+            it.copy(isLoading = true, isLoadingMore = false, error = null, verificationUrl = null)
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            val authorId = _uiState.value.takeIf { it.onlyOriginalPoster }?.thread?.author?.id
+            runCatching { repository.getPosts(threadId, 1, authorId) }
+                .onSuccess { firstPage ->
+                    if (version != requestVersion) return@onSuccess
+                    val lastPage = firstPage.totalPages.coerceAtLeast(1)
+                    if (lastPage <= 1) {
+                        _uiState.update {
+                            it.copy(
+                                thread = firstPage.thread,
+                                posts = firstPage.posts,
+                                page = 1,
+                                totalPages = firstPage.totalPages,
+                                hasMore = firstPage.hasMore,
+                                isLoading = false,
+                                verificationUrl = null,
+                                threadHtml = firstPage.html
+                            )
+                        }
+                    } else {
+                        runCatching { repository.getPosts(threadId, lastPage, authorId) }
+                            .onSuccess { last ->
+                                if (version != requestVersion) return@onSuccess
+                                _uiState.update {
+                                    it.copy(
+                                        thread = last.thread,
+                                        posts = last.posts.distinctBy { post -> post.id },
+                                        page = last.page,
+                                        totalPages = last.totalPages,
+                                        hasMore = last.hasMore,
+                                        isLoading = false,
+                                        verificationUrl = null,
+                                        threadHtml = last.html.ifBlank { it.threadHtml }
+                                    )
+                                }
+                            }
+                            .onFailure { error ->
+                                if (error is CancellationException) throw error
+                                if (version != requestVersion) return@onFailure
+                                _uiState.update {
+                                    it.copy(isLoading = false, error = threadError(error))
+                                }
+                            }
+                    }
+                }
+                .onFailure { error ->
+                    if (error is CancellationException) throw error
+                    if (version != requestVersion) return@onFailure
+                    _uiState.update {
+                        it.copy(isLoading = false, error = threadError(error))
                     }
                 }
         }
@@ -303,16 +602,28 @@ class ForumThreadVM(
 
     private fun threadError(error: Throwable): String {
         AppErrorLog.record("帖子错误：${error.message}")
+        if (error is ForumVerificationRequiredException) {
+            return "论坛要求完成网页验证，验证后将自动重新加载原生页面"
+        }
         return if (error is IOException) "网络不太稳定，下拉重试一下"
         else translateDiscuzError(error.message?.takeIf(String::isNotBlank) ?: "主题加载失败")
     }
 
+    private fun verificationUrl(error: Throwable): String? =
+        (error as? ForumVerificationRequiredException)?.targetUrl
+
     companion object {
+        /** Discuz 回复最短字数（与论坛 minpostsize 默认一致，服务端仍会兜底校验）。 */
+        private const val MIN_REPLY_CHARS = 21
+
         fun factory(threadId: String): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                    ForumThreadVM(threadId) as T
+                    ForumThreadVM(
+                        threadId = threadId,
+                        repository = ForumRepository()
+                    ) as T
             }
     }
 }

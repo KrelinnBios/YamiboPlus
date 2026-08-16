@@ -79,6 +79,7 @@ import kotlinx.coroutines.withContext
 import org.shirakawatyu.yamibo.novel.constant.RequestConfig
 import org.shirakawatyu.yamibo.novel.util.history.HistoryUtil
 import org.shirakawatyu.yamibo.novel.global.GlobalData
+import org.shirakawatyu.yamibo.novel.ui.theme.effectiveScheme
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
 import org.shirakawatyu.yamibo.novel.ui.component.YamiboLoadError
@@ -294,6 +295,13 @@ fun OtherWebPage(
                 loadsImagesAutomatically = true
                 blockNetworkImage = false
             }
+            // Cloudflare Turnstile 使用 challenges.cloudflare.com 等第三方资源；
+            // 不显式开启时，部分 Android WebView 会一直停在“正在验证”。
+            val webViewInstance = this
+            CookieManager.getInstance().apply {
+                setAcceptCookie(true)
+                setAcceptThirdPartyCookies(webViewInstance, true)
+            }
             addJavascriptInterface(fullscreenApi, "AndroidFullscreen")
             addJavascriptInterface(
                 forumNavApi,
@@ -329,14 +337,15 @@ fun OtherWebPage(
     }
     LaunchedEffect(appTheme) {
         otherWebView.setBackgroundColor(
-            appTheme.scheme.background.toArgb()
+            appTheme.effectiveScheme(GlobalData.pureBlackMode.value).background.toArgb()
         )
         otherWebView.evaluateJavascript(
             PageJsScripts.getThemeSetJs(
                 isDarkMode,
                 GlobalData.darkModeTheme.value,
                 GlobalData.lightModeTheme.value,
-                GlobalData.appTheme.value
+                GlobalData.appTheme.value,
+                pureBlack = GlobalData.pureBlackMode.value
             ),
             null
         )
@@ -497,7 +506,8 @@ fun OtherWebPage(
                             GlobalData.darkModeTheme.value,
                             GlobalData.lightModeTheme.value,
                             desktopFitScale,
-                            appTheme = GlobalData.appTheme.value
+                            appTheme = GlobalData.appTheme.value,
+                            pureBlack = GlobalData.pureBlackMode.value
                         )
                         return WebResourceResponse(
                             "text/html",
@@ -612,7 +622,8 @@ fun OtherWebPage(
                             GlobalData.isDarkMode.value,
                             GlobalData.darkModeTheme.value,
                             GlobalData.lightModeTheme.value,
-                            GlobalData.appTheme.value
+                            GlobalData.appTheme.value,
+                            pureBlack = GlobalData.pureBlackMode.value
                         ), null
                     )
                 }

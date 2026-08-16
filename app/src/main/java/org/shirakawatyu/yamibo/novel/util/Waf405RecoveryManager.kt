@@ -33,6 +33,9 @@ internal object Waf405RecoveryPolicy {
     // 论坛挑战凭证约 30 分钟过期；在还剩约 5 分钟余量时按需换新。
     const val NOX_RENEW_INTERVAL_MS = 25L * 60L * 1000L
     const val NOX_RENEW_TIMEOUT_MS = 12_000L
+    // 挑战失败或换新凭证未被服务端接受后的冷却期：期间不再发起新挑战，
+    // 防止“挑战失败 → 重试 → 再失败”的紧密循环把服务器和日志都打爆。
+    const val FAILED_CHALLENGE_COOLDOWN_MS = 30_000L
 
     private val challengeBodyMarkers = listOf("__noxexpire", "/nox_", "gangplank_")
 
@@ -110,6 +113,9 @@ internal object Waf405RecoveryPolicy {
     fun hasRecentSuccess(lastSuccessMs: Long, nowMs: Long): Boolean =
         lastSuccessMs > 0L && nowMs - lastSuccessMs in 0..RECENT_SUCCESS_GRACE_MS
 
+    fun isFailedChallengeCoolingDown(lastFailedMs: Long, nowMs: Long): Boolean =
+        lastFailedMs > 0L && nowMs - lastFailedMs in 0..FAILED_CHALLENGE_COOLDOWN_MS
+
     fun isSamePageRetryGuarded(
         previousUrl: String?,
         previousAttemptMs: Long,
@@ -159,8 +165,15 @@ object Waf405RecoveryManager {
     private var cookiePollRunnable: Runnable? = null
     private var timeoutRunnable: Runnable? = null
 
+    /** WebView 内部 document.cookie 读取到的最新值，用于捕获 HttpOnly 的 nox cookie。 */
+    private val noxCookieFromJs = java.util.concurrent.atomic.AtomicReference<String?>(null)
+
     @Volatile
     private var lastSuccessfulRefreshMs = 0L
+
+    /** 最近一次挑战失败（或换新凭证未被服务端接受）的时间，用于失败冷却。 */
+    @Volatile
+    private var lastChallengeFailedMs = 0L
 
     @Volatile
     private var activeSignal: RefreshSignal? = null
@@ -204,6 +217,10 @@ object Waf405RecoveryManager {
             return false
         }
         visibleAttempts[webView] = VisibleAttempt(failedUrl, now)
+
+        if (Waf405RecoveryPolicy.isFailedChallengeCoolingDown(lastChallengeFailedMs, now)) {
+            return false
+        }
 
         if (Waf405RecoveryPolicy.hasRecentSuccess(lastSuccessfulRefreshMs, now)) {
             runCatching { webView.stopLoading() }
@@ -259,11 +276,12 @@ object Waf405RecoveryManager {
     }
 
     /**
-     * 探测/重放确认新凭证并未被服务端接受时调用：清零成功时间戳，
+     * 探测/重放确认新凭证并未被服务端接受时调用：清零成功时间戳并进入失败冷却，
      * 避免 15 秒宽限把无效凭证当成“刚换过新”，导致连续刷新全部白重试。
      */
     fun markNoxUnverified() {
         lastSuccessfulRefreshMs = 0L
+        lastChallengeFailedMs = SystemClock.elapsedRealtime()
     }
 
     /** OkHttp 线程等待同一次挑战，由调用方根据结果决定是否重放原 GET。 */
@@ -281,6 +299,14 @@ object Waf405RecoveryManager {
             )
         ) {
             return true
+        }
+        // 上次挑战失败/凭证未被接受后的冷却期内不再发起新挑战，快速失败避免打爆服务器。
+        if (Waf405RecoveryPolicy.isFailedChallengeCoolingDown(
+                lastChallengeFailedMs,
+                SystemClock.elapsedRealtime()
+            )
+        ) {
+            return false
         }
         val owner = ownerRef?.get()
             ?.takeUnless { it.isFinishing || it.isDestroyed }
@@ -332,17 +358,22 @@ object Waf405RecoveryManager {
                     FrameLayout.LayoutParams.MATCH_PARENT,
                     FrameLayout.LayoutParams.MATCH_PARENT
                 )
-                // 正常尺寸、不可见：WAF 挑战脚本在 1x1 离屏视图里可能执行异常
-                visibility = View.INVISIBLE
+                // 与 yamibo-app 的 PlatformNoxWebView 一致：全屏、真实可见渲染。
+                // nox 反爬脚本会检测 document.visibilityState，任何隐藏/平移/遮挡
+                // 都会被判定为可疑页面而拒绝下发凭证。挑战期间短暂显示挑战页，
+                // 拿到 cookie 后立即移除（通常 1~3 秒）。
+                visibility = View.VISIBLE
                 settings.apply {
                     javaScriptEnabled = true
                     domStorageEnabled = true
+                    databaseEnabled = false
                     allowFileAccess = false
                     allowContentAccess = false
+                    javaScriptCanOpenWindowsAutomatically = false
                     mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
                     loadsImagesAutomatically = false
                     blockNetworkImage = true
-                    cacheMode = WebSettings.LOAD_NO_CACHE
+                    cacheMode = WebSettings.LOAD_DEFAULT
                     userAgentString = signal.userAgent
                 }
                 CookieManager.getInstance().setAcceptThirdPartyCookies(this, false)
@@ -352,6 +383,36 @@ object Waf405RecoveryManager {
                         request: WebResourceRequest?
                     ): Boolean = request?.isForMainFrame == true &&
                             !isAllowedYamiboUrl(request.url?.toString())
+
+                    override fun onPageStarted(
+                        view: WebView?,
+                        url: String?,
+                        favicon: android.graphics.Bitmap?
+                    ) {
+                        super.onPageStarted(view, url, favicon)
+                        AppErrorLog.record("WAF 挑战页面开始: ${url}")
+                    }
+
+                    override fun onPageFinished(view: WebView?, url: String?) {
+                        super.onPageFinished(view, url)
+                        AppErrorLog.record("WAF 挑战页面完成: ${url}")
+                        // API 端点通过验证后会直接把 JSON 响应渲染成白底文本。
+                        // 这已经是服务端放行的明确信号，不能让验证 WebView继续盖住 App。
+                        view?.evaluateJavascript(
+                            "document.body ? document.body.innerText : ''"
+                        ) { value ->
+                            val body = value.orEmpty()
+                                .replace("\\\"", "\"")
+                                .replace("\\n", " ")
+                            if (body.contains("\"Version\"") &&
+                                body.contains("\"Variables\"") &&
+                                url?.contains("bbs.yamibo.com") == true
+                            ) {
+                                AppErrorLog.record("WAF 挑战验证通过：API 响应已返回")
+                                completeRefresh(activeSignal, succeeded = true)
+                            }
+                        }
+                    }
 
                     override fun onReceivedHttpError(
                         view: WebView?,
@@ -393,7 +454,9 @@ object Waf405RecoveryManager {
             return null
         }
         return runCatching {
-            decorView.addView(hiddenWebView)
+            // 放在应用内容底层：保持 VISIBLE 和全屏渲染，让 nox 正常执行，
+            // 但不会把 API JSON/挑战页面闪给用户。
+            decorView.addView(hiddenWebView, 0)
             webView = hiddenWebView
             hiddenWebView
         }.getOrElse {
@@ -428,6 +491,9 @@ object Waf405RecoveryManager {
                 }
             cookieManager.flush()
             target.onResume()
+            // 与 yamibo-app 一致：直接加载触发挑战的原始 URL。
+            // nox 中间件对该 URL 返回挑战页，脚本执行后设置域名级 cookie，
+            // 对所有请求生效。换成论坛首页会被 302 到 misc.php，破坏挑战上下文。
             target.loadUrl(signal.challengeUrl, mapOf("Cache-Control" to "no-cache"))
             AppErrorLog.record("WAF 挑战开始：${signal.challengeUrl}")
             pollForNoxCookie(signal)
@@ -452,11 +518,38 @@ object Waf405RecoveryManager {
                 val currentCookies = runCatching {
                     CookieManager.getInstance().getCookie(FORUM_ORIGIN).orEmpty()
                 }.getOrDefault("")
-                if (Waf405RecoveryPolicy.extractNoxCookieValue(currentCookies) != null) {
+                val jsCookie = noxCookieFromJs.get()
+                if (Waf405RecoveryPolicy.extractNoxCookieValue(currentCookies) != null ||
+                    (jsCookie?.let { Waf405RecoveryPolicy.extractNoxCookieValue(it) } != null)
+                ) {
+                    // 如果 CookieManager 没读到但 JS 读到了，把它写回 CookieManager 让后续请求可用。
+                    if (Waf405RecoveryPolicy.extractNoxCookieValue(currentCookies) == null &&
+                        jsCookie != null
+                    ) {
+                        val noxValue = Waf405RecoveryPolicy.extractNoxCookieValue(jsCookie)
+                        if (noxValue != null) {
+                            runCatching {
+                                CookieManager.getInstance().setCookie(
+                                    FORUM_ORIGIN,
+                                    "${Waf405RecoveryPolicy.NOX_COOKIE_NAME}=$noxValue; Path=/; Secure"
+                                )
+                            }
+                        }
+                    }
                     runCatching { target.stopLoading() }
                     runCatching { CookieManager.getInstance().flush() }
                     completeRefresh(signal, succeeded = true)
                 } else {
+                    // 每次轮询都读一次 WebView 内部 document.cookie：
+                    // nox JS 可能在页面加载后才异步设置 cookie，只在 onPageFinished 读一次会错过。
+                    runCatching {
+                        target.evaluateJavascript("document.cookie") { value ->
+                            val cookie = value?.trim('"').orEmpty()
+                            if (cookie.contains("nox_jst_v1=")) {
+                                noxCookieFromJs.set(cookie)
+                            }
+                        }
+                    }
                     mainHandler.postDelayed(this, COOKIE_POLL_INTERVAL_MS)
                 }
             }
@@ -471,7 +564,11 @@ object Waf405RecoveryManager {
         val retries = synchronized(signalLock) {
             if (signal !== activeSignal) return
             signal.succeeded = succeeded
-            if (succeeded) lastSuccessfulRefreshMs = SystemClock.elapsedRealtime()
+            if (succeeded) {
+                lastSuccessfulRefreshMs = SystemClock.elapsedRealtime()
+            } else {
+                lastChallengeFailedMs = SystemClock.elapsedRealtime()
+            }
             activeSignal = null
             signal.visibleRetries.toList()
         }
@@ -501,6 +598,7 @@ object Waf405RecoveryManager {
     private fun destroyHiddenWebView() {
         val target = webView ?: return
         webView = null
+        noxCookieFromJs.set(null)
         runCatching {
             target.stopLoading()
             (target.parent as? ViewGroup)?.removeView(target)

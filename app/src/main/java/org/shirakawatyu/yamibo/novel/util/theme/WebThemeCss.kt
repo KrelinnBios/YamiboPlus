@@ -13,7 +13,9 @@ internal fun webThemeCssRules(
 ): List<String> = when {
     !pureBlack && theme == YamiboAppTheme.CLASSIC_LIGHT -> LIGHT_MODE_CSS_RULES_CLASSIC
     !pureBlack && theme == YamiboAppTheme.BLUE_BLACK -> DARK_MODE_CSS_RULES_CLASSIC
-    else -> recolorClassicWebRules(theme, pureBlack)
+    else -> runCatching { recolorClassicWebRules(theme, pureBlack) }
+        .getOrDefault(emptyList())
+        .ifEmpty { DARK_MODE_CSS_RULES_CLASSIC }
 }
 
 internal fun webThemeEditorCss(
@@ -54,7 +56,15 @@ private fun recolorClassicWebRules(theme: YamiboAppTheme, pureBlack: Boolean) : 
         "#ebd7a9" to colors.surfaceContainerHigh.toCssHex(),
         "#6e2b19" to colors.primary.toCssHex(),
         "#551200" to colors.primary.toCssHex(),
-        "#7a3f4b" to colors.primary.toCssHex()
+        "#7a3f4b" to colors.primary.toCssHex(),
+        // 锁定提示背景（.locked-tip，原 #2a1b1f 深酒红）→ 高亮容器色，消除浅色主题下的深色色块。
+        "#2a1b1f" to colors.surfaceContainerHigh.toCssHex(),
+        // 浮动菜单背景（.float-menu-item，原 rgba(51, 51, 51, 0.85)）→ 半透明高亮容器色，保留 0.85 透明度。
+        "rgba(51, 51, 51, 0.85)" to colors.surfaceContainerHigh.toRgbaCss(0.85),
+        // 锁定提示文字（.locked-tip color，原 #ff9a9a 浅红）→ error 色，保证浅色主题下对比度达标。
+        "#ff9a9a" to colors.error.toCssHex(),
+        // 标签选中态下边框（.tabs a.mon 等，原 #666666 中性灰）→ 描边色。
+        "#666666" to colors.outline.toCssHex()
     )
     return DARK_MODE_CSS_RULES_CLASSIC.map { rule ->
         val recolored = replacements.entries.fold(rule) { themedRule, (classic, current) ->
@@ -79,3 +89,11 @@ private fun Color.toCssHex(): String = String.format(
     "#%06x",
     toArgb() and 0x00ffffff
 )
+
+private fun Color.toRgbaCss(alpha: Double): String {
+    val argb = toArgb()
+    val r = (argb shr 16) and 0xFF
+    val g = (argb shr 8) and 0xFF
+    val b = argb and 0xFF
+    return String.format(Locale.ROOT, "rgba(%d, %d, %d, %.2f)", r, g, b, alpha)
+}

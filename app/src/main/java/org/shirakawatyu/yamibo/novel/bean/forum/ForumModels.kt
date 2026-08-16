@@ -104,8 +104,9 @@ data class ForumPostRatingSummary(
 
 data class ForumPollOption(
     val text: String,
-    val percent: Float,
-    val voteCount: Int
+    val percent: Float? = null,
+    val voteCount: Int? = null,
+    val id: String? = null
 )
 
 data class ForumPoll(
@@ -113,8 +114,40 @@ data class ForumPoll(
     val participantCount: Int?,
     val remainingText: String?,
     val options: List<ForumPollOption>,
-    val statusText: String?
+    val statusText: String?,
+    val formHash: String? = null,
+    val actionUrl: String? = null,
+    val isMultipleChoice: Boolean = false,
+    val hasVoted: Boolean = false
 )
+
+data class ForumRateOption(
+    val score: Int,
+    val label: String
+)
+
+data class ForumRatePopout(
+    val availableScores: List<ForumRateOption> = emptyList(),
+    val defaultReasons: List<String> = emptyList(),
+    val formHash: String? = null
+)
+
+data class ForumComment(
+    val id: String,
+    val authorName: String,
+    val authorUid: String? = null,
+    val authorAvatarUrl: String? = null,
+    val createdAt: String,
+    val message: String
+)
+
+data class ForumPostActionForm(
+    val type: Type,
+    val actionUrl: String,
+    val formHash: String?
+) {
+    enum class Type { RATE, COMMENT }
+}
 
 data class ForumPost(
     val id: String,
@@ -127,7 +160,10 @@ data class ForumPost(
     val blocks: List<ForumPostBlock>,
     val attachments: List<ForumPostAttachment> = emptyList(),
     val poll: ForumPoll? = null,
-    val ratingSummary: ForumPostRatingSummary? = null
+    val ratingSummary: ForumPostRatingSummary? = null,
+    val comments: List<ForumComment> = emptyList(),
+    val rateForm: ForumPostActionForm? = null,
+    val commentForm: ForumPostActionForm? = null
 )
 
 data class ForumThreadDetail(
@@ -147,5 +183,6 @@ data class ForumPostPage(
     val posts: List<ForumPost>,
     val page: Int,
     val totalPages: Int,
-    val hasMore: Boolean
+    val hasMore: Boolean,
+    val html: String = ""
 )

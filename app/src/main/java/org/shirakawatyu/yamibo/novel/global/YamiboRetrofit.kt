@@ -1,7 +1,7 @@
 package org.shirakawatyu.yamibo.novel.global
 
+import android.os.SystemClock
 import android.util.Log
-
 import coil.annotation.ExperimentalCoilApi
 import coil.imageLoader
 import okhttp3.ConnectionPool
@@ -129,6 +129,11 @@ class YamiboRetrofit {
 
     companion object {
         private const val TAG_WAF = "Waf405"
+        // 挑战后的 nox 探测请求标记：带有该头的请求直接放行，不再进入 WAF 恢复逻辑，
+        // 避免“探测 → 405 → 再次挑战 → 再次探测”的递归死循环。
+        private const val NOX_PROBE_HEADER = "x-yamibo-nox-probe"
+        // 同一 URL 的 WAF 405 日志最少间隔，防止恢复循环刷爆日志文件。
+        private const val WAF_LOG_INTERVAL_MS = 5_000L
 
         private val pcUaList = listOf(
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
@@ -148,6 +153,19 @@ class YamiboRetrofit {
 
         private fun isYamiboHost(host: String): Boolean =
             host == "yamibo.com" || host.endsWith(".yamibo.com")
+
+        private fun isNoxProbeRequest(request: Request): Boolean =
+            request.header(NOX_PROBE_HEADER) == "1"
+
+        private val lastWafLogTimes = ConcurrentHashMap<String, Long>()
+
+        private fun logWaf405(url: String) {
+            val now = SystemClock.elapsedRealtime()
+            val last = lastWafLogTimes[url] ?: 0L
+            if (now - last < WAF_LOG_INTERVAL_MS) return
+            lastWafLogTimes[url] = now
+            AppErrorLog.record("检测到 WAF 405：$url")
+        }
 
         // keepalive 必须短于论坛服务器的空闲超时（nginx 通常 60~75 秒），
         // 否则切回 App 时会复用已被服务器掐掉的半死连接，
@@ -244,9 +262,11 @@ class YamiboRetrofit {
                 // nox 凭证约 30 分钟过期：只在真正访问论坛内容（GET 且非静态资源）、
                 // 且凭证已接近过期时静默换新一次。成功后至少安静 25 分钟，
                 // 不引入任何周期任务或额外验证请求。
+                // nox 探测请求本身不再触发换新，避免探测被 405 后递归进入挑战流程。
                 if (
                     original.method == "GET" &&
-                    !staticResourceRegex.containsMatchIn(original.url.toString())
+                    !staticResourceRegex.containsMatchIn(original.url.toString()) &&
+                    !isNoxProbeRequest(original)
                 ) {
                     Waf405RecoveryManager.ensureFreshNox(original.url.toString(), finalUa)
                 }
@@ -375,6 +395,11 @@ class YamiboRetrofit {
             chain: okhttp3.Interceptor.Chain,
             request: Request
         ): okhttp3.Response {
+            // nox 探测请求直接放行：只用来验证凭证是否被服务端接受，
+            // 不参与 405 挑战恢复，否则“探测 → 405 → 挑战 → 探测”会无限递归直至栈溢出。
+            if (isNoxProbeRequest(request)) {
+                return chain.proceed(request)
+            }
             var lastError: IOException? = null
             // GET 请求遇到瞬时流重置或建连失败最多重试 3 次（稍弱网络下 stream was reset 偶发更频繁，
             // 多给一次重试明显提升头像/表情/封面这类小图的成活率）；444 WAF 限流仍只重试 2 次，
@@ -398,7 +423,7 @@ class YamiboRetrofit {
                             responsePreview
                         )
                         if (isChallenge) {
-                            AppErrorLog.record("检测到 WAF 405：${request.url}")
+                            logWaf405(request.url.toString())
                         }
                         val refreshed = isChallenge && Waf405RecoveryManager.refreshAndWait(
                             challengeUrl = request.url.toString(),
@@ -493,6 +518,7 @@ class YamiboRetrofit {
             val url = "https://bbs.yamibo.com/"
             val probeRequest = Request.Builder()
                 .url(url)
+                .header(NOX_PROBE_HEADER, "1")
                 .header("Cookie", YamiboSession.cookieFor(url))
                 .build()
             okHttpClient.newCall(probeRequest).execute().use { it.isSuccessful }

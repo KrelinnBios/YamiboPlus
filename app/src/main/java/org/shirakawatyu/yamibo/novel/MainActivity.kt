@@ -95,6 +95,8 @@ import org.shirakawatyu.yamibo.novel.ui.page.NativeMinePage
 import org.shirakawatyu.yamibo.novel.ui.page.NativeSettingsPage
 import org.shirakawatyu.yamibo.novel.ui.page.NativeThemePage
 import org.shirakawatyu.yamibo.novel.ui.page.NativeUpdatePage
+import org.shirakawatyu.yamibo.novel.ui.page.NativeFeedbackPage
+import org.shirakawatyu.yamibo.novel.ui.page.NativeErrorLogPage
 import org.shirakawatyu.yamibo.novel.ui.page.NativeBackupPage
 import org.shirakawatyu.yamibo.novel.ui.page.NativeBlocklistPage
 import org.shirakawatyu.yamibo.novel.ui.page.NativeMangaPage
@@ -133,6 +135,7 @@ import org.shirakawatyu.yamibo.novel.util.Waf405RecoveryManager
 import org.shirakawatyu.yamibo.novel.util.network.NetworkMonitor
 import org.shirakawatyu.yamibo.novel.util.reader.ChineseConvertUtil
 import java.net.URLDecoder
+import java.net.URLEncoder
 import kotlin.text.RegexOption
 import androidx.core.graphics.toColorInt
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -195,16 +198,15 @@ class MainActivity : ComponentActivity() {
         GlobalData.applicationContext = applicationContext
         GlobalData.displayMetrics = resources.displayMetrics
         GlobalData.homePageRoute.value = "MangaHomePage"
-        val initialPreference = runCatching {
-            kotlinx.coroutines.runBlocking { SettingsUtil.getThemePreference() }
-        }.getOrDefault(org.shirakawatyu.yamibo.novel.ui.theme.YamiboThemePreference())
+        // 冷启动先立即使用默认值，真实设置在 App 的协程初始化阶段加载，避免主线程同步读 DataStore。
+        val initialPreference = org.shirakawatyu.yamibo.novel.ui.theme.YamiboThemePreference()
         val systemDark = resources.configuration.uiMode and
             Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
         val initialTheme = GlobalData.applyThemePreference(initialPreference, systemDark)
         GlobalData.darkModeTheme.value = 0
         GlobalData.lightModeTheme.value = 0
         super.onCreate(savedInstanceState)
-        LanguageModeUtil.applyLocale(this, runCatching { kotlinx.coroutines.runBlocking { SettingsUtil.getLanguageMode() } }.getOrDefault(LanguageModeUtil.SIMPLIFIED))
+        LanguageModeUtil.applyLocale(this, LanguageModeUtil.SIMPLIFIED)
 
         WindowCompat.setDecorFitsSystemWindows(window, false)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -885,9 +887,13 @@ fun App(webChromeClient: WebChromeClient) {
                                 ) { entry ->
                                     val threadId = entry.arguments?.getString("threadId").orEmpty()
                                     val bbsEntry = remember(navController) {
-                                        navController.getBackStackEntry("BBSPage")
+                                        runCatching { navController.getBackStackEntry("BBSPage") }.getOrNull()
                                     }
-                                    val forumVM: ForumVM = viewModel(viewModelStoreOwner = bbsEntry)
+                                    val forumVM: ForumVM = if (bbsEntry != null) {
+                                        viewModel(viewModelStoreOwner = bbsEntry)
+                                    } else {
+                                        viewModel()
+                                    }
                                     Box(modifier = Modifier.fillMaxSize()) {
                                         NativeThreadPageV2(
                                             threadId = threadId,
@@ -895,7 +901,14 @@ fun App(webChromeClient: WebChromeClient) {
                                             onBack = navController::popBackStack,
                                             onGoHome = {
                                                 forumVM.showForumIndex()
-                                                navController.popBackStack("BBSPage", false)
+                                                val bbsInStack = runCatching { navController.getBackStackEntry("BBSPage") }.getOrNull() != null
+                                                if (bbsInStack) {
+                                                    navController.popBackStack("BBSPage", false)
+                                                } else {
+                                                    navController.navigate("BBSPage") {
+                                                        launchSingleTop = true
+                                                    }
+                                                }
                                             },
                                             bottomNavBarVM = bottomNavBarVM,
                                             onOpenLink = { url ->
@@ -922,6 +935,17 @@ fun App(webChromeClient: WebChromeClient) {
                                             },
                                             onOpenWeb = { url ->
                                                 navController.navigate("OtherWebPage/" + Uri.encode(url))
+                                            },
+                                            onOpenManga = { tid ->
+                                                val mangaUrl = URLEncoder.encode(
+                                                    "https://bbs.yamibo.com/forum.php?mod=viewthread&tid=$tid&mobile=2",
+                                                    "utf-8"
+                                                )
+                                                navController.navigate("NativeMangaPage?url=$mangaUrl")
+                                            },
+                                            onOpenReader = { readerUrl ->
+                                                val encodedUrl = URLEncoder.encode(readerUrl, "utf-8")
+                                                navController.navigate("ReaderPage/$encodedUrl")
                                             }
                                         )
                                         Box(
@@ -1042,6 +1066,35 @@ fun App(webChromeClient: WebChromeClient) {
                                     }
                                 ) {
                                     NativeUpdatePage(
+                                        onBack = { navController.popBackStack() }
+                                    )
+                                }
+                                composable(
+                                    "NativeFeedbackPage",
+                                    enterTransition = {
+                                         fadeIn(tween(150))
+                                    },
+                                    popExitTransition = {
+                                         fadeOut(tween(150))
+                                    }
+                                ) {
+                                    NativeFeedbackPage(
+                                        onBack = { navController.popBackStack() },
+                                        onOpenErrorLog = {
+                                            navController.navigate("NativeErrorLogPage")
+                                        }
+                                    )
+                                }
+                                composable(
+                                    "NativeErrorLogPage",
+                                    enterTransition = {
+                                         fadeIn(tween(150))
+                                    },
+                                    popExitTransition = {
+                                         fadeOut(tween(150))
+                                    }
+                                ) {
+                                    NativeErrorLogPage(
                                         onBack = { navController.popBackStack() }
                                     )
                                 }

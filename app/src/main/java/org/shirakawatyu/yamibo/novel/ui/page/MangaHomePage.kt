@@ -59,6 +59,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -77,6 +78,7 @@ import org.shirakawatyu.yamibo.novel.bean.MangaHomeItem
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.ui.component.YamiboLoadError
 import org.shirakawatyu.yamibo.novel.ui.theme.yamiboComponentColors
+import org.shirakawatyu.yamibo.novel.ui.theme.yamiboFocusBorderColor
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.FavoriteTypeResolver
 import org.shirakawatyu.yamibo.novel.ui.vm.MangaHomeVM
@@ -229,13 +231,23 @@ fun MangaHomePage(
                         }
                     }
                 }
+                var searchFocused by remember { mutableStateOf(false) }
+                val searchFocusColor = yamiboFocusBorderColor()
                 OutlinedTextField(
                     value = state.query,
                     onValueChange = mangaHomeVM::updateQuery,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 8.dp)
-                        .height(52.dp),
+                        .height(52.dp)
+                        .onFocusChanged { searchFocused = it.isFocused }
+                        .then(
+                            if (searchFocused) {
+                                Modifier.border(2.dp, searchFocusColor, RoundedCornerShape(12.dp))
+                            } else {
+                                Modifier
+                            }
+                        ),
                     singleLine = true,
                     textStyle = MaterialTheme.typography.bodyMedium,
                     placeholder = {
@@ -280,12 +292,10 @@ fun MangaHomePage(
                         unfocusedTrailingIconColor = MaterialTheme.colorScheme.primary,
                         focusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
                         unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        // 选中才高亮：聚焦用主题高亮色，未聚焦用低调的 outline 边框色。
-                        // 之前 focused 用 tertiary（暗黑下≈面板色，选中反而看不见边框）、
-                        // unfocused 用半透明白（未选中反而亮），语义正好用反了。
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        // 聚焦描边用主题高亮色的提亮版（浅色主题大幅提亮），并叠加 2dp 加粗边框。
+                        focusedBorderColor = searchFocusColor,
                         unfocusedBorderColor = MaterialTheme.colorScheme.outline,
-                        cursorColor = MaterialTheme.colorScheme.primary
+                        cursorColor = searchFocusColor
                     )
                 )
             }

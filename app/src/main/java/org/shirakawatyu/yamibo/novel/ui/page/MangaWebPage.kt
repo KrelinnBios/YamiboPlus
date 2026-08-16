@@ -84,6 +84,7 @@ import kotlinx.coroutines.withContext
 import org.shirakawatyu.yamibo.novel.constant.RequestConfig
 import org.shirakawatyu.yamibo.novel.util.reader.ReaderReturnBridge
 import org.shirakawatyu.yamibo.novel.global.GlobalData
+import org.shirakawatyu.yamibo.novel.ui.theme.effectiveScheme
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
 import org.shirakawatyu.yamibo.novel.ui.component.YamiboLoadError
@@ -267,14 +268,15 @@ fun MangaWebPage(
     val isDarkMode = appTheme.isDark
     LaunchedEffect(appTheme) {
         mangaWebView.setBackgroundColor(
-            appTheme.scheme.background.toArgb()
+            appTheme.effectiveScheme(GlobalData.pureBlackMode.value).background.toArgb()
         )
         mangaWebView.evaluateJavascript(
             PageJsScripts.getThemeSetJs(
                 isDarkMode,
                 GlobalData.darkModeTheme.value,
                 GlobalData.lightModeTheme.value,
-                GlobalData.appTheme.value
+                GlobalData.appTheme.value,
+                pureBlack = GlobalData.pureBlackMode.value
             ),
             null
         )
@@ -489,7 +491,8 @@ fun MangaWebPage(
                             GlobalData.darkModeTheme.value,
                             GlobalData.lightModeTheme.value,
                             desktopFitScale,
-                            appTheme = GlobalData.appTheme.value
+                            appTheme = GlobalData.appTheme.value,
+                            pureBlack = GlobalData.pureBlackMode.value
                         )
                         return WebResourceResponse(
                             "text/html",
@@ -603,7 +606,8 @@ fun MangaWebPage(
                             GlobalData.isDarkMode.value,
                             GlobalData.darkModeTheme.value,
                             GlobalData.lightModeTheme.value,
-                            GlobalData.appTheme.value
+                            GlobalData.appTheme.value,
+                            pureBlack = GlobalData.pureBlackMode.value
                         ), null
                     )
                 }

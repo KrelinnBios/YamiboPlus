@@ -598,21 +598,32 @@ private fun ForumPostCard(
                 style = MaterialTheme.typography.bodyMedium
             )
         } else {
-            post.blocks.forEach { block ->
+            post.blocks.forEachIndexed { index, block ->
+                val previous = post.blocks.getOrNull(index - 1)
+                if (previous != null &&
+                    ((previous is ForumPostBlock.Text && block is ForumPostBlock.Image) ||
+                        (previous is ForumPostBlock.Image && block is ForumPostBlock.Text))
+                ) {
+                    Spacer(Modifier.height(12.dp))
+                }
                 when (block) {
                     is ForumPostBlock.Text -> ForumPostText(block, onOpenLink)
                     is ForumPostBlock.Image -> ForumPostImage(
                         url = block.url,
                         description = block.description,
-                        cookie = cookie
+                        cookie = cookie,
+                        onOpenLink = onOpenLink
                     )
                 }
             }
             val inlineImages = post.blocks.filterIsInstance<ForumPostBlock.Image>()
                 .mapTo(hashSetOf(), ForumPostBlock.Image::url)
+            if (post.blocks.isNotEmpty() && post.attachments.isNotEmpty()) {
+                Spacer(Modifier.height(12.dp))
+            }
             post.attachments.forEach { attachment ->
                 if (attachment.isImage && attachment.url !in inlineImages) {
-                    ForumPostImage(attachment.url, attachment.filename, cookie)
+                    ForumPostImage(attachment.url, attachment.filename, cookie, onOpenLink)
                 } else if (!attachment.isImage) {
                     ForumAttachmentRow(attachment, onOpenLink)
                 }
@@ -657,7 +668,12 @@ private fun ForumPostText(block: ForumPostBlock.Text, onOpenLink: (String) -> Un
 }
 
 @Composable
-private fun ForumPostImage(url: String, description: String, cookie: String) {
+private fun ForumPostImage(
+    url: String,
+    description: String,
+    cookie: String,
+    onOpenLink: (String) -> Unit
+) {
     val context = LocalContext.current
     val request = remember(context, url, cookie) {
         ImageRequest.Builder(context)
@@ -678,7 +694,9 @@ private fun ForumPostImage(url: String, description: String, cookie: String) {
             model = request,
             contentDescription = description.ifBlank { "帖子图片" },
             contentScale = ContentScale.FillWidth,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onOpenLink(url) },
             loading = {
                 Box(
                     modifier = Modifier.fillMaxWidth().height(150.dp),

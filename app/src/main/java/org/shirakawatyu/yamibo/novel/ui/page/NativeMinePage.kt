@@ -1,7 +1,6 @@
 package org.shirakawatyu.yamibo.novel.ui.page
 
 import android.app.Application
-import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
@@ -103,9 +102,8 @@ fun NativeMinePage(
     val componentColors = yamiboComponentColors()
     val headerColor = componentColors.topBarContainer
     val headerContent = componentColors.topBarContent
-    val context = LocalContext.current
     val syncedTodaySignStatus by AutoSignManager.todaySignStatus.collectAsState()
-    var todaySignStatus by remember { mutableStateOf<TodaySignStatus?>(null) }
+    var todaySignStatus by rememberSaveable { mutableStateOf<TodaySignStatus?>(null) }
     val scrollState = rememberScrollState()
     val lastSignStatusRefreshUid = rememberSaveable { mutableStateOf<String?>(null) }
     val lastSignStatusRefreshDate = rememberSaveable { mutableStateOf("") }
@@ -139,25 +137,15 @@ fun NativeMinePage(
     }
 
     LaunchedEffect(state.profile?.uid) {
-        val uid = state.profile?.uid
-        if (uid.isNullOrBlank()) {
-            todaySignStatus = null
-            lastSignStatusRefreshUid.value = null
-            return@LaunchedEffect
-        }
+        val uid = state.profile?.uid ?: return@LaunchedEffect
         val today = AutoSignManager.getServerTodayPublic()
-        // 同一天、同一个 UID，只读缓存，不再请求插件页
+        // 同一天、同一个 UID 只读本地缓存，不再请求插件页，避免每次打开/切主题闪变。
         if (lastSignStatusRefreshUid.value == uid && lastSignStatusRefreshDate.value == today) {
             return@LaunchedEffect
         }
         lastSignStatusRefreshUid.value = uid
         lastSignStatusRefreshDate.value = today
-        val cachedStatus = AutoSignManager.getTodaySignStatus()
-        todaySignStatus = if (cachedStatus == TodaySignStatus.SIGNED) {
-            cachedStatus
-        } else {
-            AutoSignManager.getTodaySignStatus(forceRefresh = true)
-        }
+        todaySignStatus = AutoSignManager.getTodaySignStatus()
     }
     LaunchedEffect(bottomNavBarVM) {
         bottomNavBarVM.scrollToTopEvent.collect { index ->
@@ -298,12 +286,8 @@ fun NativeMinePage(
                     MenuItem(
                         icon = Icons.Default.Info,
                         title = "反馈建议",
-                        subtitle = "前往 GitHub 提交 issue",
-                        onClick = {
-                            context.startActivity(
-                                Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/KrelinnBios/YamiboPlus/issues/new"))
-                            )
-                        }
+                        subtitle = "错误日志与提交 GitHub issue",
+                        onClick = { navController.navigate("NativeFeedbackPage") }
                     )
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
 

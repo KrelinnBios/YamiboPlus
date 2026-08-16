@@ -1,12 +1,19 @@
 package org.shirakawatyu.yamibo.novel.ui.page
 
 import android.graphics.Bitmap
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.rememberTransformableState
+import androidx.compose.foundation.gestures.transformable
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -27,6 +34,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -38,20 +46,28 @@ import androidx.compose.foundation.text.ClickableText
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -70,22 +86,28 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -95,19 +117,29 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil.compose.AsyncImage
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumBanner
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumBoard
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumCategory
+import org.shirakawatyu.yamibo.novel.bean.forum.ForumComment
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumPost
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumPostAttachment
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumPostBlock
+import org.shirakawatyu.yamibo.novel.bean.forum.ForumPostRating
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumPostRatingSummary
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumPoll
+import org.shirakawatyu.yamibo.novel.bean.forum.ForumPollOption
+import org.shirakawatyu.yamibo.novel.bean.forum.ForumRatePopout
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumThread
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumThreadDetail
 import org.shirakawatyu.yamibo.novel.constant.RequestConfig
@@ -120,13 +152,15 @@ import org.shirakawatyu.yamibo.novel.ui.theme.yamiboComponentColors
 import org.shirakawatyu.yamibo.novel.ui.vm.ForumThreadVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ForumVM
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
+import org.shirakawatyu.yamibo.novel.util.manga.MangaImagePipeline
+import org.shirakawatyu.yamibo.novel.util.favorite.FavoriteUtil
 import org.shirakawatyu.yamibo.novel.ui.vm.FavoriteVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.util.DarkThemeColors
 import org.shirakawatyu.yamibo.novel.util.LanguageModeUtil
 import org.shirakawatyu.yamibo.novel.util.forum.ForumBlockedItem
 import org.shirakawatyu.yamibo.novel.util.forum.ForumBlocklistManager
-import org.shirakawatyu.yamibo.novel.util.favorite.FavoriteAddUtil
+import org.shirakawatyu.yamibo.novel.util.reader.ReaderModeDetector
 import org.shirakawatyu.yamibo.novel.ui.widget.YamiboToast
 
 internal object ForumActionUrls {
@@ -148,10 +182,14 @@ internal object ForumActionUrls {
         if (!pid.isNullOrBlank()) append("&repquote=").append(pid)
         append("&page=").append(page.coerceAtLeast(1)).append("&mobile=2")
     }
+    fun edit(tid: String, fid: String, pid: String) =
+        "$ORIGIN/forum.php?mod=post&action=edit&fid=$fid&tid=$tid&pid=$pid&mobile=2"
     fun comment(tid: String, pid: String) =
         "$ORIGIN/forum.php?mod=misc&action=postreview&tid=$tid&pid=$pid&mobile=2"
     fun rate(tid: String, pid: String) =
         "$ORIGIN/forum.php?mod=misc&action=rate&tid=$tid&pid=$pid&mobile=2"
+    fun topicAdmin(fid: String, tid: String) =
+        "$ORIGIN/forum.php?mod=topicadmin&action=stick&fid=$fid&tid=$tid&mobile=2"
     fun userSpace(uid: String, section: String) = when (section) {
         "reply" -> "$ORIGIN/home.php?mod=space&uid=$uid&do=thread&view=me&type=reply&mobile=2"
         "thread" -> "$ORIGIN/home.php?mod=space&uid=$uid&do=thread&view=me&mobile=2"
@@ -198,6 +236,11 @@ fun NativeForumPageV2(
     LaunchedEffect(state.selectedForum?.id) {
         listState.scrollToItem(0)
     }
+    LaunchedEffect(state.page) {
+        // 版块主题列表翻页后回到顶部，避免停留在上一页的滚动位置。
+        withFrameNanos { }
+        listState.scrollToItem(0)
+    }
     LaunchedEffect(bottomNavBarVM) {
         bottomNavBarVM.goHomeEvent.collect { route ->
             if (route == "BBSPage") {
@@ -227,6 +270,7 @@ fun NativeForumPageV2(
         ForumTopBarV2(
             title = state.selectedForum?.name ?: "论坛",
             forum = state.selectedForum,
+            showLogo = state.selectedForum == null,
             headerColor = headerColor,
             contentColor = headerContent,
             onBack = if (state.selectedForum == null) null else forumVM::showForumIndex
@@ -243,13 +287,13 @@ fun NativeForumPageV2(
                         Icon(Icons.Default.MoreVert, "更多")
                     }
                     DropdownMenu(menuOpen, { menuOpen = false }) {
+                        val forumFavorited = forumVM.isForumFavorited(forum.id)
                         DropdownMenuItem(
-                            text = { Text("收藏本版") },
+                            text = { Text(if (forumFavorited) "取消收藏" else "收藏本版") },
                             onClick = {
                                 menuOpen = false
-                                scope.launch {
-                                    val success = FavoriteAddUtil.addForumFavorite(forum.id)
-                                    YamiboToast.show(message = if (success) "已收藏本版" else "收藏失败，请先登录")
+                                forumVM.toggleForumFavorite(forum) { success, message ->
+                                    YamiboToast.show(message = message)
                                 }
                             }
                         )
@@ -318,23 +362,46 @@ fun NativeForumPageV2(
 private fun ForumTopBarV2(
     title: String,
     forum: ForumBoard? = null,
+    showLogo: Boolean = false,
     headerColor: androidx.compose.ui.graphics.Color,
     contentColor: androidx.compose.ui.graphics.Color,
     onBack: (() -> Unit)?,
     actions: @Composable RowScope.() -> Unit
 ) {
+    val configuration = LocalConfiguration.current
+    val logoStartPadding = when {
+        configuration.screenWidthDp >= 840 -> 24.dp
+        configuration.screenWidthDp >= 600 -> 20.dp
+        else -> 16.dp
+    }
     Surface(color = headerColor, contentColor = contentColor) {
         Row(
             Modifier.fillMaxWidth().statusBarsPadding()
-                .height(if (forum == null) 56.dp else 74.dp)
-                .padding(horizontal = 6.dp),
+                .height(if (showLogo) 56.dp else 74.dp)
+                .padding(start = if (showLogo) logoStartPadding else 6.dp, end = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (onBack == null) Spacer(Modifier.width(48.dp)) else IconButton(onBack) {
+            if (onBack == null && forum != null) Spacer(Modifier.width(48.dp)) else if (onBack != null) IconButton(onBack) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, forumText(36820, 22238))
             }
-            if (forum == null) {
-                Text(title, Modifier.weight(1f), fontSize = 18.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (showLogo) {
+                val context = LocalContext.current
+                val logoRequest = remember(context) {
+                    ImageRequest.Builder(context)
+                        .data("https://bbs.yamibo.com/template/oyeeh_com_baihe_f_x35/img/300-logo-m.png")
+                        .addHeader("User-Agent", RequestConfig.UA)
+                        .addHeader("Referer", "https://bbs.yamibo.com/")
+                        .build()
+                }
+                AsyncImage(
+                    model = logoRequest,
+                    contentDescription = "百合会论坛",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .height(48.dp)
+                        .padding(top = 7.dp, bottom = 7.dp)
+                )
+                Spacer(Modifier.weight(1f))
             } else {
                 Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
                     Text(
@@ -346,26 +413,28 @@ private fun ForumTopBarV2(
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
-                    Column(
-                        modifier = Modifier.width(76.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Text(forumText(20027, 39064) + forum.threadCount, color = contentColor, fontSize = 13.sp, maxLines = 1)
-                        Text(forumText(20170, 26085) + forum.todayPostCount, color = contentColor, fontSize = 13.sp, maxLines = 1)
+                    forum?.let { f ->
+                        Column(
+                            modifier = Modifier.width(76.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(forumText(20027, 39064) + f.threadCount, color = contentColor, fontSize = 13.sp, maxLines = 1)
+                            Text(forumText(20170, 26085) + f.todayPostCount, color = contentColor, fontSize = 13.sp, maxLines = 1)
+                        }
+                        // 相邻搜索/发布图标的可见间距为 24dp；排名两侧保持同样留白。
+                        Spacer(Modifier.width(24.dp))
+                        Column(
+                            modifier = Modifier.width(28.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Text(forumText(25490, 21517), color = contentColor, fontSize = 12.sp)
+                            Text(f.rank?.toString() ?: "--", color = contentColor, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        }
+                        // 搜索 IconButton 自带 12dp 左内边距，这里再补 12dp，合计同为 24dp。
+                        Spacer(Modifier.width(12.dp))
                     }
-                    // 相邻搜索/发布图标的可见间距为 24dp；排名两侧保持同样留白。
-                    Spacer(Modifier.width(24.dp))
-                    Column(
-                        modifier = Modifier.width(28.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(2.dp)
-                    ) {
-                        Text(forumText(25490, 21517), color = contentColor, fontSize = 12.sp)
-                        Text(forum.rank?.toString() ?: "--", color = contentColor, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                    }
-                    // 搜索 IconButton 自带 12dp 左内边距，这里再补 12dp，合计同为 24dp。
-                    Spacer(Modifier.width(12.dp))
                 }
             }
             Row(content = actions)
@@ -384,10 +453,26 @@ private fun ForumIndexListV2(
     listState: androidx.compose.foundation.lazy.LazyListState
 ) {
     if (state.categories.isEmpty()) return EmptyForumMessageV2("暂无可浏览板块")
+    val banners = state.banners
+    val pagerState = rememberPagerState(pageCount = { banners.size })
+    LaunchedEffect(banners.size) {
+        if (banners.size < 2) return@LaunchedEffect
+        while (true) {
+            delay(5_000L)
+            pagerState.animateScrollToPage((pagerState.currentPage + 1) % banners.size)
+        }
+    }
     LazyColumn(state = listState, contentPadding = PaddingValues(12.dp)) {
-        state.banners.firstOrNull()?.let { banner ->
+        if (banners.isNotEmpty()) {
             item("forum-home-banner", contentType = "banner") {
-                ForumHomeBannerV2(banner, onBannerClick)
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(2.63f)
+                ) { page ->
+                    ForumHomeBannerV2(banners[page], onBannerClick)
+                }
                 Spacer(Modifier.height(10.dp))
             }
         }
@@ -416,8 +501,7 @@ private fun ForumHomeBannerV2(
         contentDescription = "百合会论坛头图",
         contentScale = ContentScale.Crop,
         modifier = Modifier
-            .fillMaxWidth()
-            .aspectRatio(2.63f)
+            .fillMaxSize()
             .clip(RoundedCornerShape(14.dp))
             .clickable(enabled = banner.threadId != null) {
                 banner.threadId?.let(onBannerClick)
@@ -933,14 +1017,20 @@ fun NativeThreadPageV2(
     onGoHome: () -> Unit,
     onOpenLink: (String) -> Unit,
     onOpenWeb: (String) -> Unit,
+    onOpenManga: (String) -> Unit = {},
+    onOpenReader: (String) -> Unit = {},
     bottomNavBarVM: BottomNavBarVM,
-    vm: ForumThreadVM = viewModel(key = "NativeThreadPageV2-$threadId", factory = ForumThreadVM.factory(threadId))
+    vm: ForumThreadVM = viewModel(
+        key = "NativeThreadPageV2-$threadId",
+        factory = ForumThreadVM.factory(threadId)
+    )
 ) {
     val state by vm.uiState.collectAsState()
     val cookie by GlobalData.cookieFlow.collectAsState(initial = "")
     val enabled by ForumBlocklistManager.enabled.collectAsState()
     val blockedItems by ForumBlocklistManager.items.collectAsState()
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val favoriteVM: FavoriteVM = viewModel(
         factory = ViewModelFactory(context.applicationContext)
     )
@@ -950,19 +1040,75 @@ fun NativeThreadPageV2(
     val componentColors = yamiboComponentColors()
     var menuOpen by remember { mutableStateOf(false) }
     var blockTarget by remember { mutableStateOf<NativeForumBlockTarget?>(null) }
-    var ratingDialog by remember { mutableStateOf<ForumPostRatingSummary?>(null) }
+    var ratingDialog by remember { mutableStateOf<ForumPost?>(null) }
+    var commentDialog by remember { mutableStateOf<ForumPost?>(null) }
+    var rateDialog by remember { mutableStateOf<ForumPost?>(null) }
+    var replyRequest by remember { mutableStateOf<ForumReplyRequest?>(null) }
+    var imagePreview by remember { mutableStateOf<ForumImagePreview?>(null) }
+    val isLoggedIn = GlobalData.currentUid.isNotBlank()
     val forumId = state.thread?.forumId.orEmpty()
     val posts = state.posts.filterNot {
         isBlocked(ForumBlockedItem.TYPE_POST, it.id, it.author.id, enabled, blockedItems)
     }
     val displayPosts = if (state.reverseOrder) posts.asReversed() else posts
 
+    DisposableEffect(lifecycleOwner, state.verificationUrl) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME && state.verificationUrl != null) {
+                vm.refresh()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     LaunchedEffect(state.page) {
-        if (state.posts.isNotEmpty()) listState.scrollToItem(0)
+        if (state.posts.isNotEmpty()) {
+            // 等待列表用新页数据完成一次布局后再回到顶部，避免翻页后停在上一页的滚动位置。
+            withFrameNanos { }
+            listState.scrollToItem(0)
+        }
     }
     LaunchedEffect(bottomNavBarVM) {
         bottomNavBarVM.scrollToTopEvent.collect { index ->
             if (index == 2) listState.animateScrollToItem(0)
+        }
+    }
+
+    // 点击帖子图片：漫画帖直接唤起原生漫画阅读器，普通帖打开原生图片预览
+    fun openPostImage(post: ForumPost, url: String) {
+        val urls = buildList {
+            post.blocks.forEach { block ->
+                (block as? ForumPostBlock.Image)?.let { add(it.url) }
+            }
+            post.attachments.filter { it.isImage }.forEach { add(it.url) }
+        }.distinct()
+        if (urls.isEmpty()) return
+        val index = urls.indexOf(url).coerceAtLeast(0)
+        val thread = state.thread
+        val isMangaThread = thread != null && (
+            thread.forumId in MANGA_FORUM_IDS ||
+                thread.forumName.contains("漫画") ||
+                thread.forumName.contains("图源")
+            )
+        if (isMangaThread) {
+            MangaImagePipeline.handoffPrefetch(
+                context = context.applicationContext,
+                urls = urls,
+                clickedIndex = index,
+                cookie = cookie
+            )
+            GlobalData.tempMangaUrls = urls
+            GlobalData.tempMangaIndex = index
+            GlobalData.tempHtml = state.threadHtml
+            GlobalData.tempTitle = thread.subject
+            onOpenManga(threadId)
+        } else {
+            imagePreview = ForumImagePreview(
+                urls = urls,
+                index = index,
+                title = thread?.subject.orEmpty()
+            )
         }
     }
 
@@ -980,6 +1126,52 @@ fun NativeThreadPageV2(
             if (false) IconButton(onClick = { onOpenWeb(ForumActionUrls.search) }) {
                 Icon(Icons.Default.Search, "搜索论坛")
             }
+            val threadUrl = ForumActionUrls.thread(threadId)
+            val favorites by FavoriteUtil.getFavoriteFlow().collectAsState(initial = emptyList())
+            val threadFavoriteUrl = remember(threadUrl) { FavoriteUtil.normalizeUrl(threadUrl) }
+            val isFavorited = favorites.any { it.url == threadFavoriteUrl }
+            // 小说帖：在收藏按钮左侧展示阅读入口，跳转原生小说阅读器
+            if (ReaderModeDetector.isNovelForum(state.thread?.forumName)) {
+                IconButton(onClick = {
+                    val readerUrl =
+                        "https://bbs.yamibo.com/forum.php?mod=viewthread&tid=$threadId&mobile=2"
+                    if (threadId.isBlank()) {
+                        YamiboToast.show(message = "帖子信息加载中，请稍后再试")
+                    } else {
+                        onOpenReader(readerUrl)
+                    }
+                }) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.MenuBook,
+                        contentDescription = "阅读模式",
+                        tint = componentColors.topBarContent.copy(alpha = 0.62f)
+                    )
+                }
+            }
+            IconButton(onClick = {
+                favoriteVM.toggleFavorite(
+                    threadUrl,
+                    state.thread?.subject.orEmpty(),
+                    threadId
+                ) { message -> YamiboToast.show(message = message) }
+            }) {
+                Icon(
+                    imageVector = if (isFavorited) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                    contentDescription = if (isFavorited) "取消收藏" else "收藏本主题",
+                    tint = if (isFavorited) componentColors.topBarContent
+                    else componentColors.topBarContent.copy(alpha = 0.62f)
+                )
+            }
+            IconButton(onClick = {
+                val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                    as android.content.ClipboardManager
+                clipboard.setPrimaryClip(
+                    android.content.ClipData.newPlainText("yamibo_link", threadUrl)
+                )
+                YamiboToast.show(message = "已复制链接")
+            }) {
+                Icon(Icons.Filled.Share, "复制链接")
+            }
             Box {
                 IconButton({ menuOpen = true }) { Icon(Icons.Default.MoreVert, "更多") }
                 DropdownMenu(menuOpen, { menuOpen = false }) {
@@ -990,17 +1182,6 @@ fun NativeThreadPageV2(
                     DropdownMenuItem(
                         text = { Text(if (state.reverseOrder) "正序浏览" else "倒序浏览") },
                         onClick = { menuOpen = false; vm.toggleReverseOrder() }
-                    )
-                    DropdownMenuItem(
-                        text = { Text(forumText(25910, 34255, 20027, 39064)) },
-                        onClick = {
-                            menuOpen = false
-                            favoriteVM.toggleFavorite(
-                                ForumActionUrls.thread(threadId),
-                                state.thread?.subject.orEmpty(),
-                                threadId
-                            ) { message -> YamiboToast.show(message = message) }
-                        }
                     )
                     if (false) DropdownMenuItem(
                         text = { Text("返回首页") },
@@ -1016,21 +1197,6 @@ fun NativeThreadPageV2(
                     DropdownMenuItem(
                         text = { Text("电脑版") },
                         onClick = { menuOpen = false; onOpenWeb(ForumActionUrls.desktopThread(threadId)) }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("复制链接") },
-                        onClick = {
-                            menuOpen = false
-                            val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
-                                as android.content.ClipboardManager
-                            clipboard.setPrimaryClip(
-                                android.content.ClipData.newPlainText(
-                                    "yamibo_link",
-                                    ForumActionUrls.thread(threadId)
-                                )
-                            )
-                            YamiboToast.show(message = "已复制链接")
-                        }
                     )
                 }
             }
@@ -1051,7 +1217,13 @@ fun NativeThreadPageV2(
         ) {
             when {
                 state.isLoading && state.posts.isEmpty() -> CircularProgressIndicator(Modifier.align(Alignment.Center))
-                state.error != null && state.posts.isEmpty() -> ForumErrorV2(state.error.orEmpty(), vm::refresh)
+                state.error != null && state.posts.isEmpty() -> ForumErrorV2(
+                    message = state.error.orEmpty(),
+                    onRetry = vm::refresh,
+                    onVerify = state.verificationUrl?.let { url ->
+                        { onOpenWeb(url) }
+                    }
+                )
                 else -> ThreadBodyV2(
                     state,
                     displayPosts,
@@ -1060,7 +1232,50 @@ fun NativeThreadPageV2(
                     onOpenLink,
                     onOpenWeb,
                     vm::goToPage,
-                    { summary -> ratingDialog = summary }
+                    { post -> ratingDialog = post },
+                    { poll, optionIds ->
+                        vm.votePoll(poll, optionIds) { message ->
+                            YamiboToast.show(message = message)
+                        }
+                    },
+                    { post ->
+                        if (isLoggedIn) commentDialog = post
+                        else YamiboToast.show(message = "请先登录后再使用点评功能")
+                    },
+                    { post ->
+                        if (isLoggedIn) rateDialog = post
+                        else YamiboToast.show(message = "请先登录后再使用评分功能")
+                    },
+                    { post ->
+                        if (isLoggedIn) replyRequest = ForumReplyRequest(post)
+                        else YamiboToast.show(message = "请先登录后再使用回复功能")
+                    },
+                    { post ->
+                        val fid = state.thread?.forumId.orEmpty()
+                        if (fid.isBlank()) {
+                            YamiboToast.show(message = "板块信息缺失，请刷新页面")
+                        } else {
+                            onOpenWeb(ForumActionUrls.edit(post.threadId, fid, post.id))
+                        }
+                    },
+                    { post ->
+                        val threadUrl = ForumActionUrls.thread(post.threadId)
+                        val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                            as android.content.ClipboardManager
+                        clipboard.setPrimaryClip(
+                            android.content.ClipData.newPlainText("yamibo_link", threadUrl)
+                        )
+                        YamiboToast.show(message = "已复制链接")
+                    },
+                    { post ->
+                        val fid = state.thread?.forumId.orEmpty()
+                        if (fid.isBlank()) {
+                            YamiboToast.show(message = "板块信息缺失，请刷新页面")
+                        } else {
+                            onOpenWeb(ForumActionUrls.topicAdmin(fid, post.threadId))
+                        }
+                    },
+                    { post, url -> openPostImage(post, url) }
                 ) { post ->
                     if (post.author.id != GlobalData.currentUid) blockTarget = NativeForumBlockTarget(
                         ForumBlockedItem.TYPE_POST,
@@ -1074,7 +1289,10 @@ fun NativeThreadPageV2(
         }
         Surface(Modifier.fillMaxWidth(), shadowElevation = 4.dp) {
             Button(
-                onClick = { onOpenWeb(ForumActionUrls.reply(threadId, forumId, page = state.page)) },
+                onClick = {
+                    if (isLoggedIn) replyRequest = ForumReplyRequest(null)
+                    else YamiboToast.show(message = "请先登录后再使用回复功能")
+                },
                 enabled = forumId.isNotBlank() && state.thread?.isClosed != true,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                 shape = RoundedCornerShape(12.dp)
@@ -1082,8 +1300,49 @@ fun NativeThreadPageV2(
         }
     }
     blockTarget?.let { NativeBlockMenuV2(it) { blockTarget = null } }
-    ratingDialog?.let { summary ->
-        ForumRatingsDialog(summary) { ratingDialog = null }
+    ratingDialog?.let { post ->
+        post.ratingSummary?.let { summary ->
+            ForumRatingsDialog(
+                summary = summary,
+                loadAll = { onResult -> vm.loadAllRatings(post, onResult) },
+                onDismiss = { ratingDialog = null }
+            )
+        }
+    }
+    commentDialog?.let { post ->
+        ForumCommentDialog(
+            post = post,
+            onDismiss = { commentDialog = null },
+            onSubmit = { message ->
+                vm.submitComment(post, message) { result -> YamiboToast.show(message = result) }
+            }
+        )
+    }
+    rateDialog?.let { post ->
+        ForumRateDialog(
+            post = post,
+            loadPopout = { onResult -> vm.loadRatePopout(post, onResult) },
+            onDismiss = { rateDialog = null },
+            onSubmit = { score, reason, formHash ->
+                vm.submitRate(post, score, reason, formHash) { result ->
+                    YamiboToast.show(message = result)
+                }
+            }
+        )
+    }
+    replyRequest?.let { request ->
+        ForumReplyDialog(
+            quotePost = request.quotePost,
+            onDismiss = { replyRequest = null },
+            onSubmit = { message ->
+                vm.submitReply(message, request.quotePost) { result ->
+                    YamiboToast.show(message = result)
+                }
+            }
+        )
+    }
+    imagePreview?.let { preview ->
+        ForumImagePreviewDialog(preview, cookie) { imagePreview = null }
     }
 }
 
@@ -1096,7 +1355,15 @@ private fun ThreadBodyV2(
     onOpenLink: (String) -> Unit,
     onOpenWeb: (String) -> Unit,
     onGoToPage: (Int) -> Unit,
-    onOpenRatings: (ForumPostRatingSummary) -> Unit,
+    onOpenRatings: (ForumPost) -> Unit,
+    onVotePoll: (ForumPoll, List<String>) -> Unit,
+    onComment: (ForumPost) -> Unit,
+    onRate: (ForumPost) -> Unit,
+    onReply: (ForumPost?) -> Unit,
+    onEdit: (ForumPost) -> Unit,
+    onShare: (ForumPost) -> Unit,
+    onManage: (ForumPost) -> Unit,
+    onOpenImage: (ForumPost, String) -> Unit,
     onLongClick: (ForumPost) -> Unit
 ) {
     val hasOriginalPost = posts.any { it.isOriginalPost }
@@ -1121,23 +1388,20 @@ private fun ThreadBodyV2(
             ForumPostCardV2(
                 post = post,
                 thread = state.thread.takeIf { post.isOriginalPost },
+                isThreadAuthor = state.thread?.author?.id == GlobalData.currentUid,
                 onlyOriginalPoster = state.onlyOriginalPoster,
                 cookie = cookie,
                 onOpenLink = onOpenLink,
+                onOpenImage = { url -> onOpenImage(post, url) },
                 onLongClick = { onLongClick(post) },
-                onReply = {
-                    onOpenWeb(
-                        ForumActionUrls.reply(
-                            post.threadId,
-                            state.thread?.forumId.orEmpty(),
-                            post.id,
-                            state.page
-                        )
-                    )
-                },
-                onComment = { onOpenWeb(ForumActionUrls.comment(post.threadId, post.id)) },
-                onRate = { onOpenWeb(ForumActionUrls.rate(post.threadId, post.id)) },
-                onOpenRatings = onOpenRatings
+                onReply = { onReply(post) },
+                onEdit = { onEdit(post) },
+                onComment = { onComment(post) },
+                onRate = { onRate(post) },
+                onShare = { onShare(post) },
+                onManage = { onManage(post) },
+                onOpenRatings = onOpenRatings,
+                onVotePoll = onVotePoll
             )
         }
         if (posts.isNotEmpty()) {
@@ -1201,14 +1465,20 @@ private fun ThreadSummaryV2(
 private fun ForumPostCardV2(
     post: ForumPost,
     thread: ForumThreadDetail?,
+    isThreadAuthor: Boolean,
     onlyOriginalPoster: Boolean,
     cookie: String,
     onOpenLink: (String) -> Unit,
+    onOpenImage: (String) -> Unit,
     onLongClick: () -> Unit,
     onReply: () -> Unit,
+    onEdit: () -> Unit,
     onComment: () -> Unit,
     onRate: () -> Unit,
-    onOpenRatings: (ForumPostRatingSummary) -> Unit
+    onShare: () -> Unit,
+    onManage: () -> Unit,
+    onOpenRatings: (ForumPost) -> Unit,
+    onVotePoll: (ForumPoll, List<String>) -> Unit
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth().combinedClickable(onClick = {}, onLongClick = onLongClick),
@@ -1235,23 +1505,32 @@ private fun ForumPostCardV2(
                         Text(post.author.name, fontWeight = FontWeight.SemiBold)
                         Text(post.createdAt, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
                     }
+                    if (post.author.id == GlobalData.currentUid) {
+                        SmallActionText("编辑", onEdit)
+                    }
                     SmallTagV2(if (post.isOriginalPost) "楼主" else "${post.floor} 楼")
                 }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 Column(
                     Modifier.fillMaxWidth().padding(vertical = 6.dp)
                 ) {
-                    ForumPostContentV2(post, cookie, onOpenLink)
+                    ForumPostContentV2(post, cookie, onOpenLink, onOpenImage)
                 }
                 post.poll?.let { poll ->
                     Spacer(Modifier.height(6.dp))
-                    ForumPollV2(poll)
+                    ForumPollV2(poll) { optionIds -> onVotePoll(poll, optionIds) }
                 }
-                post.ratingSummary?.let { summary ->
+ post.ratingSummary?.let { summary ->
                     Spacer(Modifier.height(6.dp))
-                    ForumPostRatingV2(summary, onOpenRatings)
+                    ForumPostRatingV2(summary) { onOpenRatings(post) }
                 }
-                if (post.ratingSummary != null) Spacer(Modifier.height(6.dp))
+                if (post.comments.isNotEmpty()) {
+                    Spacer(Modifier.height(6.dp))
+                    ForumCommentsV2(post.comments)
+                }
+                if (post.ratingSummary != null || post.comments.isNotEmpty()) {
+                    Spacer(Modifier.height(6.dp))
+                }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -1265,9 +1544,11 @@ private fun ForumPostCardV2(
                         )
                     }
                     Spacer(Modifier.weight(1f))
+                    if (post.author.id != GlobalData.currentUid) SmallActionText("评分", onRate)
                     SmallActionText("点评", onComment)
-                    SmallActionText("评分", onRate)
                     SmallActionText("回复", onReply)
+                    if (!post.isOriginalPost) SmallActionText("分享", onShare)
+                    if (isThreadAuthor && !post.isOriginalPost) SmallActionText("管理", onManage)
                 }
             }
         }
@@ -1275,7 +1556,122 @@ private fun ForumPostCardV2(
 }
 
 @Composable
-private fun ForumPollV2(poll: ForumPoll) {
+private fun PollOptionIndicator(selected: Boolean, multiple: Boolean) {
+    val shape = if (multiple) RoundedCornerShape(6.dp) else CircleShape
+    Box(
+        modifier = Modifier
+            .size(20.dp)
+            .background(
+                color = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
+                shape = shape
+            )
+            .then(
+                if (!selected) Modifier.border(2.dp, MaterialTheme.colorScheme.outlineVariant, shape)
+                else Modifier
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        if (selected) {
+            Icon(
+                Icons.Filled.Check,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.size(14.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun PollOptionRow(
+    option: ForumPollOption,
+    selected: Boolean,
+    canVote: Boolean,
+    showVoteStats: Boolean,
+    multiple: Boolean,
+    onClick: () -> Unit
+) {
+    val percent = (option.percent ?: 0f).coerceIn(0f, 100f)
+    val containerColor = if (canVote && selected) {
+        MaterialTheme.colorScheme.primaryContainer
+    } else {
+        MaterialTheme.colorScheme.surfaceVariant
+    }
+    val textColor = if (canVote && selected) {
+        MaterialTheme.colorScheme.onPrimaryContainer
+    } else {
+        MaterialTheme.colorScheme.onSurface
+    }
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (canVote) Modifier.clickable(onClick = onClick) else Modifier),
+        shape = RoundedCornerShape(10.dp),
+        color = containerColor,
+        border = if (canVote && !selected) {
+            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        } else null
+    ) {
+        Column(
+            Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (canVote) {
+                    PollOptionIndicator(selected = selected, multiple = multiple)
+                    Spacer(Modifier.width(10.dp))
+                }
+                Text(
+                    text = option.text,
+                    modifier = Modifier.weight(1f),
+                    color = textColor
+                )
+                if (showVoteStats) {
+                    Spacer(Modifier.width(8.dp))
+                    val percentText = if (percent % 1f == 0f) {
+                        percent.toInt().toString()
+                    } else {
+                        percent.toString()
+                    }
+                    Text(
+                        text = percentText + "% (" + (option.voteCount ?: 0) + "票)",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
+            }
+            if (showVoteStats) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(5.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(MaterialTheme.colorScheme.outlineVariant)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(percent / 100f)
+                            .height(5.dp)
+                            .background(MaterialTheme.colorScheme.primary)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ForumPollV2(
+    poll: ForumPoll,
+    onVote: ((List<String>) -> Unit)? = null
+) {
+    var selectedOptionIds by remember(poll) { mutableStateOf(emptySet<String>()) }
+    val showVoteStats = poll.options.any { it.percent != null || it.voteCount != null }
+    val canVote = !poll.hasVoted &&
+        poll.formHash.isNullOrBlank().not() &&
+        poll.actionUrl.isNullOrBlank().not() &&
+        poll.options.all { !it.id.isNullOrBlank() } &&
+        onVote != null
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(10.dp),
@@ -1283,18 +1679,24 @@ private fun ForumPollV2(poll: ForumPoll) {
     ) {
         Column(
             modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(9.dp)
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = poll.typeText,
-                    modifier = Modifier.weight(1f),
+                    text = "投票",
                     fontWeight = FontWeight.SemiBold,
+                    fontSize = 15.sp,
                     color = MaterialTheme.colorScheme.onSurface
                 )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = poll.typeText,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelSmall
+                )
+                Spacer(Modifier.weight(1f))
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 poll.participantCount?.let { count ->
                     Text(
                         text = "共有 " + count + " 人参与",
@@ -1302,49 +1704,55 @@ private fun ForumPollV2(poll: ForumPoll) {
                         style = MaterialTheme.typography.labelSmall
                     )
                 }
+                if (poll.participantCount != null && poll.remainingText != null) {
+                    Spacer(Modifier.width(12.dp))
+                }
+                poll.remainingText?.let { remaining ->
+                    Text(
+                        text = remaining,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
             }
-            poll.remainingText?.let { remaining ->
+            poll.options.forEach { option ->
+                val optionId = option.id
+                PollOptionRow(
+                    option = option,
+                    selected = optionId != null && selectedOptionIds.contains(optionId),
+                    canVote = canVote,
+                    showVoteStats = showVoteStats,
+                    multiple = poll.isMultipleChoice,
+                    onClick = {
+                        optionId?.let { id ->
+                            selectedOptionIds = if (poll.isMultipleChoice) {
+                                if (selectedOptionIds.contains(id)) {
+                                    selectedOptionIds - id
+                                } else {
+                                    selectedOptionIds + id
+                                }
+                            } else {
+                                setOf(id)
+                            }
+                        }
+                    }
+                )
+            }
+            if (canVote) {
+                Button(
+                    onClick = { onVote.invoke(selectedOptionIds.toList()) },
+                    enabled = selectedOptionIds.isNotEmpty(),
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("提交投票")
+                }
+            } else if (!showVoteStats) {
                 Text(
-                    text = remaining,
+                    text = "投票后显示结果",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.labelSmall
                 )
-            }
-            poll.options.forEach { option ->
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Row(modifier = Modifier.fillMaxWidth()) {
-                        Text(
-                            text = option.text,
-                            modifier = Modifier.weight(1f),
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        val percentText = if (option.percent % 1f == 0f) {
-                            option.percent.toInt().toString()
-                        } else {
-                            option.percent.toString()
-                        }
-                        Text(
-                            text = percentText + "% (" + option.voteCount + "票)",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.labelSmall
-                        )
-                    }
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(5.dp)
-                            .clip(RoundedCornerShape(3.dp))
-                            .background(MaterialTheme.colorScheme.outlineVariant)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth((option.percent / 100f).coerceIn(0f, 1f))
-                                .height(5.dp)
-                                .background(MaterialTheme.colorScheme.primary)
-                        )
-                    }
-                }
             }
             poll.statusText?.let { status ->
                 Text(
@@ -1437,33 +1845,175 @@ private fun ForumPostRatingV2(
                         )
                     }
                 }
-                if (summary.ratings.size > 5) {
+if (summary.ratings.size > 5) {
                     Text(
-                        text = "…",
-                        modifier = Modifier.fillMaxWidth(),
+                        text = "查看全部评分",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onOpenRatings(summary) }
+                            .padding(top = 4.dp),
                         textAlign = TextAlign.Center,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.titleMedium
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.labelMedium
                     )
                 }
             }
         }
     }
 }
+
+/**
+ * 点评行内展示：默认 5 条，超出后点击“查看更多点评”直接在卡片内展开剩余，
+ * 再次点击收起。展开/收起带 animateContentSize 平滑过渡；展开前展示短暂
+ * 加载状态。布局贴近现有卡片风格，不依赖弹窗。
+ */
 @Composable
-private fun ForumPostContentV2(post: ForumPost, cookie: String, onOpenLink: (String) -> Unit) {
+private fun ForumCommentsV2(comments: List<ForumComment>) {
+    var expanded by remember(comments) { mutableStateOf(false) }
+    var loadingMore by remember(comments) { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val visible = if (expanded || comments.size <= COMMENTS_PREVIEW_LIMIT) {
+        comments
+    } else {
+        comments.take(COMMENTS_PREVIEW_LIMIT)
+    }
+    val hidden = comments.size - visible.size
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(10.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow
+    ) {
+        Column(
+            Modifier
+                .padding(horizontal = 12.dp, vertical = 10.dp)
+                .animateContentSize(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "点评（${comments.size}）",
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(Modifier.weight(1f))
+                if (hidden > 0) {
+                    Row(
+                        modifier = Modifier.clickable(
+                            enabled = !loadingMore
+                        ) {
+                            if (expanded) {
+                                expanded = false
+                            } else {
+                                loadingMore = true
+                                scope.launch {
+                                    delay(360)
+                                    loadingMore = false
+                                    expanded = true
+                                }
+                            }
+                        },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (loadingMore) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(14.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = "正在加载更多点评…",
+                                color = MaterialTheme.colorScheme.primary,
+                                style = MaterialTheme.typography.labelMedium
+                            )
+                        } else {
+                            Text(
+                                text = if (expanded) "收起" else "查看更多点评",
+                                color = MaterialTheme.colorScheme.primary,
+                                style = MaterialTheme.typography.labelMedium
+                            )
+                        }
+                    }
+                }
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            visible.forEach { comment ->
+                Row(verticalAlignment = Alignment.Top) {
+                    AuthorAvatarV2(comment.authorName, comment.authorAvatarUrl, 32)
+                    Spacer(Modifier.width(8.dp))
+                    Column(Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = comment.authorName,
+                                fontWeight = FontWeight.SemiBold,
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            if (comment.createdAt.isNotBlank()) {
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = comment.createdAt,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            text = comment.message,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                }
+            }
+            if (hidden > 0 && expanded) {
+                Text(
+                    text = "— 查看全部 ${comments.size} 条点评 —",
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Center,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelSmall
+                )
+            }
+        }
+    }
+}
+
+private const val COMMENTS_PREVIEW_LIMIT = 5
+
+@Composable
+private fun ForumPostContentV2(
+    post: ForumPost,
+    cookie: String,
+    onOpenLink: (String) -> Unit,
+    onOpenImage: (String) -> Unit
+) {
     if (post.blocks.isEmpty() && post.attachments.isEmpty()) {
         Text("该楼层没有可显示的内容", color = MaterialTheme.colorScheme.onSurfaceVariant)
         return
     }
-    post.blocks.forEach { block -> when (block) {
-        is ForumPostBlock.Text -> ForumPostTextV2(block, onOpenLink)
-        is ForumPostBlock.Image -> ForumPostImageV2(block.url, block.description, cookie)
-    } }
+    post.blocks.forEachIndexed { index, block ->
+        val previous = post.blocks.getOrNull(index - 1)
+        if (previous != null &&
+            ((previous is ForumPostBlock.Text && block is ForumPostBlock.Image) ||
+                (previous is ForumPostBlock.Image && block is ForumPostBlock.Text))
+        ) {
+            Spacer(Modifier.height(12.dp))
+        }
+        when (block) {
+            is ForumPostBlock.Text -> ForumPostTextV2(block, onOpenLink)
+            is ForumPostBlock.Image -> ForumPostImageV2(block.url, block.description, cookie, onOpenImage)
+        }
+    }
     val inlineImages = post.blocks.filterIsInstance<ForumPostBlock.Image>().mapTo(hashSetOf(), ForumPostBlock.Image::url)
+    if (post.blocks.isNotEmpty() && post.attachments.isNotEmpty()) {
+        Spacer(Modifier.height(12.dp))
+    }
     post.attachments.forEach { attachment ->
         if (attachment.isImage && attachment.url !in inlineImages) {
-            ForumPostImageV2(attachment.url, attachment.filename, cookie)
+            ForumPostImageV2(attachment.url, attachment.filename, cookie, onOpenImage)
         } else if (!attachment.isImage) {
             ForumAttachmentRowV2(attachment, onOpenLink)
         }
@@ -1547,8 +2097,6 @@ private fun NativeBlockMenuV2(target: NativeForumBlockTarget, onDismiss: () -> U
                     onClick = onDismiss,
                     modifier = Modifier.align(Alignment.End)
                 ) {
-                    Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(4.dp))
                     Text("取消")
                 }
             }
@@ -1652,11 +2200,16 @@ private fun InlineErrorV2(message: String) {
 }
 
 @Composable
-private fun ForumErrorV2(message: String, onRetry: () -> Unit) {
+private fun ForumErrorV2(
+    message: String,
+    onRetry: () -> Unit,
+    onVerify: (() -> Unit)? = null
+) {
     YamiboLoadError(
         title = "论坛暂时无法打开",
         message = message,
-        onRetry = onRetry
+        onRetry = onVerify ?: onRetry,
+        buttonText = if (onVerify == null) "刷新页面" else "打开网页验证"
     )
 }
 
@@ -1682,7 +2235,12 @@ private fun ForumPostTextV2(block: ForumPostBlock.Text, onOpenLink: (String) -> 
 }
 
 @Composable
-private fun ForumPostImageV2(url: String, description: String, cookie: String) {
+private fun ForumPostImageV2(
+    url: String,
+    description: String,
+    cookie: String,
+    onOpenImage: (String) -> Unit
+) {
     val context = LocalContext.current
     val request = remember(context, url, cookie) {
         ImageRequest.Builder(context).data(url).crossfade(true)
@@ -1700,7 +2258,9 @@ private fun ForumPostImageV2(url: String, description: String, cookie: String) {
             model = request,
             contentDescription = description.ifBlank { "帖子图片" },
             contentScale = ContentScale.FillWidth,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onOpenImage(url) },
             loading = {
                 Box(Modifier.fillMaxWidth().height(150.dp), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(Modifier.size(26.dp), strokeWidth = 2.dp)
@@ -1733,8 +2293,38 @@ private fun ForumAttachmentRowV2(attachment: ForumPostAttachment, onOpenLink: (S
 @Composable
 private fun ForumRatingsDialog(
     summary: ForumPostRatingSummary,
+    loadAll: ((Result<List<ForumPostRating>>) -> Unit) -> Unit,
     onDismiss: () -> Unit
 ) {
+    var ratings by remember { mutableStateOf<List<ForumPostRating>?>(null) }
+    var loadError by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(Unit) {
+        loadAll { result ->
+            result
+                .onSuccess { fullRatings ->
+                    // 完整评分接口的部分模板不返回理由，使用帖子预览中已有的理由补齐；
+                    // 完整接口有值时优先保留服务端返回值。
+                    ratings = fullRatings.map { rating ->
+                        if (rating.reason.isNotBlank()) {
+                            rating
+                        } else {
+                            rating.copy(
+                                reason = summary.ratings
+                                    .firstOrNull { preview -> preview.userName == rating.userName }
+                                    ?.reason
+                                    .orEmpty()
+                            )
+                        }
+                    }
+                }
+                .onFailure { loadError = it.message ?: "评分明细加载失败" }
+        }
+    }
+
+    val displayRatings = ratings ?: summary.ratings
+    val showLoading = ratings == null && loadError == null
+
     AlertDialog(
         onDismissRequest = onDismiss,
         shape = RoundedCornerShape(20.dp),
@@ -1781,58 +2371,70 @@ private fun ForumRatingsDialog(
                     )
                 }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                if (summary.ratings.isEmpty()) {
-                    Text(
-                        text = "暂无评分明细",
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 24.dp),
-                        textAlign = TextAlign.Center,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                } else {
-                    summary.ratings.forEach { rating ->
-                        Row(
+                when {
+                    showLoading -> {
+                        Box(
+                            Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                        }
+                    }
+                    displayRatings.isEmpty() -> {
+                        Text(
+                            text = loadError ?: "暂无评分明细",
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 10.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = rating.score.ifBlank { "—" },
-                                modifier = Modifier.weight(1f),
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Bold,
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                            Text(
-                                text = rating.userName.ifBlank { "未知用户" },
-                                modifier = Modifier.weight(1.2f),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                            Text(
-                                text = rating.createdAt.orEmpty().ifBlank { "—" },
-                                modifier = Modifier.weight(1.25f),
-                                textAlign = TextAlign.End,
-                                maxLines = 1,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.labelSmall
-                            )
-                        }
-                        if (rating.reason.isNotBlank()) {
-                            Text(
-                                text = rating.reason,
+                                .padding(vertical = 24.dp),
+                            textAlign = TextAlign.Center,
+                            color = if (loadError != null) MaterialTheme.colorScheme.error
+                            else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    else -> {
+                        displayRatings.forEach { rating ->
+                            Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .background(MaterialTheme.colorScheme.surfaceContainerLow)
-                                    .padding(horizontal = 10.dp, vertical = 8.dp),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.bodyMedium
-                            )
+                                    .padding(horizontal = 10.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = rating.score.ifBlank { "—" },
+                                    modifier = Modifier.weight(1f),
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                                Text(
+                                    text = rating.userName.ifBlank { "未知用户" },
+                                    modifier = Modifier.weight(1.2f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                                Text(
+                                    text = rating.createdAt.orEmpty().ifBlank { "—" },
+                                    modifier = Modifier.weight(1.25f),
+                                    textAlign = TextAlign.End,
+                                    maxLines = 1,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
+                            if (rating.reason.isNotBlank()) {
+                                Text(
+                                    text = rating.reason,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(MaterialTheme.colorScheme.surfaceContainerLow)
+                                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                            }
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         }
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     }
                 }
                 if (summary.scoreText.isNotBlank() || summary.participantText.isNotBlank()) {
@@ -1877,5 +2479,445 @@ private fun ForumRatingsDialog(
         }
     )
 }
+
+@Composable
+private fun ForumCommentDialog(
+    post: ForumPost,
+    onDismiss: () -> Unit,
+    onSubmit: (String) -> Unit
+) {
+    var message by remember { mutableStateOf("") }
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surface,
+            modifier = Modifier
+                .widthIn(max = 380.dp)
+                .fillMaxWidth(0.82f)
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "点评 #${post.floor} 楼",
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                TextField(
+                    value = message,
+                    onValueChange = { message = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 120.dp, max = 240.dp),
+                    placeholder = { Text("请输入点评内容") },
+                    minLines = 3,
+                    maxLines = 8
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onDismiss) { Text("取消") }
+                    Spacer(Modifier.width(8.dp))
+                    TextButton(
+                        onClick = {
+                            onSubmit(message)
+                            onDismiss()
+                        },
+                        enabled = message.isNotBlank()
+                    ) { Text("发表点评") }
+                }
+            }
+        }
+    }
+}
+
+/** 漫画相关板块 ID：30=中文百合漫画区，37=百合漫画图源区 */
+private val MANGA_FORUM_IDS = setOf("30", "37")
+
+/** Discuz 回复最短字数（与论坛 minpostsize 默认一致）。 */
+private const val MIN_REPLY_CHARS = 21
+
+/** 回复请求：quotePost 为 null 表示直接回复主题，非 null 表示引用该楼回复 */
+private data class ForumReplyRequest(val quotePost: ForumPost?)
+
+/** 原生图片预览参数 */
+private data class ForumImagePreview(
+    val urls: List<String>,
+    val index: Int,
+    val title: String
+)
+
+@Composable
+private fun ForumRateDialog(
+    post: ForumPost,
+    loadPopout: ((Result<ForumRatePopout>) -> Unit) -> Unit,
+    onDismiss: () -> Unit,
+    onSubmit: (score: Int, reason: String, formHash: String?) -> Unit
+) {
+    var popout by remember { mutableStateOf<ForumRatePopout?>(null) }
+    var loadError by remember { mutableStateOf<String?>(null) }
+    var selectedScore by remember { mutableStateOf<Int?>(null) }
+    var reason by remember { mutableStateOf("") }
+
+    LaunchedEffect(post.id) {
+        loadPopout { result ->
+            result
+                .onSuccess { popout = it }
+                .onFailure { loadError = it.message ?: "评分信息加载失败" }
+        }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surface,
+            modifier = Modifier
+                .widthIn(max = 380.dp)
+                .fillMaxWidth(0.82f)
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "评分 #${post.floor} 楼",
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                when {
+                    popout != null -> {
+                        val scores = remember(popout) {
+                            popout?.availableScores.orEmpty().sortedBy { it.score }
+                        }
+                        if (scores.isNotEmpty()) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                scores.forEach { option ->
+                                    FilterChip(
+                                        selected = selectedScore == option.score,
+                                        onClick = {
+                                            selectedScore = if (selectedScore == option.score) null else option.score
+                                        },
+                                        label = { Text(option.label) }
+                                    )
+                                }
+                            }
+                        }
+                        val defaultReasons = popout?.defaultReasons.orEmpty()
+                        if (defaultReasons.isNotEmpty()) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                defaultReasons.forEach { item ->
+                                    AssistChip(
+                                        onClick = { reason = item },
+                                        label = { Text(item) },
+                                        modifier = Modifier.height(32.dp)
+                                    )
+                                }
+                            }
+                        }
+                        TextField(
+                            value = reason,
+                            onValueChange = { reason = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            placeholder = { Text("评分理由（可选）") },
+                            minLines = 2,
+                            maxLines = 4
+                        )
+                    }
+                    loadError != null -> {
+                        Text(
+                            text = loadError.orEmpty(),
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                    else -> {
+                        Box(
+                            Modifier.fillMaxWidth().height(80.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(Modifier.size(26.dp), strokeWidth = 2.dp)
+                        }
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onDismiss) { Text("取消") }
+                    Spacer(Modifier.width(8.dp))
+                    TextButton(
+                        onClick = {
+                            val score = selectedScore ?: return@TextButton
+                            onSubmit(score, reason, popout?.formHash)
+                            onDismiss()
+                        },
+                        enabled = popout != null && selectedScore != null
+                    ) { Text("提交评分") }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ForumReplyDialog(
+    quotePost: ForumPost?,
+    onDismiss: () -> Unit,
+    onSubmit: (String) -> Unit
+) {
+    var message by remember { mutableStateOf("") }
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surface,
+            modifier = Modifier
+                .widthIn(max = 520.dp)
+                .fillMaxWidth(0.92f)
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = if (quotePost == null) "回复主题" else "回复 #${quotePost.floor} 楼",
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                if (quotePost != null) {
+                    Text(
+                        text = "将以引用该楼层的形式发表回复",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                TextField(
+                    value = message,
+                    onValueChange = { message = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 160.dp, max = 320.dp),
+                    placeholder = { Text("请输入回复内容") },
+                    minLines = 5,
+                    maxLines = 12
+                )
+                Text(
+                    text = "${message.trim().length} / $MIN_REPLY_CHARS 字符",
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.End,
+                    fontSize = 11.sp,
+                    color = if (message.trim().length >= MIN_REPLY_CHARS) {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    } else {
+                        MaterialTheme.colorScheme.error
+                    }
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onDismiss) { Text("取消") }
+                    Spacer(Modifier.width(8.dp))
+                    TextButton(
+                        onClick = {
+                            onSubmit(message)
+                            onDismiss()
+                        },
+                        enabled = message.isNotBlank()
+                    ) { Text("发表回复") }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ForumImagePreviewDialog(
+    preview: ForumImagePreview,
+    cookie: String,
+    onDismiss: () -> Unit
+) {
+    val pagerState = rememberPagerState(
+        initialPage = preview.index,
+        pageCount = { preview.urls.size }
+    )
+    val scope = rememberCoroutineScope()
+    var showChrome by remember { mutableStateOf(true) }
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+        ) {
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxSize()
+            ) { page ->
+                ZoomableForumImage(
+                    url = preview.urls[page],
+                    cookie = cookie,
+                    onTap = { showChrome = !showChrome }
+                )
+            }
+            if (showChrome) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color.Black.copy(alpha = 0.5f))
+                        .statusBarsPadding()
+                        .padding(horizontal = 20.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = preview.title,
+                        color = Color.White,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        text = "${pagerState.currentPage + 1} / ${preview.urls.size}",
+                        color = Color.White,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+                if (preview.urls.size > 1) {
+                    IconButton(
+                        onClick = {
+                            scope.launch {
+                                pagerState.animateScrollToPage(
+                                    (pagerState.currentPage - 1).coerceAtLeast(0)
+                                )
+                            }
+                        },
+                        modifier = Modifier.align(Alignment.CenterStart).padding(start = 4.dp)
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                            contentDescription = "上一张",
+                            tint = Color.White.copy(alpha = 0.7f),
+                            modifier = Modifier.size(36.dp)
+                        )
+                    }
+                    IconButton(
+                        onClick = {
+                            scope.launch {
+                                pagerState.animateScrollToPage(
+                                    (pagerState.currentPage + 1).coerceAtMost(preview.urls.size - 1)
+                                )
+                            }
+                        },
+                        modifier = Modifier.align(Alignment.CenterEnd).padding(end = 4.dp)
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = "下一张",
+                            tint = Color.White.copy(alpha = 0.7f),
+                            modifier = Modifier.size(36.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ZoomableForumImage(
+    url: String,
+    cookie: String,
+    onTap: () -> Unit
+) {
+    val context = LocalContext.current
+    var scale by remember { mutableFloatStateOf(1f) }
+    var offsetX by remember { mutableFloatStateOf(0f) }
+    var offsetY by remember { mutableFloatStateOf(0f) }
+    val transformState = rememberTransformableState { zoomChange, panChange, _ ->
+        val newScale = (scale * zoomChange).coerceIn(1f, 6f)
+        if (newScale > 1f) {
+            offsetX += panChange.x
+            offsetY += panChange.y
+        } else {
+            offsetX = 0f
+            offsetY = 0f
+        }
+        scale = newScale
+    }
+    val request = remember(context, url, cookie) {
+        ImageRequest.Builder(context).data(url).crossfade(true)
+            .addHeader("User-Agent", RequestConfig.UA)
+            .apply { if (cookie.isNotBlank()) addHeader("Cookie", cookie) }
+            .build()
+    }
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .clickable(onClick = onTap),
+        contentAlignment = Alignment.Center
+    ) {
+        SubcomposeAsyncImage(
+            model = request,
+            contentDescription = "图片预览",
+            contentScale = ContentScale.Fit,
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                    translationX = offsetX
+                    translationY = offsetY
+                }
+                .transformable(transformState, canPan = { scale > 1f }),
+            loading = {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(Modifier.size(30.dp), strokeWidth = 2.dp, color = Color.White)
+                }
+            },
+            error = {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Default.Image, null, tint = Color.White)
+                        Text("图片加载失败", color = Color.White, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+        )
+    }
+}
+
 private fun forumText(vararg codePoints: Int): String =
     codePoints.map(Int::toChar).toCharArray().concatToString()

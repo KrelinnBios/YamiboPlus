@@ -20,6 +20,8 @@ object AppErrorLog {
         if (entries.size > MAX_ENTRIES) {
             entries.subList(0, entries.size - MAX_ENTRIES).clear()
         }
+        // 异步持久化到当天日志文件，供「错误日志」历史界面按天查看。
+        ErrorLogStore.append(message)
     }
 
     @Synchronized

@@ -14,7 +14,9 @@ import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import org.shirakawatyu.yamibo.novel.global.GlobalData
+import org.shirakawatyu.yamibo.novel.ui.theme.effectiveScheme
 import androidx.annotation.RequiresApi
+import androidx.compose.ui.graphics.toArgb
 import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
 import java.util.ArrayDeque
 import java.util.IdentityHashMap
@@ -258,7 +260,9 @@ object WebViewPool {
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
             setBackgroundColor(
-                if (GlobalData.isDarkMode.value) 0xFF0D141D.toInt() else Color.TRANSPARENT
+                if (GlobalData.isDarkMode.value)
+                    GlobalData.appTheme.value.effectiveScheme(GlobalData.pureBlackMode.value).background.toArgb()
+                else Color.TRANSPARENT
             )
             setLayerType(WebView.LAYER_TYPE_HARDWARE, null)
             settings.apply {

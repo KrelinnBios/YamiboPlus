@@ -86,6 +86,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.shirakawatyu.yamibo.novel.global.GlobalData
+import org.shirakawatyu.yamibo.novel.ui.theme.effectiveScheme
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.module.CoilWebViewProxy
 import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
@@ -304,7 +305,8 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
                     GlobalData.darkModeTheme.value,
                     GlobalData.lightModeTheme.value,
                     desktopFitScale,
-                    appTheme = GlobalData.appTheme.value
+                    appTheme = GlobalData.appTheme.value,
+                    pureBlack = GlobalData.pureBlackMode.value
                 )
                 return WebResourceResponse(
                     "text/html",
@@ -370,7 +372,8 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
                     GlobalData.isDarkMode.value,
                     GlobalData.darkModeTheme.value,
                     GlobalData.lightModeTheme.value,
-                    GlobalData.appTheme.value
+                    GlobalData.appTheme.value,
+                    pureBlack = GlobalData.pureBlackMode.value
                 ), null
             )
         }
@@ -626,14 +629,15 @@ fun BBSPage(
 
     LaunchedEffect(appTheme, isForumBlocklistEnabled, forumBlockedItems, currentUid) {
         webView.setBackgroundColor(
-            appTheme.scheme.background.toArgb()
+            appTheme.effectiveScheme(GlobalData.pureBlackMode.value).background.toArgb()
         )
         webView.evaluateJavascript(
             PageJsScripts.getThemeSetJs(
                 isDarkMode,
                 GlobalData.darkModeTheme.value,
                 GlobalData.lightModeTheme.value,
-                GlobalData.appTheme.value
+                GlobalData.appTheme.value,
+                pureBlack = GlobalData.pureBlackMode.value
             ),
             null
         )
@@ -696,7 +700,8 @@ fun BBSPage(
                     GlobalData.isDarkMode.value,
                     GlobalData.darkModeTheme.value,
                     GlobalData.lightModeTheme.value,
-                    GlobalData.appTheme.value
+                    GlobalData.appTheme.value,
+                    pureBlack = GlobalData.pureBlackMode.value
                 ),
                 null
             )

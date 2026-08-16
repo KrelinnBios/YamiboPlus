@@ -34,6 +34,8 @@ class GlobalData {
         // 当前登录用户名和头像
         var currentUserName by mutableStateOf("")
         var currentUserAvatar by mutableStateOf<String?>(null)
+        // 当前登录用户的 CSRF formhash，用于原生评分/点评提交；登录后由 profile 接口刷新。
+        @Volatile var currentFormHash: String = ""
         var isAppInitialized by mutableStateOf(false)
         val cookieFlow: Flow<String> by lazy {
             CookieUtil.getCookieFlow()

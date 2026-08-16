@@ -139,4 +139,11 @@ class Waf405RecoveryPolicyTest {
             )
         )
     }
+
+    @Test
+    fun failedChallengeCoolingDownBlocksOnlyWithinWindow() {
+        assertTrue(Waf405RecoveryPolicy.isFailedChallengeCoolingDown(100_000L, 129_999L))
+        assertFalse(Waf405RecoveryPolicy.isFailedChallengeCoolingDown(100_000L, 130_001L))
+        assertFalse(Waf405RecoveryPolicy.isFailedChallengeCoolingDown(0L, 100_000L))
+    }
 }

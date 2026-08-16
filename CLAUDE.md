@@ -169,7 +169,7 @@
 
 - workflow 只构建 release 签名包（`assembleRelease`），四个签名 secrets 缺一即失败。
 - release 触发时版本号从 tag 推导：`APP_VERSION_NAME` 为 tag 去掉 `v` 前缀，`APP_VERSION_CODE` 为 `github.run_number`；tag 必须符合 `v数字.数字…` 格式，否则构建直接失败。发布包不得回落到 `build.gradle.kts` 的默认版本号，否则会导致应用内更新循环。
-- GitHub Actions 固定使用 Node 24 兼容版本：checkout@v5、setup-java@v5、setup-gradle@v5、setup-android@v4、upload-artifact@v5，并设置 `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24`。不要降级。
+- GitHub Actions 固定使用 Node 24 兼容版本：checkout@v5、setup-Java@v5、setup-gradle@v5、setup-android@v4、upload-artifact@v5，并设置 `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24`。不要降级。
 - 发布产物路径和名称固定为 `app/build/outputs/apk/release/300-Plus.apk` / `300-Plus.apk`。
 
 ## 测试与修改原则

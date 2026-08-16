@@ -40,5 +40,7 @@ data class ForumThreadState(
     val reverseOrder: Boolean = false,
     val isLoading: Boolean = false,
     val isLoadingMore: Boolean = false,
-    val error: String? = null
+    val error: String? = null,
+    val verificationUrl: String? = null,
+    val threadHtml: String = ""
 )

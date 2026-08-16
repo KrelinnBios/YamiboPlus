@@ -5,7 +5,6 @@ import org.shirakawatyu.yamibo.novel.util.theme.MemberSpaceGuard
 import org.shirakawatyu.yamibo.novel.util.theme.webThemeCssRules
 import org.shirakawatyu.yamibo.novel.util.theme.webThemeEditorCss
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboAppTheme
-import org.shirakawatyu.yamibo.novel.global.GlobalData
 
 object PageJsScripts {
 
@@ -1078,10 +1077,11 @@ object PageJsScripts {
     fun getDarkModeSetJs(
         enable: Boolean,
         themeId: Int = 0,
-        appTheme: YamiboAppTheme = YamiboAppTheme.BLUE_BLACK
+        appTheme: YamiboAppTheme = YamiboAppTheme.BLUE_BLACK,
+        pureBlack: Boolean = false
     ): String {
-        val rulesList = webThemeCssRules(appTheme, GlobalData.pureBlackMode.value)
-        val editorCss = webThemeEditorCss(appTheme, GlobalData.pureBlackMode.value)
+        val rulesList = webThemeCssRules(appTheme, pureBlack)
+        val editorCss = webThemeEditorCss(appTheme, pureBlack)
         val memberSpaceUrlExpression = MemberSpaceGuard.jsExpression()
         // 规则会被嵌进 JS 单引号字符串：必须转义反斜杠和单引号，
         // 否则任何一条带 ' 的规则都会让整段注入脚本语法错误，暗黑切换静默失效。
@@ -1173,9 +1173,10 @@ $styleString
     fun getLightModeSetJs(
         enable: Boolean,
         themeId: Int = 0,
-        appTheme: YamiboAppTheme = YamiboAppTheme.CLASSIC_LIGHT
+        appTheme: YamiboAppTheme = YamiboAppTheme.CLASSIC_LIGHT,
+        pureBlack: Boolean = false
     ): String {
-        val styleString = webThemeCssRules(appTheme, GlobalData.pureBlackMode.value).joinToString(",\n") {
+        val styleString = webThemeCssRules(appTheme, pureBlack).joinToString(",\n") {
             "                '${it.replace("\\", "\\\\").replace("'", "\\'")}'"
         }
         val memberSpaceUrlExpression = MemberSpaceGuard.jsExpression()
@@ -1204,12 +1205,13 @@ $styleString
     fun injectDarkModeCssIntoHtml(
         html: String,
         themeId: Int = 0,
-        appTheme: YamiboAppTheme = YamiboAppTheme.BLUE_BLACK
+        appTheme: YamiboAppTheme = YamiboAppTheme.BLUE_BLACK,
+        pureBlack: Boolean = false
     ): String {
         // 会员 DIY 空间模板的兜底守卫：URL 判不出来的场合按 HTML 内容判断，
         // body#space（个人主页/日志/相册）保持会员自己的背景和配色。
         if (MemberSpaceGuard.isMemberSpaceHtml(html)) return html
-        val rulesList = webThemeCssRules(appTheme, GlobalData.pureBlackMode.value)
+        val rulesList = webThemeCssRules(appTheme, pureBlack)
         val css = rulesList.joinToString("\n")
         val styleTag = "<style id=\"yamibo-dark-mode\">\n$css\n</style>"
         return when {
@@ -1224,10 +1226,11 @@ $styleString
     fun injectLightModeCssIntoHtml(
         html: String,
         themeId: Int = 0,
-        appTheme: YamiboAppTheme = YamiboAppTheme.CLASSIC_LIGHT
+        appTheme: YamiboAppTheme = YamiboAppTheme.CLASSIC_LIGHT,
+        pureBlack: Boolean = false
     ): String {
         if (MemberSpaceGuard.isMemberSpaceHtml(html)) return html
-        val css = webThemeCssRules(appTheme, GlobalData.pureBlackMode.value).joinToString("\n")
+        val css = webThemeCssRules(appTheme, pureBlack).joinToString("\n")
         val styleTag = "<style id=\"yamibo-light-mode\">\n$css\n</style>"
         return when {
             html.contains("</head>") -> html.replace("</head>", "$styleTag</head>")
@@ -1418,10 +1421,11 @@ $styleString
             YamiboAppTheme.BLUE_BLACK
         } else {
             YamiboAppTheme.CLASSIC_LIGHT
-        }
+        },
+        pureBlack: Boolean = false
     ): String {
-        val darkJs = getDarkModeSetJs(isDark, darkThemeId, appTheme)
-        val lightJs = getLightModeSetJs(!isDark, lightThemeId, appTheme)
+        val darkJs = getDarkModeSetJs(isDark, darkThemeId, appTheme, pureBlack)
+        val lightJs = getLightModeSetJs(!isDark, lightThemeId, appTheme, pureBlack)
         return "$darkJs\n$lightJs"
     }
 
@@ -1445,13 +1449,14 @@ $styleString
             YamiboAppTheme.BLUE_BLACK
         } else {
             YamiboAppTheme.CLASSIC_LIGHT
-        }
+        },
+        pureBlack: Boolean = false
     ): String {
         val compacted = compactMobileForumPageSelector(html)
         val fixed = applyDesktopViewportForWebView(compacted, desktopFitScale)
         return when {
-            isDark -> injectDarkModeCssIntoHtml(fixed, darkThemeId, appTheme)
-            else -> injectLightModeCssIntoHtml(fixed, lightThemeId, appTheme)
+            isDark -> injectDarkModeCssIntoHtml(fixed, darkThemeId, appTheme, pureBlack)
+            else -> injectLightModeCssIntoHtml(fixed, lightThemeId, appTheme, pureBlack)
         }
     }
 

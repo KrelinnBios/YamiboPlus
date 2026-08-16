@@ -28,6 +28,16 @@ class ReaderModeDetector {
         }
 
         /**
+         * 判断板块名是否属于小说类板块（供原生论坛页判断帖子类型使用）
+         * @param forumName 帖子所属板块名
+         * @return 是否为小说类板块
+         */
+        fun isNovelForum(forumName: String?): Boolean {
+            if (forumName.isNullOrBlank()) return false
+            return textSections.any { forumName.contains(it) }
+        }
+
+        /**
          * 从完整URL中提取可用于导航到ReaderPage的路径
          * 例如: https://bbs.yamibo.com/forum.php?mod=viewthread&tid=563621&extra=page%3D1&mobile=2
          * 提取为: forum.php?mod=viewthread&tid=563621&extra=page%3D1&mobile=2

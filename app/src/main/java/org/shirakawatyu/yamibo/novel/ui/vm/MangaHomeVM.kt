@@ -37,7 +37,7 @@ class MangaHomeVM : ViewModel() {
     private val api = YamiboRetrofit.getInstance().create(MangaApi::class.java)
     private val _uiState = MutableStateFlow(MangaHomeState())
     val uiState = _uiState.asStateFlow()
-    private val coverSemaphore = Semaphore(6)
+    private val coverSemaphore = Semaphore(3)
     // tid -> 封面 URL 的内存缓存：切换分区、翻页、返回首页时复用，避免重复请求帖子详情接口。
     private val coverCache = java.util.concurrent.ConcurrentHashMap<String, String>()
     private var refreshVersion = 0L
@@ -71,17 +71,17 @@ class MangaHomeVM : ViewModel() {
     fun refresh() {
         val requestState = _uiState.value
         val version = ++refreshVersion
+        _uiState.update {
+            it.copy(
+                page = 1,
+                isLoading = true,
+                isLoadingMore = false,
+                hasMore = true,
+                error = null
+            )
+        }
         viewModelScope.launch(Dispatchers.IO) {
             if (version != refreshVersion) return@launch
-            _uiState.update {
-                it.copy(
-                    page = 1,
-                    isLoading = true,
-                    isLoadingMore = false,
-                    hasMore = true,
-                    error = null
-                )
-            }
             runCatching {
                 if (requestState.query.isBlank()) {
                     loadForumPage(requestState.selectedFid, 1)
@@ -101,7 +101,7 @@ class MangaHomeVM : ViewModel() {
                             hasMore = loaded.isNotEmpty()
                         )
                     }
-                    loadCoversProgressive(deduped.take(16).filter { it.coverUrl == null }, version)
+                    loadCoversProgressive(deduped.take(6).filter { it.coverUrl == null }, version)
                 }
                 .onFailure { error ->
                     if (error is CancellationException) throw error
@@ -123,8 +123,8 @@ class MangaHomeVM : ViewModel() {
         val nextPage = state.page + 1
         val requestFid = state.selectedFid
         val requestVersion = refreshVersion
+        _uiState.update { it.copy(isLoadingMore = true, error = null) }
         viewModelScope.launch(Dispatchers.IO) {
-            _uiState.update { it.copy(isLoadingMore = true, error = null) }
             runCatching { loadForumPage(requestFid, nextPage) }
                 .onSuccess { loaded ->
                     if (requestVersion != refreshVersion ||
@@ -139,7 +139,7 @@ class MangaHomeVM : ViewModel() {
                             hasMore = loaded.isNotEmpty()
                         )
                     }
-                    loadCoversProgressive(appended.take(10).filter { it.coverUrl == null }, requestVersion)
+                    loadCoversProgressive(appended.take(4).filter { it.coverUrl == null }, requestVersion)
                 }
                 .onFailure { error ->
                     if (error is CancellationException) throw error

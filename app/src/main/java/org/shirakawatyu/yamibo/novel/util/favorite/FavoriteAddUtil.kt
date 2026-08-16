@@ -65,6 +65,49 @@ object FavoriteAddUtil {
     }
 
     /**
+     * 取消远端板块收藏。
+     * Discuz 删除收藏依赖收藏记录的 favid（而非板块 fid），因此先拉取「我的收藏板块」
+     * 列表，找到 fid 对应的 favid 后再调用删除接口。
+     * @param fid 板块 ID
+     * @return 删除是否成功（未收藏该板块也视为成功，保证状态幂等）
+     */
+    suspend fun removeForumFavorite(fid: String): Boolean {
+        return withContext(Dispatchers.IO) {
+            try {
+                val forumApi = YamiboRetrofit.getInstance()
+                    .create(org.shirakawatyu.yamibo.novel.network.ForumApi::class.java)
+                val listJson = forumApi.getFavoriteForums().string()
+                val favId = findFavIdByForumId(listJson, fid)
+                    // 远端列表里已无该板块：视为已取消，保持状态幂等
+                    ?: return@withContext true
+
+                FavoriteDeleteUtil.deleteFavoritesBatch(null, listOf(favId))
+            } catch (_: Exception) {
+                false
+            }
+        }
+    }
+
+    /**
+     * 从 myfavforum 接口返回的 JSON 中解析板块 fid 对应的收藏记录 favid。
+     * 不同接口版本里板块 ID 字段可能是 id 或 fid，两者都尝试匹配。
+     */
+    internal fun findFavIdByForumId(rawJson: String, fid: String): String? {
+        if (rawJson.isBlank()) return null
+        return runCatching {
+            JSON.parseObject(rawJson)
+                ?.getJSONObject("Variables")
+                ?.getJSONArray("list")
+                ?.filterIsInstance<com.alibaba.fastjson2.JSONObject>()
+                ?.firstOrNull { item ->
+                    item.getString("id") == fid || item.getString("fid") == fid
+                }
+                ?.getString("favid")
+                ?.takeIf { it.isNotBlank() }
+        }.getOrNull()
+    }
+
+    /**
      * 解析添加收藏接口的响应。
      *
      * Discuz 不同入口返回的格式不一样：网页模板返回 HTML（含"收藏成功"），

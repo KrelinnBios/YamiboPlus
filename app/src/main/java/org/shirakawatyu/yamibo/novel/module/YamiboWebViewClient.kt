@@ -16,6 +16,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.compose.ui.graphics.toArgb
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -24,6 +25,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import org.shirakawatyu.yamibo.novel.constant.RequestConfig
 import org.shirakawatyu.yamibo.novel.global.GlobalData
+import org.shirakawatyu.yamibo.novel.ui.theme.effectiveScheme
 import org.shirakawatyu.yamibo.novel.util.CookieUtil
 import org.shirakawatyu.yamibo.novel.util.LanguageModeUtil
 import org.shirakawatyu.yamibo.novel.util.PageJsScripts
@@ -197,7 +199,9 @@ open class YamiboWebViewClient : WebViewClient() {
         isSuppressingThemeFlash = true
         suppressedThemeFlashUrl = url
         view?.animate()?.cancel()
-        view?.setBackgroundColor(0xFF0D141D.toInt())
+        view?.setBackgroundColor(
+            GlobalData.appTheme.value.effectiveScheme(GlobalData.pureBlackMode.value).background.toArgb()
+        )
         view?.alpha = 0f
     }
 
@@ -224,7 +228,8 @@ open class YamiboWebViewClient : WebViewClient() {
                 GlobalData.isDarkMode.value,
                 GlobalData.darkModeTheme.value,
                 GlobalData.lightModeTheme.value,
-                GlobalData.appTheme.value
+                GlobalData.appTheme.value,
+                pureBlack = GlobalData.pureBlackMode.value
             )
         ) { onComplete?.invoke() }
     }
