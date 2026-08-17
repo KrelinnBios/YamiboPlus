@@ -112,6 +112,7 @@ import org.shirakawatyu.yamibo.novel.ui.vm.FavoriteTypeResolver
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.ui.widget.OnboardingOverlay
 import org.shirakawatyu.yamibo.novel.ui.widget.OnboardingStep
+import org.shirakawatyu.yamibo.novel.ui.widget.ObserveBottomBarLazyListScroll
 import org.shirakawatyu.yamibo.novel.ui.widget.TopBar
 import org.shirakawatyu.yamibo.novel.ui.widget.YamiboToast
 import org.shirakawatyu.yamibo.novel.ui.widget.favorite.FavoriteTopSearchField
@@ -273,6 +274,7 @@ fun FavoritePage(
     }
     val hapticFeedback = LocalHapticFeedback.current
     val lazyListState = rememberLazyListState()
+    ObserveBottomBarLazyListScroll(lazyListState, bottomNavBarVM)
     var previousFavoriteUrls by remember { mutableStateOf(favoriteList.map { it.url }.toSet()) }
     var keepTopAfterUnpin by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()

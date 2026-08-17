@@ -117,6 +117,7 @@ import org.shirakawatyu.yamibo.novel.ui.component.YamiboLoadError
 import org.shirakawatyu.yamibo.novel.ui.theme.effectiveScheme
 import org.shirakawatyu.yamibo.novel.ui.theme.yamiboSwitchColors
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
+import org.shirakawatyu.yamibo.novel.ui.widget.ObserveBottomBarWebViewScroll
 import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
 import org.shirakawatyu.yamibo.novel.ui.vm.MinePageVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
@@ -440,7 +441,7 @@ fun MinePage(
                     WindowCompat.getInsetsController(window, view)
                         .show(WindowInsetsCompat.Type.systemBars())
                 }
-                bottomNavBarVM.setBottomNavBarVisibility(true)
+                bottomNavBarVM.updateBottomBarSuppressed(false)
             }
         }
     }
@@ -564,6 +565,7 @@ fun MinePage(
 
         webView
     }
+    ObserveBottomBarWebViewScroll(mineWebView, bottomNavBarVM)
 
     // 下拉刷新：重新加载当前页面（无可用 URL 时回到个人主页）
     fun triggerMinePullRefresh() {
@@ -859,10 +861,10 @@ fun MinePage(
             controller.hide(WindowInsetsCompat.Type.systemBars())
             controller.systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            bottomNavBarVM.setBottomNavBarVisibility(false)
+            bottomNavBarVM.updateBottomBarSuppressed(true)
         } else {
             controller.show(WindowInsetsCompat.Type.systemBars())
-            bottomNavBarVM.setBottomNavBarVisibility(true)
+            bottomNavBarVM.updateBottomBarSuppressed(false)
         }
     }
 
@@ -1391,7 +1393,7 @@ fun MinePage(
     val isImeVisible = WindowInsets.ime.asPaddingValues().calculateBottomPadding() > 0.dp
 
     LaunchedEffect(isFullscreen, isImeVisible) {
-        bottomNavBarVM.setBottomNavBarVisibility(!isFullscreen && !isImeVisible)
+        bottomNavBarVM.updateBottomBarSuppressed(!isFullscreen && !isImeVisible)
     }
 
     val topSpacerColor = if (isFullscreen) Color.Black else MaterialTheme.colorScheme.primary

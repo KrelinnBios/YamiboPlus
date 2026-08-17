@@ -1,7 +1,9 @@
 package org.shirakawatyu.yamibo.novel.ui.page
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -23,10 +26,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -48,12 +54,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.activity.ComponentActivity
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -63,6 +75,8 @@ import org.shirakawatyu.yamibo.novel.bean.space.SpaceTabSpec
 import org.shirakawatyu.yamibo.novel.ui.component.YamiboLoadError
 import org.shirakawatyu.yamibo.novel.ui.theme.yamiboComponentColors
 import org.shirakawatyu.yamibo.novel.ui.vm.SpaceListVM
+import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
+import org.shirakawatyu.yamibo.novel.ui.widget.ObserveBottomBarLazyListScroll
 
 @Composable
 fun SpaceAvatar(
@@ -106,6 +120,7 @@ fun NativeSpaceListPage(
     val headerContent = componentColors.topBarContent
     var selectedTab by remember { mutableIntStateOf(initialTabIndex.coerceIn(tabs.indices)) }
     var selectedCategoryId by remember { mutableStateOf("") }
+    var blogMenuTarget by remember { mutableStateOf<SpaceListItem.Blog?>(null) }
     val viewModel: SpaceListVM = viewModel(
         key = "SpaceList-${tabs.joinToString("-") { it.request.kind.name }}-$uid",
         factory = SpaceListVM.Factory(uid)
@@ -126,6 +141,12 @@ fun NativeSpaceListPage(
 
     val pullState = rememberPullToRefreshState()
     val listState = rememberLazyListState()
+    val bottomNavBarVM: BottomNavBarVM? = if (showBottomNavBar) {
+        viewModel(viewModelStoreOwner = LocalContext.current as ComponentActivity)
+    } else {
+        null
+    }
+    bottomNavBarVM?.let { ObserveBottomBarLazyListScroll(listState, it) }
     val refreshing = state.isLoading && state.items.isNotEmpty()
 
     LaunchedEffect(currentRequest, state.page) {
@@ -157,7 +178,8 @@ fun NativeSpaceListPage(
                     text = title,
                     color = headerContent,
                     fontSize = 18.sp,
-                    fontWeight = FontWeight.Medium
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.weight(1f)
                 )
                 if (onTopBarAction != null) {
                     IconButton(onClick = onTopBarAction) {
@@ -278,7 +300,11 @@ fun NativeSpaceListPage(
                             SpaceListItemRow(
                                 item = item,
                                 onClick = { onItemClick(item) },
-                                onActionClick = onActionClick
+                                onBlogLongClick = if (item is SpaceListItem.Blog &&
+                                    (item.editUrl.isNotBlank() || item.stickUrl.isNotBlank() || item.deleteUrl.isNotBlank())
+                                ) {
+                                    { blogMenuTarget = item }
+                                } else null
                             )
                         }
                         if (state.isLoadingMore) {
@@ -292,7 +318,7 @@ fun NativeSpaceListPage(
                                     CircularProgressIndicator(modifier = Modifier.size(26.dp))
                                 }
                             }
-                        } else {
+                        } else if (state.previousUrl != null || state.nextUrl != null) {
                             item(key = "load-more") {
                                 Row(
                                     modifier = Modifier
@@ -305,12 +331,6 @@ fun NativeSpaceListPage(
                                         enabled = state.previousUrl != null,
                                         onClick = { viewModel.loadPrevious(currentRequest) }
                                     ) { Text("上一页") }
-                                    Text(
-                                        text = "第 ${state.page} 页",
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        fontSize = 13.sp,
-                                        modifier = Modifier.padding(horizontal = 8.dp)
-                                    )
                                     TextButton(
                                         enabled = state.nextUrl != null,
                                         onClick = { viewModel.loadMore(currentRequest) }
@@ -319,6 +339,16 @@ fun NativeSpaceListPage(
                             }
                         }
                     }
+                }
+                blogMenuTarget?.let { target ->
+                    BlogActionMenu(
+                        target = target,
+                        onDismiss = { blogMenuTarget = null },
+                        onAction = { url ->
+                            blogMenuTarget = null
+                            onActionClick(url)
+                        }
+                    )
                 }
             }
         }
@@ -329,14 +359,14 @@ fun NativeSpaceListPage(
 private fun SpaceListItemRow(
     item: SpaceListItem,
     onClick: () -> Unit,
-    onActionClick: (String) -> Unit
+    onBlogLongClick: (() -> Unit)?
 ) {
     when (item) {
         is SpaceListItem.PrivateMessage -> PmItemRow(item, onClick)
         is SpaceListItem.Notice -> NoticeItemRow(item, onClick)
         is SpaceListItem.Friend -> FriendItemRow(item, onClick)
         is SpaceListItem.Doing -> DoingItemRow(item)
-        is SpaceListItem.Blog -> BlogItemRow(item, onClick, onActionClick)
+        is SpaceListItem.Blog -> BlogItemRow(item, onClick, onBlogLongClick)
         is SpaceListItem.UserThread -> UserThreadItemRow(item, onClick)
     }
 }
@@ -548,13 +578,34 @@ private fun DoingItemRow(item: SpaceListItem.Doing) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun BlogItemRow(
     item: SpaceListItem.Blog,
     onClick: () -> Unit,
-    onActionClick: (String) -> Unit
+    onLongClick: (() -> Unit)?
 ) {
-    ItemCard(onClick) {
+    val hapticFeedback = LocalHapticFeedback.current
+    val cardModifier = Modifier
+        .fillMaxWidth()
+        .padding(vertical = 4.dp)
+    Surface(
+        modifier = if (onLongClick != null) {
+            cardModifier.combinedClickable(
+                onClick = onClick,
+                onLongClick = {
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onLongClick()
+                }
+            )
+        } else {
+            cardModifier.clickable(onClick = onClick)
+        },
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        tonalElevation = 0.dp,
+        shadowElevation = 1.dp
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -594,35 +645,99 @@ private fun BlogItemRow(
                 overflow = TextOverflow.Ellipsis
             )
             Spacer(Modifier.height(6.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = item.authorName,
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    text = item.time,
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                )
-            }
-            if (item.editUrl.isNotBlank() || item.stickUrl.isNotBlank() || item.deleteUrl.isNotBlank()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    if (item.editUrl.isNotBlank()) {
-                        TextButton(onClick = { onActionClick(item.editUrl) }) { Text("编辑") }
-                    }
-                    if (item.stickUrl.isNotBlank()) {
-                        TextButton(onClick = { onActionClick(item.stickUrl) }) { Text("置顶") }
-                    }
-                    if (item.deleteUrl.isNotBlank()) {
-                        TextButton(onClick = { onActionClick(item.deleteUrl) }) { Text("删除") }
-                    }
+            Text(
+                text = item.time,
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun BlogActionMenu(
+    target: SpaceListItem.Blog,
+    onDismiss: () -> Unit,
+    onAction: (String) -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            modifier = Modifier
+                .widthIn(max = 280.dp)
+                .fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surface,
+            shadowElevation = 8.dp
+        ) {
+            Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                if (target.title.isNotBlank()) {
+                    Text(
+                        text = target.title,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
+                    )
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                        modifier = Modifier.padding(horizontal = 12.dp)
+                    )
+                }
+                if (target.editUrl.isNotBlank()) {
+                    BlogMenuAction(
+                        label = "编辑",
+                        icon = Icons.Filled.Edit,
+                        onClick = { onAction(target.editUrl) }
+                    )
+                }
+                if (target.stickUrl.isNotBlank()) {
+                    BlogMenuAction(
+                        label = "置顶",
+                        icon = Icons.Filled.KeyboardArrowUp,
+                        onClick = { onAction(target.stickUrl) }
+                    )
+                }
+                if (target.deleteUrl.isNotBlank()) {
+                    BlogMenuAction(
+                        label = "删除",
+                        icon = Icons.Filled.Delete,
+                        danger = true,
+                        onClick = { onAction(target.deleteUrl) }
+                    )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun BlogMenuAction(
+    label: String,
+    icon: ImageVector,
+    danger: Boolean = false,
+    onClick: () -> Unit
+) {
+    val contentColor = if (danger) MaterialTheme.colorScheme.error
+    else MaterialTheme.colorScheme.onSurface
+    TextButton(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint = contentColor
+            )
+            Spacer(Modifier.width(16.dp))
+            Text(label, color = contentColor)
         }
     }
 }

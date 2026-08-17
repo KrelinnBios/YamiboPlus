@@ -368,7 +368,7 @@ fun MangaWebPage(
     }
     DisposableEffect(Unit) {
         onDispose {
-            bottomNavBarVM.setBottomNavBarVisibility(true)
+            bottomNavBarVM.updateBottomBarSuppressed(true)
         }
     }
 
@@ -383,12 +383,12 @@ fun MangaWebPage(
             controller.hide(WindowInsetsCompat.Type.systemBars())
             controller.systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            bottomNavBarVM.setBottomNavBarVisibility(false)
+            bottomNavBarVM.updateBottomBarSuppressed(false)
         } else {
             WindowCompat.setDecorFitsSystemWindows(window, false)
             controller.show(WindowInsetsCompat.Type.systemBars())
             controller.isAppearanceLightStatusBars = false
-            bottomNavBarVM.setBottomNavBarVisibility(true)
+            bottomNavBarVM.updateBottomBarSuppressed(true)
         }
     }
 
@@ -746,7 +746,7 @@ fun MangaWebPage(
     }
 
     val performExit = {
-        bottomNavBarVM.setBottomNavBarVisibility(true)
+        bottomNavBarVM.updateBottomBarSuppressed(true)
         view.post { navController.navigateUp() }
     }
     BackHandler(enabled = true) {

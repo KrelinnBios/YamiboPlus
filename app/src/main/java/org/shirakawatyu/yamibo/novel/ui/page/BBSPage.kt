@@ -93,6 +93,7 @@ import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
 import org.shirakawatyu.yamibo.novel.ui.component.YamiboLoadError
 import org.shirakawatyu.yamibo.novel.ui.state.BBSPageState
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
+import org.shirakawatyu.yamibo.novel.ui.widget.ObserveBottomBarWebViewScroll
 import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.ui.widget.BbsSkeletonScreen
@@ -792,6 +793,7 @@ fun BBSPage(
     val forumBlocklistApi = remember { ForumBlocklistJSInterface() }
     val bottomNavBarVM: BottomNavBarVM =
         viewModel(viewModelStoreOwner = LocalContext.current as ComponentActivity)
+    ObserveBottomBarWebViewScroll(webView, bottomNavBarVM)
     val mangaDirVM: MangaDirectoryVM = viewModel(
         factory = ViewModelFactory(LocalContext.current.applicationContext)
     )
@@ -806,10 +808,10 @@ fun BBSPage(
             controller.hide(WindowInsetsCompat.Type.systemBars())
             controller.systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            bottomNavBarVM.setBottomNavBarVisibility(false)
+            bottomNavBarVM.updateBottomBarSuppressed(true)
         } else {
             controller.show(WindowInsetsCompat.Type.systemBars())
-            bottomNavBarVM.setBottomNavBarVisibility(true)
+            bottomNavBarVM.updateBottomBarSuppressed(false)
         }
     }
 
@@ -834,7 +836,7 @@ fun BBSPage(
                     WindowCompat.getInsetsController(window, view)
                         .show(WindowInsetsCompat.Type.systemBars())
                 }
-                bottomNavBarVM.setBottomNavBarVisibility(true)
+                bottomNavBarVM.updateBottomBarSuppressed(false)
             }
         }
     }

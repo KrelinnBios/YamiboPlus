@@ -66,6 +66,7 @@ import org.shirakawatyu.yamibo.novel.ui.theme.yamiboComponentColors
 import org.shirakawatyu.yamibo.novel.ui.state.MinePageState
 import org.shirakawatyu.yamibo.novel.ui.vm.NativeMinePageVM
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
+import org.shirakawatyu.yamibo.novel.ui.widget.ObserveBottomBarScrollState
 import org.shirakawatyu.yamibo.novel.util.AutoSignManager
 import org.shirakawatyu.yamibo.novel.util.TodaySignStatus
 import org.shirakawatyu.yamibo.novel.util.LanguageModeUtil
@@ -105,6 +106,7 @@ fun NativeMinePage(
     val syncedTodaySignStatus by AutoSignManager.todaySignStatus.collectAsState()
     var todaySignStatus by rememberSaveable { mutableStateOf<TodaySignStatus?>(null) }
     val scrollState = rememberScrollState()
+    ObserveBottomBarScrollState(scrollState, bottomNavBarVM)
     val lastSignStatusRefreshUid = rememberSaveable { mutableStateOf<String?>(null) }
     val lastSignStatusRefreshDate = rememberSaveable { mutableStateOf("") }
 

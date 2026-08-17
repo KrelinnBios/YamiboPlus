@@ -82,7 +82,7 @@ class SpaceListVM(
         }
     }
 
-    fun loadMore(request: SpaceListRequest) {
+    fun loadMore(request: SpaceListRequest, append: Boolean = false) {
         val baseRequest = requestWithUid(request)
         val current = states[baseRequest] ?: return
         if (current.isLoading || current.isLoadingMore || current.nextUrl == null) return
@@ -97,7 +97,7 @@ class SpaceListVM(
                 }
                 val now = states[baseRequest] ?: current
                 states[baseRequest] = now.copy(
-                    items = result.items,
+                    items = if (append) now.items + result.items else result.items,
                     page = nextPage,
                     isLoadingMore = false,
                     hasMore = result.nextUrl != null,

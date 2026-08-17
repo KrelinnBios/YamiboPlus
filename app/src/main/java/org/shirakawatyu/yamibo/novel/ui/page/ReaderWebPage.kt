@@ -188,7 +188,7 @@ fun ReaderWebPage(
             val controller = WindowCompat.getInsetsController(window, view)
             controller.show(WindowInsetsCompat.Type.systemBars())
         }
-        bottomNavBarVM.setBottomNavBarVisibility(true)
+        bottomNavBarVM.updateBottomBarSuppressed(true)
         view.post { navController.navigateUp() }
     }
 
@@ -309,7 +309,7 @@ fun ReaderWebPage(
                     WindowCompat.getInsetsController(window, view)
                         .show(WindowInsetsCompat.Type.systemBars())
                 }
-                bottomNavBarVM.setBottomNavBarVisibility(true)
+                bottomNavBarVM.updateBottomBarSuppressed(true)
             }
         }
     }
@@ -468,7 +468,7 @@ fun ReaderWebPage(
             controller.systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
-        bottomNavBarVM.setBottomNavBarVisibility(false)
+        bottomNavBarVM.updateBottomBarSuppressed(false)
 
         if (shouldReturnToExistingReader) {
             navController.navigateUp()
@@ -512,10 +512,10 @@ fun ReaderWebPage(
             controller.hide(WindowInsetsCompat.Type.systemBars())
             controller.systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            bottomNavBarVM.setBottomNavBarVisibility(false)
+            bottomNavBarVM.updateBottomBarSuppressed(false)
         } else {
             controller.show(WindowInsetsCompat.Type.systemBars())
-            bottomNavBarVM.setBottomNavBarVisibility(true)
+            bottomNavBarVM.updateBottomBarSuppressed(true)
         }
     }
 

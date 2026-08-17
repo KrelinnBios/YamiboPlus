@@ -152,6 +152,7 @@ import org.shirakawatyu.yamibo.novel.ui.theme.yamiboComponentColors
 import org.shirakawatyu.yamibo.novel.ui.vm.ForumThreadVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ForumVM
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
+import org.shirakawatyu.yamibo.novel.ui.widget.ObserveBottomBarLazyListScroll
 import org.shirakawatyu.yamibo.novel.util.manga.MangaImagePipeline
 import org.shirakawatyu.yamibo.novel.util.favorite.FavoriteUtil
 import org.shirakawatyu.yamibo.novel.ui.vm.FavoriteVM
@@ -224,6 +225,7 @@ fun NativeForumPageV2(
     val blocklistEnabled by ForumBlocklistManager.enabled.collectAsState()
     val blockedItems by ForumBlocklistManager.items.collectAsState()
     val listState = rememberLazyListState()
+    ObserveBottomBarLazyListScroll(listState, bottomNavBarVM)
     val pullState = rememberPullToRefreshState()
     val scope = rememberCoroutineScope()
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
@@ -1028,6 +1030,7 @@ fun NativeThreadPageV2(
         factory = ViewModelFactory(context.applicationContext)
     )
     val listState = rememberLazyListState()
+    ObserveBottomBarLazyListScroll(listState, bottomNavBarVM)
     val pullState = rememberPullToRefreshState()
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val componentColors = yamiboComponentColors()

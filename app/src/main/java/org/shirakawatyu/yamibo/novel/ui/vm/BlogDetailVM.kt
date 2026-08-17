@@ -22,6 +22,7 @@ internal class BlogDetailVM(
     val reactionSnapshot = mutableStateOf<BlogReactionSnapshot?>(null)
     val reactionBusy = mutableStateOf(false)
     val reactionMessage = mutableStateOf<String?>(null)
+    val commentBusy = mutableStateOf(false)
 
     init {
         load()
@@ -71,6 +72,56 @@ internal class BlogDetailVM(
                 reactionMessage.value = e.message ?: "表态失败"
             } finally {
                 reactionBusy.value = false
+            }
+        }
+    }
+
+    fun submitComment(message: String, onResult: (String, Boolean) -> Unit) {
+        val current = detail.value ?: return
+        val text = message.trim()
+        if (text.isBlank() || commentBusy.value) return
+        commentBusy.value = true
+        viewModelScope.launch {
+            try {
+                detail.value = withContext(Dispatchers.IO) {
+                    repository.submitBlogComment(url, current, text)
+                }
+                onResult("评论已发表", true)
+            } catch (e: Exception) {
+                onResult(e.message ?: "评论失败，请稍后重试", false)
+            } finally {
+                commentBusy.value = false
+            }
+        }
+    }
+
+    fun replyComment(comment: org.shirakawatyu.yamibo.novel.bean.space.BlogComment, message: String, onResult: (String, Boolean) -> Unit) =
+        submitCommentAction(comment.replyUrl, message, "回复已发表", onResult)
+
+    fun editComment(comment: org.shirakawatyu.yamibo.novel.bean.space.BlogComment, message: String, onResult: (String, Boolean) -> Unit) =
+        submitCommentAction(comment.editUrl, message, "评论已修改", onResult)
+
+    fun deleteComment(comment: org.shirakawatyu.yamibo.novel.bean.space.BlogComment, onResult: (String, Boolean) -> Unit) =
+        submitCommentAction(comment.deleteUrl, null, "评论已删除", onResult)
+
+    private fun submitCommentAction(
+        actionUrl: String,
+        message: String?,
+        successMessage: String,
+        onResult: (String, Boolean) -> Unit
+    ) {
+        if (actionUrl.isBlank() || commentBusy.value) return
+        commentBusy.value = true
+        viewModelScope.launch {
+            try {
+                detail.value = withContext(Dispatchers.IO) {
+                    repository.submitBlogCommentAction(url, actionUrl, message)
+                }
+                onResult(successMessage, true)
+            } catch (e: Exception) {
+                onResult(e.message ?: "评论操作失败，请稍后重试", false)
+            } finally {
+                commentBusy.value = false
             }
         }
     }

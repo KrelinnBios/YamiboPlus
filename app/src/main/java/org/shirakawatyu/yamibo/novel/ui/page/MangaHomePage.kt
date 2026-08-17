@@ -84,6 +84,7 @@ import org.shirakawatyu.yamibo.novel.ui.vm.FavoriteTypeResolver
 import org.shirakawatyu.yamibo.novel.ui.vm.MangaHomeVM
 import org.shirakawatyu.yamibo.novel.ui.widget.OnboardingOverlay
 import org.shirakawatyu.yamibo.novel.ui.widget.OnboardingStep
+import org.shirakawatyu.yamibo.novel.ui.widget.ObserveBottomBarLazyListScroll
 
 import org.shirakawatyu.yamibo.novel.util.OnboardingUtil
 import org.shirakawatyu.yamibo.novel.util.favorite.FavoriteUtil
@@ -102,6 +103,7 @@ fun MangaHomePage(
     val bottomNavBarVM: BottomNavBarVM =
         viewModel(viewModelStoreOwner = context as ComponentActivity)
     val listState = rememberLazyListState()
+    ObserveBottomBarLazyListScroll(listState, bottomNavBarVM)
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val scope = rememberCoroutineScope()
     var openingTid by remember { mutableStateOf<String?>(null) }

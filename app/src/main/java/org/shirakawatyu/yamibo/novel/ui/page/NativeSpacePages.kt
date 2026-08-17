@@ -25,6 +25,9 @@ fun NativeMessageCenterPage(
         ),
         navController = navController,
         uid = uid,
+        // 空间列表页是普通内容页（参照 QQ 联系人/消息列表），底栏常驻；
+        // 列表需要为底栏预留底部滚动空间。
+        showBottomNavBar = true,
         onItemClick = { item ->
             when (item) {
                 is SpaceListItem.PrivateMessage -> onOpenConversation(item)
@@ -64,6 +67,7 @@ fun NativeFriendPage(
         ),
         navController = navController,
         uid = uid,
+        showBottomNavBar = true,
         onItemClick = { item ->
             when (item) {
                 is SpaceListItem.Friend -> onOpenFriendSpace(item)
@@ -90,6 +94,8 @@ fun NativeDoingPage(
         ),
         navController = navController,
         uid = uid,
+        initialTabIndex = 1,
+        showBottomNavBar = true,
         onItemClick = {}
     )
 }
@@ -113,6 +119,8 @@ fun NativeBlogPage(
         ),
         navController = navController,
         uid = uid,
+        initialTabIndex = 1,
+        showBottomNavBar = true,
         showCategories = true,
         onTopBarAction = {
             onOpenBlogAction(
@@ -150,6 +158,7 @@ fun NativeUserThreadsPage(
         ),
         navController = navController,
         uid = uid,
+        showBottomNavBar = true,
         initialTabIndex = if (initialTab == "reply") 1 else 0,
         onItemClick = { item ->
             when (item) {

@@ -114,7 +114,6 @@ private fun mobileSpaceThemeCssRules(
     val topBar = if (isDark) scheme.primaryContainer else scheme.primary
     val topBarContent = if (isDark) scheme.onPrimaryContainer else scheme.onPrimary
     val card = scheme.surface
-    val cardLow = scheme.surfaceContainerLow
     val cardHigh = scheme.surfaceContainerHigh
     val outline = scheme.outlineVariant
     val link = scheme.primary
@@ -124,7 +123,7 @@ private fun mobileSpaceThemeCssRules(
         "body.pg_space .header, body.pg_spacecp .header { background-color: ${topBar.toCssHex()} !important; border-color: ${outline.toCssHex()} !important; color: ${topBarContent.toCssHex()} !important; }",
         "body.pg_space .header h2, body.pg_space .header h2 a, body.pg_space .header a, body.pg_space .header i, body.pg_spacecp .header h2, body.pg_spacecp .header h2 a, body.pg_spacecp .header a, body.pg_spacecp .header i { color: ${topBarContent.toCssHex()} !important; }",
         "body.pg_space .user_box, body.pg_space .myinfo_list, body.pg_space .myinfo_list_ico, body.pg_space .myinfo_list_ico ul { background-color: ${card.toCssHex()} !important; border-color: ${outline.toCssHex()} !important; }",
-        "body.pg_space .myinfo_list_ico li, body.pg_space .myinfo_list_ico li a { background-color: ${cardLow.toCssHex()} !important; border-color: ${outline.toCssHex()} !important; color: ${scheme.onSurface.toCssHex()} !important; }",
+        "body.pg_space .myinfo_list_ico li, body.pg_space .myinfo_list_ico li a { background-color: ${card.toCssHex()} !important; border-color: ${outline.toCssHex()} !important; color: ${scheme.onSurface.toCssHex()} !important; }",
         "body.pg_space .user_avatar .name { color: ${link.toCssHex()} !important; }",
         "body.pg_space .user_box, body.pg_space .myinfo_list, body.pg_space .myinfo_list li, body.pg_space .myinfo_list .sig { color: ${scheme.onSurface.toCssHex()} !important; }",
         "body.pg_space .user_box li span, body.pg_space .myinfo_list li span { color: ${scheme.onSurfaceVariant.toCssHex()} !important; }",

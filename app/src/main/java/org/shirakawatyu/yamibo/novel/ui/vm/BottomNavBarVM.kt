@@ -21,8 +21,22 @@ class BottomNavBarVM : ViewModel() {
     private val pageList = listOf("MangaHomePage", "FavoritePage", "BBSPage", "MinePage")
     var isBbsAtRoot by mutableStateOf(true)
     var isMineAtRoot by mutableStateOf(true)
-    var showBottomNavBar by mutableStateOf(true)
+
+    /**
+     * 底栏可见性 = 路由许可（由 [org.shirakawatyu.yamibo.novel.ui.state.BottomBarPolicy]
+     * 在路由变化时统一设置）&& 无瞬时抑制（页面内全屏、输入法弹出等场景，
+     * 由页面通过 [setBottomBarSuppressed] 声明，页面离开时必须清除）。
+     * 页面不要再直接改这个结果，避免和集中式策略互相覆盖。
+     */
+    var routeAllowsBottomBar by mutableStateOf(true)
         private set
+    var bottomBarSuppressed by mutableStateOf(false)
+        private set
+    var bottomBarScrollSuppressed by mutableStateOf(false)
+        private set
+    val showBottomNavBar: Boolean
+        get() = routeAllowsBottomBar && !bottomBarSuppressed && !bottomBarScrollSuppressed
+
     private val _goHomeEvent = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val goHomeEvent = _goHomeEvent.asSharedFlow()
     private val _categoryHomeEvent = MutableSharedFlow<Int>(extraBufferCapacity = 4)
@@ -43,7 +57,7 @@ class BottomNavBarVM : ViewModel() {
         val targetRoute = pageList[index]
         val routeChanged = currentRoute != targetRoute
         if (routeChanged) {
-            showBottomNavBar = true
+            routeAllowsBottomBar = true
             val isTransientWebRoute =
                 currentRoute?.startsWith("MangaWebPage") == true ||
                         currentRoute?.startsWith("ReaderWebPage") == true ||
@@ -91,7 +105,27 @@ class BottomNavBarVM : ViewModel() {
         }
     }
 
-    fun setBottomNavBarVisibility(visible: Boolean) {
-        showBottomNavBar = visible
+    /** 路由变化时由集中式策略（BottomBarPolicy）调用，页面不要直接调用。 */
+    fun applyRouteBottomBarPolicy(allows: Boolean) {
+        routeAllowsBottomBar = allows
+        // 页面销毁时可能留下瞬时抑制状态（例如登录/网页页返回主页面），
+        // 进入新的普通路由后必须清除，不能让底栏永久消失。
+        if (allows) {
+            bottomBarSuppressed = false
+            bottomBarScrollSuppressed = false
+        }
+    }
+
+    /**
+     * 页面内瞬时抑制（全屏、输入法弹出等）。抑制只在该页面存活期间有效，
+     * 页面 onDispose 时必须调用 updateBottomBarSuppressed(false) 清除。
+     */
+    fun updateBottomBarSuppressed(suppressed: Boolean) {
+        bottomBarSuppressed = suppressed
+    }
+
+    /** 普通内容页随滚动方向临时隐藏/显示底栏。 */
+    fun updateBottomBarScrollSuppressed(suppressed: Boolean) {
+        bottomBarScrollSuppressed = suppressed
     }
 }

@@ -11,6 +11,8 @@ import org.shirakawatyu.yamibo.novel.bean.space.SpaceCategory
 import org.shirakawatyu.yamibo.novel.bean.space.BlogComment
 import org.shirakawatyu.yamibo.novel.bean.space.BlogContentBlock
 import org.shirakawatyu.yamibo.novel.bean.space.BlogDetail
+import org.shirakawatyu.yamibo.novel.bean.space.PrivateMessageBubble
+import org.shirakawatyu.yamibo.novel.bean.space.PrivateMessageConversation
 
 /**
  * 手机版空间页 HTML 解析器。
@@ -44,6 +46,43 @@ object SpaceMobileParser {
 
     fun isLoginRequired(html: String): Boolean =
         html.contains("mod=logging") && html.contains("formhash")
+
+    /**
+     * 解析私信对话页（do=pm&subop=view）：
+     * 对方消息 .friend_msg，自己消息 .self_msg，表单提供 pmid/formhash/touid。
+     */
+    fun parsePrivateMessageConversation(html: String, url: String): PrivateMessageConversation {
+        val document = Jsoup.parse(html, ORIGIN)
+        val messages = mutableListOf<PrivateMessageBubble>()
+        document.select(".msgbox .friend_msg, .msgbox .self_msg").forEach { item ->
+            val isSelf = item.hasClass("self_msg")
+            val content = item.selectFirst(".dialog_c")?.text()?.trim().orEmpty()
+            val time = item.selectFirst(".date")?.text()?.trim().orEmpty()
+            val avatar = item.selectFirst(".avat img")?.let { avatarUrl(it, null) }
+            messages += PrivateMessageBubble(
+                isSelf = isSelf,
+                authorName = "",
+                avatarUrl = avatar,
+                content = content,
+                time = time
+            )
+        }
+        val form = document.selectFirst("#pmform")
+        val title = document.selectFirst(".header h2")?.text()?.trim().orEmpty()
+        return PrivateMessageConversation(
+            touid = form?.selectFirst("input[name=touid]")?.attr("value").orEmpty(),
+            title = title,
+            pmid = Regex("[?&]pmid=(\\d+)")
+                .find(form?.attr("action").orEmpty())
+                ?.groupValues
+                ?.getOrNull(1)
+                .orEmpty(),
+            formHash = form?.selectFirst("input[name=formhash]")?.attr("value").orEmpty(),
+            messages = messages,
+            previousUrl = pageUrl(document, previous = true),
+            nextUrl = pageUrl(document, previous = false)
+        )
+    }
 
     fun parseBlogDetail(html: String, url: String): BlogDetail {
         val document = Jsoup.parse(html, ORIGIN)

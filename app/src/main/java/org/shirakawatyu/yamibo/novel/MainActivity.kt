@@ -100,6 +100,7 @@ import org.shirakawatyu.yamibo.novel.ui.page.NativeErrorLogPage
 import org.shirakawatyu.yamibo.novel.ui.page.NativeBackupPage
 import org.shirakawatyu.yamibo.novel.ui.page.NativeBlocklistPage
 import org.shirakawatyu.yamibo.novel.ui.page.NativeMessageCenterPage
+import org.shirakawatyu.yamibo.novel.ui.page.NativePrivateMessagePage
 import org.shirakawatyu.yamibo.novel.ui.page.NativeFriendPage
 import org.shirakawatyu.yamibo.novel.ui.page.NativeDoingPage
 import org.shirakawatyu.yamibo.novel.ui.page.NativeBlogPage
@@ -109,6 +110,7 @@ import org.shirakawatyu.yamibo.novel.ui.page.NativeMangaPage
 import org.shirakawatyu.yamibo.novel.ui.page.NativeForumPageV2
 import org.shirakawatyu.yamibo.novel.ui.page.NativeThreadPageV2
 import org.shirakawatyu.yamibo.novel.ui.page.HistoryPage
+import org.shirakawatyu.yamibo.novel.ui.state.BottomBarPolicy
 import org.shirakawatyu.yamibo.novel.ui.vm.ForumVM
 import org.shirakawatyu.yamibo.novel.ui.page.OtherWebPage
 import org.shirakawatyu.yamibo.novel.ui.page.ReaderPage
@@ -639,10 +641,11 @@ fun App(webChromeClient: WebChromeClient) {
                                         currentRoute?.startsWith("MineHistoryPostPage") == true -> "MinePage"
                                 else -> activeTopLevelRoute
                             }
-                            val isReaderRoute =
-                                currentRoute?.startsWith("ReaderPage") == true ||
-                                        currentRoute?.startsWith("NativeMangaPage") == true
-                            bottomNavBarVM.setBottomNavBarVisibility(!isReaderRoute)
+                            // 底栏可见性统一由集中式路由策略决定（参考 QQ：
+                            // 普通内容页显示，沉浸阅读/编辑表单/设置隐藏）。
+                            bottomNavBarVM.applyRouteBottomBarPolicy(
+                                BottomBarPolicy.shouldShowBottomBar(currentRoute)
+                            )
                         }
 
                         OnboardingOverlay(
@@ -1183,19 +1186,52 @@ fun App(webChromeClient: WebChromeClient) {
                                          fadeOut(tween(150))
                                     }
                                 ) {
-                                    NativeMessageCenterPage(
-                                        navController = navController,
-                                        uid = GlobalData.currentUid,
-                                        onOpenConversation = { item ->
-                                            navController.navigate(
-                                                "OtherWebPage/" + Uri.encode(item.url)
-                                            )
-                                        },
-                                        onOpenNotice = { item ->
-                                            navController.navigate(
-                                                "OtherWebPage/" + Uri.encode(item.url)
+                                    Box(modifier = Modifier.fillMaxSize()) {
+                                        NativeMessageCenterPage(
+                                            navController = navController,
+                                            uid = GlobalData.currentUid,
+                                            onOpenConversation = { item ->
+                                                navController.navigate(
+                                                    "NativePrivateMessagePage/" + Uri.encode(item.url)
+                                                )
+                                            },
+                                            onOpenNotice = { item ->
+                                                navController.navigate(
+                                                    "OtherWebPage/" + Uri.encode(item.url)
+                                                )
+                                            }
+                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .align(Alignment.BottomCenter)
+                                                .padding(bottom = lockedNavHeight)
+                                        ) {
+                                            BottomNavBar(
+                                                navController = navController,
+                                                currentRoute = "NativeMessageCenterPage",
+                                                selectedRoute = "MinePage",
+                                                navBarVM = bottomNavBarVM
                                             )
                                         }
+                                    }
+                                }
+                                composable(
+                                    "NativePrivateMessagePage/{url}",
+                                    arguments = listOf(
+                                        navArgument("url") { type = NavType.StringType }
+                                    ),
+                                    enterTransition = {
+                                         fadeIn(tween(150))
+                                    },
+                                    popExitTransition = {
+                                         fadeOut(tween(150))
+                                    }
+                                ) { entry ->
+                                    val pmUrl = Uri.decode(entry.arguments?.getString("url").orEmpty())
+                                    // 私信对话页：参照 QQ 聊天页无底栏，底栏由策略隐藏。
+                                    NativePrivateMessagePage(
+                                        navController = navController,
+                                        url = pmUrl
                                     )
                                 }
                                 composable(
@@ -1207,20 +1243,34 @@ fun App(webChromeClient: WebChromeClient) {
                                          fadeOut(tween(150))
                                     }
                                 ) {
-                                    NativeFriendPage(
-                                        navController = navController,
-                                        uid = GlobalData.currentUid,
-                                        onOpenFriendSpace = { item ->
-                                            navController.navigate(
-                                                "OtherWebPage/" + Uri.encode(item.spaceUrl)
-                                            )
-                                        },
-                                        onOpenPm = { item ->
-                                            navController.navigate(
-                                                "OtherWebPage/" + Uri.encode(item.pmUrl)
+                                    Box(modifier = Modifier.fillMaxSize()) {
+                                        NativeFriendPage(
+                                            navController = navController,
+                                            uid = GlobalData.currentUid,
+                                            onOpenFriendSpace = { item ->
+                                                navController.navigate(
+                                                    "OtherWebPage/" + Uri.encode(item.spaceUrl)
+                                                )
+                                            },
+                                            onOpenPm = { item ->
+                                                navController.navigate(
+                                                    "NativePrivateMessagePage/" + Uri.encode(item.pmUrl)
+                                                )
+                                            }
+                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .align(Alignment.BottomCenter)
+                                                .padding(bottom = lockedNavHeight)
+                                        ) {
+                                            BottomNavBar(
+                                                navController = navController,
+                                                currentRoute = "NativeFriendPage",
+                                                selectedRoute = "MinePage",
+                                                navBarVM = bottomNavBarVM
                                             )
                                         }
-                                    )
+                                    }
                                 }
                                 composable(
                                     "NativeDoingPage",
@@ -1231,10 +1281,24 @@ fun App(webChromeClient: WebChromeClient) {
                                          fadeOut(tween(150))
                                     }
                                 ) {
-                                    NativeDoingPage(
-                                        navController = navController,
-                                        uid = GlobalData.currentUid
-                                    )
+                                    Box(modifier = Modifier.fillMaxSize()) {
+                                        NativeDoingPage(
+                                            navController = navController,
+                                            uid = GlobalData.currentUid
+                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .align(Alignment.BottomCenter)
+                                                .padding(bottom = lockedNavHeight)
+                                        ) {
+                                            BottomNavBar(
+                                                navController = navController,
+                                                currentRoute = "NativeDoingPage",
+                                                selectedRoute = "MinePage",
+                                                navBarVM = bottomNavBarVM
+                                            )
+                                        }
+                                    }
                                 }
                                 composable(
                                     "NativeBlogPage",
@@ -1245,18 +1309,32 @@ fun App(webChromeClient: WebChromeClient) {
                                          fadeOut(tween(150))
                                     }
                                 ) {
-                                    NativeBlogPage(
-                                        navController = navController,
-                                        uid = GlobalData.currentUid,
-                                        onOpenBlog = { item ->
-                                            navController.navigate(
-                                                "NativeBlogDetailPage/" + Uri.encode(item.url)
+                                    Box(modifier = Modifier.fillMaxSize()) {
+                                        NativeBlogPage(
+                                            navController = navController,
+                                            uid = GlobalData.currentUid,
+                                            onOpenBlog = { item ->
+                                                navController.navigate(
+                                                    "NativeBlogDetailPage/" + Uri.encode(item.url)
+                                                )
+                                            },
+                                            onOpenBlogAction = { url ->
+                                                navController.navigate("OtherWebPage/" + Uri.encode(url))
+                                            }
+                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .align(Alignment.BottomCenter)
+                                                .padding(bottom = lockedNavHeight)
+                                        ) {
+                                            BottomNavBar(
+                                                navController = navController,
+                                                currentRoute = "NativeBlogPage",
+                                                selectedRoute = "MinePage",
+                                                navBarVM = bottomNavBarVM
                                             )
-                                        },
-                                        onOpenBlogAction = { url ->
-                                            navController.navigate("OtherWebPage/" + Uri.encode(url))
                                         }
-                                    )
+                                    }
                                 }
                                 composable(
                                     "NativeBlogDetailPage/{url}",
@@ -1267,13 +1345,28 @@ fun App(webChromeClient: WebChromeClient) {
                                     popExitTransition = { fadeOut(tween(150)) }
                                 ) { entry ->
                                     val blogUrl = Uri.decode(entry.arguments?.getString("url").orEmpty())
-                                    NativeBlogDetailPage(
-                                        navController = navController,
-                                        url = blogUrl,
-                                        onOpenWeb = { actionUrl ->
-                                            navController.navigate("OtherWebPage/" + Uri.encode(actionUrl))
+                                    Box(modifier = Modifier.fillMaxSize()) {
+                                        NativeBlogDetailPage(
+                                            navController = navController,
+                                            url = blogUrl,
+                                            onOpenWeb = { actionUrl ->
+                                                navController.navigate("OtherWebPage/" + Uri.encode(actionUrl))
+                                            },
+                                            bottomBarPadding = lockedNavHeight + 52.dp
+                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .align(Alignment.BottomCenter)
+                                                .padding(bottom = lockedNavHeight)
+                                        ) {
+                                            BottomNavBar(
+                                                navController = navController,
+                                                currentRoute = "NativeBlogDetailPage",
+                                                selectedRoute = "MinePage",
+                                                navBarVM = bottomNavBarVM
+                                            )
                                         }
-                                    )
+                                    }
                                 }
                                 composable(
                                     "NativeUserThreadsPage?tab={tab}",
@@ -1287,16 +1380,30 @@ fun App(webChromeClient: WebChromeClient) {
                                          fadeOut(tween(150))
                                     }
                                 ) { entry ->
-                                    NativeUserThreadsPage(
-                                        navController = navController,
-                                        uid = GlobalData.currentUid,
-                                        initialTab = entry.arguments?.getString("tab") ?: "thread",
-                                        onOpenThread = { item ->
-                                            navController.navigate(
-                                                "NativeThreadPage/" + item.tid
+                                    Box(modifier = Modifier.fillMaxSize()) {
+                                        NativeUserThreadsPage(
+                                            navController = navController,
+                                            uid = GlobalData.currentUid,
+                                            initialTab = entry.arguments?.getString("tab") ?: "thread",
+                                            onOpenThread = { item ->
+                                                navController.navigate(
+                                                    "NativeThreadPage/" + item.tid
+                                                )
+                                            }
+                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .align(Alignment.BottomCenter)
+                                                .padding(bottom = lockedNavHeight)
+                                        ) {
+                                            BottomNavBar(
+                                                navController = navController,
+                                                currentRoute = "NativeUserThreadsPage",
+                                                selectedRoute = "MinePage",
+                                                navBarVM = bottomNavBarVM
                                             )
                                         }
-                                    )
+                                    }
                                 }
                                 composable(
                                     "ReaderPage/{passageUrl}",
@@ -1365,18 +1472,8 @@ fun App(webChromeClient: WebChromeClient) {
                                             isFastForward = fastForward,
                                             initialPage = initialPage
                                         )
-                                        Box(
-                                            modifier = Modifier
-                                                .align(Alignment.BottomCenter)
-                                                .padding(bottom = lockedNavHeight)
-                                        ) {
-                                            BottomNavBar(
-                                                navController = navController,
-                                                currentRoute = currentRoute,
-                                                navBarVM = bottomNavBarVM,
-                                                selectedRoute = activeTopLevelRoute
-                                            )
-                                        }
+                                        // 漫画 WebView 兜底阅读器属于沉浸式阅读场景，
+                                        // 底栏可见性由 BottomBarPolicy 统一隐藏，不内嵌底栏。
                                     }
                                 }
                                 composable(
@@ -1406,25 +1503,12 @@ fun App(webChromeClient: WebChromeClient) {
                                     arguments = listOf(navArgument("url") { type = NavType.StringType })
                                 ) {
                                     it.arguments?.getString("url")?.let { url ->
-                                        Box(modifier = Modifier.fillMaxSize()) {
-                                            ReaderWebPage(
-                                                url = URLDecoder.decode(url, "utf-8"),
-                                                navController = navController,
-                                                webChromeClient = webChromeClient
-                                            )
-                                            Box(
-                                                modifier = Modifier
-                                                    .align(Alignment.BottomCenter)
-                                                    .padding(bottom = lockedNavHeight)
-                                            ) {
-                                                BottomNavBar(
-                                                    navController = navController,
-                                                    currentRoute = currentRoute,
-                                                    navBarVM = bottomNavBarVM,
-                                                    selectedRoute = activeTopLevelRoute
-                                                )
-                                            }
-                                        }
+                                        // 小说原帖 WebView 阅读：沉浸式阅读场景，底栏由策略隐藏。
+                                        ReaderWebPage(
+                                            url = URLDecoder.decode(url, "utf-8"),
+                                            navController = navController,
+                                            webChromeClient = webChromeClient
+                                        )
                                     }
                                 }
                                 composable(

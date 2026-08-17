@@ -1,9 +1,12 @@
 package org.shirakawatyu.yamibo.novel.network
 
 import okhttp3.ResponseBody
+import retrofit2.http.Field
+import retrofit2.http.FormUrlEncoded
 import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.Headers
+import retrofit2.http.POST
 import retrofit2.http.Query
 import retrofit2.http.Url
 
@@ -26,6 +29,24 @@ interface SpaceApi {
     @GET
     suspend fun getPageByUrl(
         @Url url: String,
+        @Header("Referer") referer: String? = null
+    ): ResponseBody
+
+    /** 发送私信：Discuz 私信表单提交（spacecp&ac=pm&op=send）。 */
+    @Headers("User-Agent: Mozilla/5.0 (Linux; Android 11; SAMSUNG SM-G973U) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/14.2 Chrome/87.0.4280.141 Mobile Safari/537.36")
+    @FormUrlEncoded
+    @POST("/home.php")
+    suspend fun sendPrivateMessage(
+        @Query("mod") mod: String = "spacecp",
+        @Query("ac") ac: String = "pm",
+        @Query("op") op: String = "send",
+        @Query("pmid") pmid: String = "",
+        @Query("daterange") daterange: String = "0",
+        @Query("pmsubmit") pmsubmit: String = "yes",
+        @Query("mobile") mobile: String = "2",
+        @Field("formhash") formHash: String,
+        @Field("touid") touid: String,
+        @Field("message") message: String,
         @Header("Referer") referer: String? = null
     ): ResponseBody
 }

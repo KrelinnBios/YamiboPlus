@@ -324,7 +324,7 @@ fun NativeMangaPage(
             WindowCompat.getInsetsController(window, view)
                 .apply { show(WindowInsetsCompat.Type.systemBars()) }
         }
-        bottomNavBarVM.setBottomNavBarVisibility(true)
+        bottomNavBarVM.updateBottomBarSuppressed(true)
         val prevEntry = navController.previousBackStackEntry
         if (prevEntry?.destination?.route?.startsWith("MangaWebPage") == true) {
             navController.popBackStack(prevEntry.destination.id, inclusive = true)
@@ -342,7 +342,7 @@ fun NativeMangaPage(
             WindowCompat.getInsetsController(window, view)
                 .apply { show(WindowInsetsCompat.Type.systemBars()) }
         }
-        bottomNavBarVM.setBottomNavBarVisibility(true)
+        bottomNavBarVM.updateBottomBarSuppressed(true)
 
         val currentPostUrl = currentPostUrlForOriginal.takeIf { it.isNotBlank() } ?: url
         val currentTidForOriginal = MangaTitleCleaner.extractTidFromUrl(currentPostUrl)
@@ -428,7 +428,7 @@ fun NativeMangaPage(
                 }
             }
             window.statusBarColor = android.graphics.Color.TRANSPARENT
-            bottomNavBarVM.setBottomNavBarVisibility(false)
+            bottomNavBarVM.updateBottomBarSuppressed(false)
         }
         onDispose {
             MangaImagePipeline.cancelNativeWindow(nativePipelineOwnerKey)
@@ -438,7 +438,7 @@ fun NativeMangaPage(
                     WindowCompat.getInsetsController(it, view)
                         .show(WindowInsetsCompat.Type.systemBars())
                 }
-                bottomNavBarVM.setBottomNavBarVisibility(true)
+                bottomNavBarVM.updateBottomBarSuppressed(true)
                 context.imageLoader.memoryCache?.trimMemory(ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN)
             }
         }

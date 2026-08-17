@@ -146,5 +146,27 @@ data class BlogDetail(
     val shareUrl: String = "",
     val inviteUrl: String = "",
     val editUrl: String = "",
-    val deleteUrl: String = ""
+    val deleteUrl: String = "",
+    val reportUrl: String = "",
+    val commentFormUrl: String = "",
+    val commentFormHash: String = "",
+    val commentReferer: String = ""
+)
+
+data class PrivateMessageBubble(
+    val isSelf: Boolean,
+    val authorName: String,
+    val avatarUrl: String?,
+    val content: String,
+    val time: String
+)
+
+data class PrivateMessageConversation(
+    val touid: String,
+    val title: String,
+    val pmid: String,
+    val formHash: String,
+    val messages: List<PrivateMessageBubble>,
+    val previousUrl: String? = null,
+    val nextUrl: String? = null
 )
