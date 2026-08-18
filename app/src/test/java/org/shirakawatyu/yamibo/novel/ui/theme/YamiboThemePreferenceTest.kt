@@ -69,4 +69,10 @@ class YamiboThemePreferenceTest {
         assertEquals(Color.Black, dark.effectiveScheme(pureBlack = true).surfaceContainerLowest)
         assertNotEquals(dark.scheme.background, dark.effectiveScheme(pureBlack = true).background)
     }
+
+    @Test
+    fun pureBlackUsesItsOwnDisplayLabel() {
+        assertEquals("\u7EAF\u9ED1", YamiboThemeMode.DARK.displayLabel(pureBlack = true))
+        assertEquals("\u6DF1\u8272", YamiboThemeMode.DARK.displayLabel(pureBlack = false))
+    }
 }

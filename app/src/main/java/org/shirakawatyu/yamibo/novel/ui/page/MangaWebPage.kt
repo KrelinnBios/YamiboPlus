@@ -383,12 +383,12 @@ fun MangaWebPage(
             controller.hide(WindowInsetsCompat.Type.systemBars())
             controller.systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            bottomNavBarVM.updateBottomBarSuppressed(false)
+            bottomNavBarVM.updateBottomBarSuppressed(true)
         } else {
             WindowCompat.setDecorFitsSystemWindows(window, false)
             controller.show(WindowInsetsCompat.Type.systemBars())
             controller.isAppearanceLightStatusBars = false
-            bottomNavBarVM.updateBottomBarSuppressed(true)
+            bottomNavBarVM.updateBottomBarSuppressed(false)
         }
     }
 

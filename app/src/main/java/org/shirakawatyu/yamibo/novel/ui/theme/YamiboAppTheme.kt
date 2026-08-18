@@ -457,6 +457,8 @@ enum class YamiboThemeMode(val label: String) {
         DARK -> true
     }
 
+    fun displayLabel(pureBlack: Boolean): String = if (pureBlack) "\u7EAF\u9ED1" else label
+
     companion object {
         fun parse(name: String?): YamiboThemeMode? =
             entries.firstOrNull { it.name == name }

@@ -3,7 +3,8 @@ package org.shirakawatyu.yamibo.novel.ui.state
 /**
  * 底栏（底部导航栏）全局可见性策略：集中式路由注册表。
  *
- * 普通内容页显示底栏，只有沉浸式阅读页面固定隐藏底栏。
+ * 普通内容页显示底栏，原生沉浸式阅读页面固定隐藏底栏。
+ * 漫画 WebView 阅读页在网页未进入全屏时保留返回底栏，由页面状态控制全屏显隐。
  *
  * 判定规则：
  * 1. 路由为 null（导航图未就绪）时默认显示；
@@ -22,10 +23,14 @@ object BottomBarPolicy {
             "ReaderPage",
             // 漫画原生阅读器
             "NativeMangaPage",
-            // 漫画 WebView 兜底阅读器（识别失败/WebView 模式看漫画，同样全屏翻页阅读）
-            "MangaWebPage",
             // 小说原帖 WebView 阅读（阅读器「查看原帖」入口的 WebView 阅读场景）
             "ReaderWebPage"
+        ),
+        "设置" to listOf(
+            "NativeSettingsPage",
+            "NativeThemePage",
+            "NativeBackupPage",
+            "NativeUpdatePage"
         )
     )
 

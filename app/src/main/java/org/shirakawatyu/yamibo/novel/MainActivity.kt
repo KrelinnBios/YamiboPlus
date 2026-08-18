@@ -646,6 +646,10 @@ fun App(webChromeClient: WebChromeClient) {
                             bottomNavBarVM.applyRouteBottomBarPolicy(
                                 BottomBarPolicy.shouldShowBottomBar(currentRoute)
                             )
+                            // 从阅读页、空间子页或设置页返回主板块时，首页应恢复默认显示底栏。
+                            if (currentRoute in pageList) {
+                                bottomNavBarVM.updateBottomBarScrollSuppressed(false)
+                            }
                         }
 
                         OnboardingOverlay(
@@ -1472,8 +1476,18 @@ fun App(webChromeClient: WebChromeClient) {
                                             isFastForward = fastForward,
                                             initialPage = initialPage
                                         )
-                                        // 漫画 WebView 兜底阅读器属于沉浸式阅读场景，
-                                        // 底栏可见性由 BottomBarPolicy 统一隐藏，不内嵌底栏。
+                                        Box(
+                                            modifier = Modifier
+                                                .align(Alignment.BottomCenter)
+                                                .padding(bottom = lockedNavHeight)
+                                        ) {
+                                            BottomNavBar(
+                                                navController = navController,
+                                                currentRoute = currentRoute,
+                                                selectedRoute = activeTopLevelRoute,
+                                                navBarVM = bottomNavBarVM
+                                            )
+                                        }
                                     }
                                 }
                                 composable(

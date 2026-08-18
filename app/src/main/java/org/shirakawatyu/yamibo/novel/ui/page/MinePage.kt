@@ -582,6 +582,9 @@ fun MinePage(
 
     val appTheme by GlobalData.appTheme.collectAsState()
     val isDarkMode = appTheme.isDark
+    val themeMode by GlobalData.themeMode.collectAsState()
+    val themePalette by GlobalData.themePalette.collectAsState()
+    val pureBlack by GlobalData.pureBlackMode.collectAsState()
     val languageMode by GlobalData.languageMode.collectAsState()
     val strings = remember(languageMode) { AppStrings.forMode(languageMode) }
     val isForumBlocklistEnabled by ForumBlocklistManager.enabled.collectAsState()
@@ -1680,7 +1683,7 @@ fun MinePage(
                                             )
                                         }
                                         Text(
-                                            "${GlobalData.themeMode.value.label} · ${GlobalData.themePalette.value.label}",
+                                            "${themeMode.displayLabel(pureBlack)} · ${themePalette.label}",
                                             fontSize = 13.sp,
                                             color = MaterialTheme.colorScheme.primary
                                         )

@@ -75,6 +75,7 @@ fun NativeSettingsPage(
 ) {
     val themePalette by GlobalData.themePalette.collectAsState()
     val themeMode by GlobalData.themeMode.collectAsState()
+    val pureBlack by GlobalData.pureBlackMode.collectAsState()
     val languageMode by GlobalData.languageMode.collectAsState()
     val isDnsOptimizationEnabled by GlobalData.isDnsOptimizationEnabled.collectAsState()
     val isAutoClearCacheEnabled by GlobalData.isAutoClearCacheEnabled.collectAsState()
@@ -187,7 +188,7 @@ fun NativeSettingsPage(
             // Theme
             SettingActionItem(
                 title = "主题",
-                subtitle = "${themeMode.label} · ${themePalette.label}",
+                subtitle = "${themeMode.displayLabel(pureBlack)} · ${themePalette.label}",
                 enabled = true,
                 onClick = onOpenTheme
             )
