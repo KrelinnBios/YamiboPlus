@@ -17,6 +17,7 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.ui.graphics.toArgb
+import com.alibaba.fastjson2.JSON
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -27,6 +28,7 @@ import org.shirakawatyu.yamibo.novel.constant.RequestConfig
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.ui.theme.effectiveScheme
 import org.shirakawatyu.yamibo.novel.util.CookieUtil
+import org.shirakawatyu.yamibo.novel.util.AutoSignManager
 import org.shirakawatyu.yamibo.novel.util.LanguageModeUtil
 import org.shirakawatyu.yamibo.novel.util.PageJsScripts
 import org.shirakawatyu.yamibo.novel.util.Waf405RecoveryManager
@@ -403,11 +405,13 @@ open class YamiboWebViewClient : WebViewClient() {
         errorResponse: WebResourceResponse?
     ): Boolean {
         val failedUrl = request?.url?.toString().orEmpty()
+        val isSignPage = Waf405RecoveryPolicy.isSignPageUrl(failedUrl)
         if (view == null || !Waf405RecoveryPolicy.shouldRecover(
                 statusCode = errorResponse?.statusCode ?: 0,
                 method = request?.method.orEmpty(),
                 isMainFrame = request?.isForMainFrame == true,
-                isYamiboUrl = isYamiboForumUrl(failedUrl)
+                isYamiboUrl = isYamiboForumUrl(failedUrl),
+                isSignPage = isSignPage
             )
         ) {
             return false
@@ -429,6 +433,20 @@ open class YamiboWebViewClient : WebViewClient() {
         ) { result ->
             currentPageUsesDesktopTemplate = !isPcOnlyTagPage &&
                     result.equals("true", ignoreCase = true)
+        }
+    }
+
+    /**
+     * 签到页在可见 WebView 里完成验证后会渲染出真实页面：把 HTML 交给
+     * AutoSignManager 解析缓存，供后台签到与状态展示使用。
+     */
+    private fun captureSignPageHtml(view: WebView?) {
+        view ?: return
+        view.evaluateJavascript("(function(){return document.documentElement.outerHTML;})();") { htmlResult ->
+            val html = runCatching {
+                (JSON.parse(htmlResult) as? String).orEmpty()
+            }.getOrElse { htmlResult.orEmpty() }
+            AutoSignManager.captureSignPageHtml(html)
         }
     }
 
@@ -479,6 +497,9 @@ open class YamiboWebViewClient : WebViewClient() {
     override fun onPageFinished(view: WebView?, url: String?) {
         updateRenderedForumTemplate(view, url)
         restoreMobileCookieAfterPcOnlyPage(url)
+        if (url?.contains("zqlj_sign", ignoreCase = true) == true) {
+            captureSignPageHtml(view)
+        }
         url?.let {
             if (it.contains(RequestConfig.BASE_URL)) {
                 applyHideCss(view, url)

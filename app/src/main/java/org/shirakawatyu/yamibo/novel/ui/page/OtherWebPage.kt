@@ -92,6 +92,7 @@ import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColo
 import org.shirakawatyu.yamibo.novel.util.CookieUtil
 import org.shirakawatyu.yamibo.novel.util.AccountSyncManager
 import org.shirakawatyu.yamibo.novel.util.YamiboSession
+import org.shirakawatyu.yamibo.novel.util.Waf405RecoveryPolicy
 import org.shirakawatyu.yamibo.novel.ui.widget.YamiboToast
 import kotlin.text.Charsets
 import org.shirakawatyu.yamibo.novel.util.PageJsScripts
@@ -756,6 +757,21 @@ fun OtherWebPage(
                 request: WebResourceRequest?,
                 errorResponse: WebResourceResponse?
             ) {
+                val errorUrl = request?.url?.toString().orEmpty()
+                val statusCode = errorResponse?.statusCode ?: 0
+                if (
+                    request?.isForMainFrame == true &&
+                    statusCode in setOf(403, 405) &&
+                    Waf405RecoveryPolicy.isSignPageUrl(errorUrl)
+                ) {
+                    // Keep the visible CF/Turnstile response interactive; do not cover it
+                    // with the generic error state or send it to hidden WAF recovery.
+                    timeoutJob?.cancel()
+                    isLoading = false
+                    showLoadError = false
+                    super.onReceivedHttpError(view, request, errorResponse)
+                    return
+                }
                 if (tryRecoverWaf405(view, request, errorResponse)) {
                     timeoutJob?.cancel()
                     isLoading = true
@@ -763,7 +779,6 @@ fun OtherWebPage(
                     return
                 }
                 if (request?.isForMainFrame == true) {
-                    val errorUrl = request.url?.toString() ?: ""
                     val currentUrl = view?.url ?: ""
                     if ((errorUrl.isEmpty() || errorUrl == currentUrl) &&
                         BBSGlobalWebViewClient.isYamiboUrl(errorUrl)

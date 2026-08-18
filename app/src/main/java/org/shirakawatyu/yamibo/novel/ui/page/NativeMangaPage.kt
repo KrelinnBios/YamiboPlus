@@ -438,7 +438,8 @@ fun NativeMangaPage(
                     WindowCompat.getInsetsController(it, view)
                         .show(WindowInsetsCompat.Type.systemBars())
                 }
-                bottomNavBarVM.updateBottomBarSuppressed(true)
+                // 离开阅读页后恢复底栏，由返回目标的集中式路由策略决定最终显隐。
+                bottomNavBarVM.updateBottomBarSuppressed(false)
                 context.imageLoader.memoryCache?.trimMemory(ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN)
             }
         }

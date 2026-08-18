@@ -35,7 +35,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -53,7 +52,6 @@ import org.shirakawatyu.yamibo.novel.ui.theme.YamiboThemeMode
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboThemePalette
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboThemePreference
 import org.shirakawatyu.yamibo.novel.ui.theme.yamiboComponentColors
-import org.shirakawatyu.yamibo.novel.ui.theme.yamiboSwitchColors
 import org.shirakawatyu.yamibo.novel.util.LanguageModeUtil
 import org.shirakawatyu.yamibo.novel.util.SettingsUtil
 
@@ -66,6 +64,10 @@ fun NativeThemePage(
     val pureBlack by GlobalData.pureBlackMode.collectAsState()
     val systemDark = isSystemInDarkTheme()
     val componentColors = yamiboComponentColors()
+
+    // 纯白固定浅色（模式卡全部禁用）；纯黑默认深色（自动/浅色禁用，仅深色与纯黑可点）。
+    val isWhiteFixed = palette == YamiboThemePalette.WHITE
+    val isBlackFixed = palette == YamiboThemePalette.BLACK
 
     fun updateTheme(preference: YamiboThemePreference) {
         val resolvedTheme = GlobalData.applyThemePreference(preference, systemDark)
@@ -120,33 +122,47 @@ fun NativeThemePage(
             Spacer(Modifier.height(14.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 ThemeModeCard(
                     modifier = Modifier.weight(1f),
                     icon = Icons.Default.AutoMode,
                     label = "自动",
-                    selected = mode == YamiboThemeMode.SYSTEM,
+                    selected = mode == YamiboThemeMode.SYSTEM && !pureBlack && !isWhiteFixed && !isBlackFixed,
+                    enabled = !isWhiteFixed && !isBlackFixed,
                     onClick = {
-                        updateTheme(YamiboThemePreference(palette, YamiboThemeMode.SYSTEM, pureBlack))
+                        updateTheme(YamiboThemePreference(palette, YamiboThemeMode.SYSTEM, false))
                     }
                 )
                 ThemeModeCard(
                     modifier = Modifier.weight(1f),
                     icon = Icons.Default.LightMode,
                     label = "浅色",
-                    selected = mode == YamiboThemeMode.LIGHT,
+                    selected = isWhiteFixed || (mode == YamiboThemeMode.LIGHT && !pureBlack && !isBlackFixed),
+                    enabled = !isWhiteFixed && !isBlackFixed,
                     onClick = {
-                        updateTheme(YamiboThemePreference(palette, YamiboThemeMode.LIGHT, pureBlack))
+                        updateTheme(YamiboThemePreference(palette, YamiboThemeMode.LIGHT, false))
                     }
                 )
                 ThemeModeCard(
                     modifier = Modifier.weight(1f),
                     icon = Icons.Default.DarkMode,
                     label = "深色",
-                    selected = mode == YamiboThemeMode.DARK,
+                    selected = (isBlackFixed && !pureBlack) ||
+                            (mode == YamiboThemeMode.DARK && !pureBlack && !isWhiteFixed),
+                    enabled = !isWhiteFixed,
                     onClick = {
-                        updateTheme(YamiboThemePreference(palette, YamiboThemeMode.DARK, pureBlack))
+                        updateTheme(YamiboThemePreference(palette, YamiboThemeMode.DARK, false))
+                    }
+                )
+                ThemeModeCard(
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.Default.Contrast,
+                    label = "纯黑",
+                    selected = pureBlack && !isWhiteFixed,
+                    enabled = !isWhiteFixed,
+                    onClick = {
+                        updateTheme(YamiboThemePreference(palette, YamiboThemeMode.DARK, true))
                     }
                 )
             }
@@ -177,44 +193,6 @@ fun NativeThemePage(
                     }
                 }
                 Spacer(Modifier.height(12.dp))
-            }
-
-            Spacer(Modifier.height(14.dp))
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(22.dp),
-                color = MaterialTheme.colorScheme.surfaceContainer
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Contrast,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(Modifier.width(14.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = LanguageModeUtil.displayText("纯黑模式"),
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            text = LanguageModeUtil.displayText("仅在深色模式下生效"),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 12.sp
-                        )
-                    }
-                    Switch(
-                        checked = pureBlack,
-                        onCheckedChange = { enabled ->
-                            updateTheme(YamiboThemePreference(palette, mode, enabled))
-                        },
-                        colors = yamiboSwitchColors()
-                    )
-                }
             }
             Spacer(Modifier.height(24.dp))
         }
@@ -248,29 +226,33 @@ private fun ThemeModeCard(
     icon: ImageVector,
     label: String,
     selected: Boolean,
+    enabled: Boolean = true,
     onClick: () -> Unit
 ) {
+    val container = when {
+        !enabled && selected -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+        !enabled -> MaterialTheme.colorScheme.surfaceContainerLowest
+        selected -> MaterialTheme.colorScheme.primaryContainer
+        else -> MaterialTheme.colorScheme.surfaceContainer
+    }
+    val content = when {
+        !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+        selected -> MaterialTheme.colorScheme.onPrimaryContainer
+        else -> MaterialTheme.colorScheme.onSurface
+    }
     Surface(
         modifier = modifier
             .aspectRatio(1.42f)
-            .clickable(onClick = onClick),
+            .clickable(enabled = enabled, onClick = onClick),
         shape = RoundedCornerShape(22.dp),
-        color = if (selected) {
-            MaterialTheme.colorScheme.primaryContainer
-        } else {
-            MaterialTheme.colorScheme.surfaceContainer
-        },
-        contentColor = if (selected) {
-            MaterialTheme.colorScheme.onPrimaryContainer
-        } else {
-            MaterialTheme.colorScheme.onSurface
-        },
+        color = container,
+        contentColor = content,
         border = BorderStroke(
-            width = if (selected) 2.dp else 1.dp,
-            color = if (selected) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.outlineVariant
+            width = if (selected && enabled) 2.dp else 1.dp,
+            color = when {
+                !enabled -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                selected -> MaterialTheme.colorScheme.primary
+                else -> MaterialTheme.colorScheme.outlineVariant
             }
         )
     ) {
@@ -281,7 +263,7 @@ private fun ThemeModeCard(
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                tint = if (selected && enabled) MaterialTheme.colorScheme.primary else content
             )
             Spacer(Modifier.height(8.dp))
             Text(

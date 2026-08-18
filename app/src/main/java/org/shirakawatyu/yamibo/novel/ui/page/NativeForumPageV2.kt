@@ -66,7 +66,7 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.AlertDialog
+import org.shirakawatyu.yamibo.novel.ui.component.YamiboAlertDialog as AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -144,6 +144,7 @@ import org.shirakawatyu.yamibo.novel.bean.forum.ForumThread
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumThreadDetail
 import org.shirakawatyu.yamibo.novel.constant.RequestConfig
 import org.shirakawatyu.yamibo.novel.global.GlobalData
+import org.shirakawatyu.yamibo.novel.ui.component.YamiboDialogSurface
 import org.shirakawatyu.yamibo.novel.ui.component.YamiboLoadError
 import org.shirakawatyu.yamibo.novel.ui.state.ForumSort
 import org.shirakawatyu.yamibo.novel.ui.state.ForumState
@@ -267,7 +268,9 @@ fun NativeForumPageV2(
 
     Column(
         Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
-            .padding(bottom = navBottom + 50.dp)
+            .padding(
+                bottom = if (bottomNavBarVM.bottomBarScrollSuppressed) navBottom else navBottom + 50.dp
+            )
     ) {
         ForumTopBarV2(
             title = state.selectedForum?.name ?: "论坛",
@@ -288,8 +291,8 @@ fun NativeForumPageV2(
                         imageVector = if (forumFavorited) Icons.Filled.Favorite
                         else Icons.Outlined.FavoriteBorder,
                         contentDescription = if (forumFavorited) "取消收藏" else "收藏本版",
-                        tint = if (forumFavorited) headerContent
-                        else headerContent.copy(alpha = 0.62f)
+                        // 与日志详情页收藏按钮一致：始终使用顶栏内容色全亮显示。
+                        tint = headerContent
                     )
                 }
                 IconButton(onClick = { onOpenWeb(ForumActionUrls.search) }) {
@@ -1123,7 +1126,9 @@ fun NativeThreadPageV2(
 
     Column(
         Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
-            .padding(bottom = navBottom + 50.dp)
+            .padding(
+                bottom = if (bottomNavBarVM.bottomBarScrollSuppressed) navBottom else navBottom + 50.dp
+            )
     ) {
         ForumTopBarV2(
             title = state.thread?.forumName?.takeIf(String::isNotBlank)
@@ -1167,8 +1172,8 @@ fun NativeThreadPageV2(
                 Icon(
                     imageVector = if (isFavorited) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
                     contentDescription = if (isFavorited) "取消收藏" else "收藏本主题",
-                    tint = if (isFavorited) componentColors.topBarContent
-                    else componentColors.topBarContent.copy(alpha = 0.62f)
+                    // 与日志详情页收藏按钮一致：始终使用顶栏内容色全亮显示。
+                    tint = componentColors.topBarContent
                 )
             }
             IconButton(onClick = {
@@ -2029,12 +2034,8 @@ private fun ForumPostContentV2(
 @Composable
 private fun NativeBlockMenuV2(target: NativeForumBlockTarget, onDismiss: () -> Unit) {
     androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
-        Surface(
+        YamiboDialogSurface(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
-            shape = RoundedCornerShape(26.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerLow,
-            tonalElevation = 6.dp,
-            shadowElevation = 10.dp
         ) {
             Column(Modifier.padding(20.dp)) {
                 Text(
@@ -2517,9 +2518,7 @@ private fun ForumCommentDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
-        Surface(
-            shape = RoundedCornerShape(20.dp),
-            color = MaterialTheme.colorScheme.surface,
+        YamiboDialogSurface(
             modifier = Modifier
                 .widthIn(max = 380.dp)
                 .fillMaxWidth(0.82f)
@@ -2604,9 +2603,7 @@ private fun ForumRateDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
-        Surface(
-            shape = RoundedCornerShape(20.dp),
-            color = MaterialTheme.colorScheme.surface,
+        YamiboDialogSurface(
             modifier = Modifier
                 .widthIn(max = 380.dp)
                 .fillMaxWidth(0.82f)
@@ -2718,9 +2715,7 @@ private fun ForumReplyDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
-        Surface(
-            shape = RoundedCornerShape(20.dp),
-            color = MaterialTheme.colorScheme.surface,
+        YamiboDialogSurface(
             modifier = Modifier
                 .widthIn(max = 520.dp)
                 .fillMaxWidth(0.92f)

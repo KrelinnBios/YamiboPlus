@@ -1,6 +1,7 @@
 package org.shirakawatyu.yamibo.novel.ui.vm
 
 import android.util.Log
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -34,8 +35,15 @@ class BottomNavBarVM : ViewModel() {
         private set
     var bottomBarScrollSuppressed by mutableStateOf(false)
         private set
-    val showBottomNavBar: Boolean
-        get() = routeAllowsBottomBar && !bottomBarSuppressed && !bottomBarScrollSuppressed
+
+    /**
+     * 必须用 derivedStateOf 包装，否则 Composable 读取时不会订阅
+     * [bottomBarScrollSuppressed] / [bottomBarSuppressed] 的状态变化，
+     * 滚动收起底栏就永远不会触发重组。
+     */
+    val showBottomNavBar by derivedStateOf {
+        routeAllowsBottomBar && !bottomBarSuppressed && !bottomBarScrollSuppressed
+    }
 
     private val _goHomeEvent = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val goHomeEvent = _goHomeEvent.asSharedFlow()
@@ -56,6 +64,8 @@ class BottomNavBarVM : ViewModel() {
         }
         val targetRoute = pageList[index]
         val routeChanged = currentRoute != targetRoute
+        // 回到底栏对应的首页时恢复默认状态；普通分页回顶不经过这里，仍保持隐藏。
+        updateBottomBarScrollSuppressed(false)
         if (routeChanged) {
             routeAllowsBottomBar = true
             val isTransientWebRoute =

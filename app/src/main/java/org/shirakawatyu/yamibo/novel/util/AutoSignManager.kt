@@ -3,20 +3,24 @@ package org.shirakawatyu.yamibo.novel.util
 import android.content.Context
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
-import org.jsoup.Jsoup
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.ResponseBody
+import org.jsoup.Jsoup
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.network.FavoriteApi
 import org.shirakawatyu.yamibo.novel.parser.ProfileApiParser
 import org.shirakawatyu.yamibo.novel.ui.widget.YamiboToast
+import retrofit2.HttpException
 import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.Url
@@ -43,6 +47,14 @@ enum class TodaySignStatus {
     UNKNOWN
 }
 
+/** 手动/自动签到动作的结果，供调用方决定是否需要引导用户前往签到页。 */
+enum class ManualSignResult {
+    SUCCESS,
+    ALREADY_SIGNED,
+    WAF_BLOCKED,
+    FAILED
+}
+
 internal object TodaySignStatusCache {
     fun encode(date: String, status: TodaySignStatus): String = "$date:${status.name}"
 
@@ -55,8 +67,59 @@ internal object TodaySignStatusCache {
     }
 }
 
+/** 可见签到页解析结果：当日状态 + 页面给出的签到动作地址（可能为相对路径）。 */
+internal data class CapturedSignPage(
+    val status: TodaySignStatus,
+    val actionUrl: String?
+)
+
+internal fun parseCapturedSignPage(html: String): CapturedSignPage {
+    val document = Jsoup.parse(html)
+    val pageText = document.text()
+    val status = when {
+        SIGNED_MARKERS.any(pageText::contains) -> TodaySignStatus.SIGNED
+        document.select(".signbtn, a[href*=zqlj_sign], input[value*=签到]").isNotEmpty() ||
+                NOT_SIGNED_MARKERS.any(pageText::contains) -> TodaySignStatus.NOT_SIGNED
+        else -> TodaySignStatus.UNKNOWN
+    }
+    val actionUrl = document.select("a[href*=zqlj_sign], form[action*=zqlj_sign]")
+        .asSequence()
+        .map { it.attr("href").ifBlank { it.attr("action") } }
+        .map(String::trim)
+        .firstOrNull { raw -> raw.isNotBlank() && (raw.contains("sign=") || raw.contains("formhash=")) }
+    return CapturedSignPage(status, actionUrl)
+}
+
+private val SIGNED_MARKERS = listOf(
+    "今日已签到", "今日已簽到", "今日已打卡",
+    "今天已签到", "今天已簽到", "今天已打卡",
+    "已经签到", "已經簽到", "已经打过卡了", "已經打過卡了",
+    "已完成签到", "已完成簽到", "已签到", "已簽到", "已打卡"
+)
+private val NOT_SIGNED_MARKERS = listOf("立即签到", "立即簽到", "我要签到", "我要簽到")
+private val ACTION_SUCCESS_MARKERS = listOf("打卡成功", "签到成功", "簽到成功", "获得了", "獲得了")
+private val ACTION_ALREADY_MARKERS = listOf(
+    "已经打过卡了", "已經打過卡了", "今日已打卡", "重复操作", "重複操作"
+)
+
+/** 简化版的挑战页识别：CF Turnstile / nox 中间件响应体里常见的标记。 */
+private fun looksLikeChallengePage(body: String): Boolean {
+    val normalized = body.lowercase(Locale.ROOT)
+    return normalized.contains("cf-chl-") ||
+            normalized.contains("challenge-platform") ||
+            normalized.contains("cloudflare") ||
+            normalized.contains("turnstile") ||
+            normalized.contains("just a moment") ||
+            normalized.contains("__noxexpire") ||
+            normalized.contains("gangplank_")
+}
+
 /**
  * 后台自动签到
+ *
+ * 签到页由 Cloudflare 类交互验证保护，OkHttp 请求会拿到 403 挑战页，且隐藏 WebView
+ * 挑战永远无法通过。因此：用户打开可见签到页完成验证后，页面 HTML 会被
+ * [captureSignPageHtml] 捕获并解析；之后再用带 cf_clearance 的会话请求执行签到动作。
  */
 object AutoSignManager {
     private const val BASE_URL = "https://bbs.yamibo.com/"
@@ -67,6 +130,17 @@ object AutoSignManager {
     private val signMutex = Mutex()
     private val _todaySignStatus = MutableStateFlow<TodaySignStatus?>(null)
     val todaySignStatus = _todaySignStatus.asStateFlow()
+
+    private val captureScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    private data class CapturedSignAction(
+        val url: String,
+        val accountHash: Int,
+        val date: String
+    )
+
+    @Volatile
+    private var capturedSignAction: CapturedSignAction? = null
 
     fun getServerTodayPublic(): String = getServerToday()
     private fun getServerToday(): String {
@@ -129,11 +203,46 @@ object AutoSignManager {
         return launchCount + resumeCount < MAX_DAILY_RETRIES
     }
 
+    /**
+     * 可见签到页每次加载完成后把页面 HTML 交给这里解析：
+     * 挑战页（仍在验证）直接忽略；真实签到页则缓存当日状态与签到动作地址，
+     * 并顺带在未签到时自动签一次（与启动/恢复共用每日配额）。
+     */
+    fun captureSignPageHtml(html: String) {
+        if (html.isBlank()) return
+        if (looksLikeChallengePage(html)) return
+        if (!html.contains("zqlj_sign") &&
+            !html.contains("签到") && !html.contains("簽到") &&
+            !html.contains("打卡")
+        ) {
+            return
+        }
+        val accountHash = getCurrentAccountHash() ?: return
+        val snapshot = html
+        captureScope.launch {
+            val captured = parseCapturedSignPage(snapshot)
+            val today = getServerToday()
+            if (captured.status != TodaySignStatus.UNKNOWN) {
+                saveTodaySignStatus(accountHash, today, captured.status)
+            }
+            capturedSignAction = captured.actionUrl
+                ?.takeIf(String::isNotBlank)
+                ?.let { CapturedSignAction(it, accountHash, today) }
+            // 用户刚通过验证、页面显示未签到：顺手自动签一次，失败消耗配额不会循环。
+            if (captured.status == TodaySignStatus.NOT_SIGNED) {
+                GlobalData.applicationContext?.let { context ->
+                    checkAndSignIfNeeded(context, SignTrigger.RESUME, force = false)
+                }
+            }
+        }
+    }
+
     suspend fun getTodaySignStatus(forceRefresh: Boolean = false): TodaySignStatus = withContext(Dispatchers.IO) {
         val accountHash = getCurrentAccountHash() ?: return@withContext TodaySignStatus.UNKNOWN
         val today = getServerToday()
+        val cached = getCachedTodaySignStatus(accountHash, today)
         if (!forceRefresh) {
-            getCachedTodaySignStatus(accountHash, today)?.let {
+            cached?.let {
                 _todaySignStatus.value = it
                 return@withContext it
             }
@@ -146,13 +255,11 @@ object AutoSignManager {
                 .string()
             val document = Jsoup.parse(html)
             val pageText = document.text()
-            if (listOf("今日已签到", "今日已打卡", "已经打过卡了", "已签到", "已打卡")
-                    .any(pageText::contains)
-            ) {
+            if (SIGNED_MARKERS.any(pageText::contains)) {
                 TodaySignStatus.SIGNED
             } else if (
                 document.select(".signbtn, a[href*=zqlj_sign], input[value*=签到]").isNotEmpty() ||
-                pageText.contains("立即签到") || pageText.contains("我要签到")
+                NOT_SIGNED_MARKERS.any(pageText::contains)
             ) {
                 TodaySignStatus.NOT_SIGNED
             } else {
@@ -160,8 +267,15 @@ object AutoSignManager {
             }
         }.getOrDefault(TodaySignStatus.UNKNOWN)
 
-        saveTodaySignStatus(accountHash, today, status)
         if (status == TodaySignStatus.UNKNOWN) {
+            // 网络被 WAF 拦截时，保留当天从可见签到页捕获的状态，避免 UI 状态倒退。
+            cached?.let {
+                _todaySignStatus.value = it
+                return@withContext it
+            }
+            _todaySignStatus.value = status
+        } else {
+            saveTodaySignStatus(accountHash, today, status)
             _todaySignStatus.value = status
         }
         status
@@ -171,70 +285,140 @@ object AutoSignManager {
         context: Context,
         trigger: SignTrigger = SignTrigger.LAUNCH,
         force: Boolean = false
-    ) = signMutex.withLock {
+    ): ManualSignResult = signMutex.withLock {
         withContext(Dispatchers.IO) {
-        val accountHash = getCurrentAccountHash() ?: return@withContext
-        val today = getServerToday()
-        var (savedDate, launchCount, resumeCount) = getCurrentQuota(accountHash)
+            val accountHash = getCurrentAccountHash()
+                ?: return@withContext ManualSignResult.FAILED
+            val today = getServerToday()
+            var (savedDate, launchCount, resumeCount) = getCurrentQuota(accountHash)
 
-        if (today != savedDate) {
-            launchCount = 0
-            resumeCount = 0
-        }
+            if (today != savedDate) {
+                launchCount = 0
+                resumeCount = 0
+            }
 
-        if (!force) {
-            if (launchCount + resumeCount >= MAX_DAILY_RETRIES) return@withContext
-            if (trigger == SignTrigger.LAUNCH) launchCount++ else resumeCount++
-            // 先消耗次数，403/网络异常也不能被启动和恢复回调反复重试。
-            updateQuota(accountHash, today, launchCount, resumeCount)
-        }
+            var consumedQuota = false
+            if (!force) {
+                if (launchCount + resumeCount >= MAX_DAILY_RETRIES) {
+                    return@withContext ManualSignResult.FAILED
+                }
+                consumedQuota = true
+                if (trigger == SignTrigger.LAUNCH) launchCount++ else resumeCount++
+                // 先消耗次数，403/网络异常也不能被启动和恢复回调反复重试。
+                updateQuota(accountHash, today, launchCount, resumeCount)
+            }
 
-        try {
-            // 使用移动 API 的 formhash，避免直接抓插件页面触发 403/WAF。
-            val profileResponse = YamiboRetrofit.getInstance()
-                .create(FavoriteApi::class.java)
-                .getFormHash()
-                .execute()
-            val formHash = if (profileResponse.isSuccessful) {
-                profileResponse.body()
-                    ?.string()
+            // 只有「请求从未到达论坛」（表单验证失败、被 WAF 拦截、网络异常）才退还本次
+            // 配额，保证用户在签到页通过验证后仍能在配额内自动补签一次。
+            val refundQuota: suspend () -> Unit = {
+                if (consumedQuota) {
+                    if (trigger == SignTrigger.LAUNCH) {
+                        updateQuota(accountHash, today, (launchCount - 1).coerceAtLeast(0), resumeCount)
+                    } else {
+                        updateQuota(accountHash, today, launchCount, (resumeCount - 1).coerceAtLeast(0))
+                    }
+                }
+            }
+
+            try {
+                // 使用移动 API 的 formhash，避免直接抓插件页面触发 403/WAF。
+                val profileResponse = YamiboRetrofit.getInstance()
+                    .create(FavoriteApi::class.java)
+                    .getFormHash()
+                    .execute()
+                val profileHtml = if (profileResponse.isSuccessful) {
+                    profileResponse.body()?.string()
+                } else {
+                    null
+                }
+                val formHash = profileHtml
                     ?.let { runCatching { ProfileApiParser.parseProfile(it).formhash }.getOrNull() }
                     ?.takeIf(String::isNotBlank)
-            } else {
-                null
-            }
-            if (formHash == null) {
-                if (force) showToast(context, "签到页面验证失败，请重新登录后重试")
-                return@withContext
-            }
+                if (formHash == null) {
+                    refundQuota()
+                    val wafBlocked = profileResponse.code() == 403 ||
+                            profileResponse.code() == 405 ||
+                            looksLikeChallengePage(profileHtml.orEmpty())
+                    if (wafBlocked) {
+                        AppErrorLog.record("签到被 WAF 拦截：请在签到页完成验证后重试")
+                        YamiboGlobalEvents.notifySignBlocked()
+                        return@withContext ManualSignResult.WAF_BLOCKED
+                    }
+                    if (force) showToast(context, "签到页面验证失败，请重新登录后重试")
+                    return@withContext ManualSignResult.FAILED
+                }
 
-            val signUrl = "$SIGN_PAGE_URL&sign=$formHash"
-            val actionResponseHtml = YamiboRetrofit.getInstance()
-                .create(SignApi::class.java)
-                .fetchHtml(signUrl, referer = SIGN_REFERER_URL)
-                .string()
+                val signUrl = resolveSignActionUrl(formHash)
+                val actionResponseHtml = YamiboRetrofit.getInstance()
+                    .create(SignApi::class.java)
+                    .fetchHtml(signUrl, referer = SIGN_REFERER_URL)
+                    .string()
 
-            if (actionResponseHtml.contains("已经打过卡了") ||
-                actionResponseHtml.contains("今日已打卡") ||
-                actionResponseHtml.contains("重复操作")
-            ) {
-                saveTodaySignStatus(accountHash, today, TodaySignStatus.SIGNED)
-                if (force) showToast(context, "今日已签到")
-            } else if (actionResponseHtml.contains("打卡成功") ||
-                actionResponseHtml.contains("签到成功") ||
-                actionResponseHtml.contains("获得了")
-            ) {
-                saveTodaySignStatus(accountHash, today, TodaySignStatus.SIGNED)
-                showToast(context, "签到成功")
-            } else {
-                if (force) showToast(context, "签到未完成，请重新登录后重试")
+                when {
+                    ACTION_ALREADY_MARKERS.any(actionResponseHtml::contains) -> {
+                        saveTodaySignStatus(accountHash, today, TodaySignStatus.SIGNED)
+                        if (force) showToast(context, "今日已签到")
+                        ManualSignResult.ALREADY_SIGNED
+                    }
+
+                    ACTION_SUCCESS_MARKERS.any(actionResponseHtml::contains) -> {
+                        saveTodaySignStatus(accountHash, today, TodaySignStatus.SIGNED)
+                        AppErrorLog.record("自动签到成功")
+                        showToast(context, "签到成功")
+                        ManualSignResult.SUCCESS
+                    }
+
+                    looksLikeChallengePage(actionResponseHtml) -> {
+                        refundQuota()
+                        AppErrorLog.record("签到被 WAF 拦截：请在签到页完成验证后重试")
+                        YamiboGlobalEvents.notifySignBlocked()
+                        ManualSignResult.WAF_BLOCKED
+                    }
+
+                    else -> {
+                        refundQuota()
+                        AppErrorLog.record("签到结果未知：${actionResponseHtml.take(120)}")
+                        if (force) showToast(context, "签到未完成，请重新登录后重试")
+                        ManualSignResult.FAILED
+                    }
+                }
+            } catch (error: HttpException) {
+                val code = error.code()
+                refundQuota()
+                if (code == 403 || code == 405) {
+                    AppErrorLog.record("签到被 WAF 拦截($code)：请在签到页完成验证后重试")
+                    YamiboGlobalEvents.notifySignBlocked()
+                    ManualSignResult.WAF_BLOCKED
+                } else {
+                    AppErrorLog.record("签到请求失败：HTTP $code")
+                    if (force) showToast(context, "签到请求失败，请稍后重试")
+                    ManualSignResult.FAILED
+                }
+            } catch (error: Exception) {
+                refundQuota()
+                val detail = error.message ?: error::class.simpleName.orEmpty()
+                AppErrorLog.record("签到请求失败：$detail")
+                if (force) showToast(context, "签到请求失败，请稍后重试")
+                ManualSignResult.FAILED
             }
-        } catch (error: Exception) {
-            val detail = error.message ?: error::class.simpleName.orEmpty()
-            AppErrorLog.record("签到请求失败：$detail")
-            if (force) showToast(context, "签到请求失败，请稍后重试")
         }
+    }
+
+    /** 优先使用可见签到页捕获的动作地址（服务器针对当前会话生成），失败时回退到 formhash 拼接。 */
+    private fun resolveSignActionUrl(formHash: String): String {
+        val captured = capturedSignAction
+        if (
+            captured != null &&
+            captured.accountHash == getCurrentAccountHash() &&
+            captured.date == getServerToday()
+        ) {
+            return if (captured.url.startsWith("http")) {
+                captured.url
+            } else {
+                BASE_URL + captured.url.trimStart('/')
+            }
         }
+        return "$SIGN_PAGE_URL&sign=$formHash"
     }
 
     internal fun extractSignFormHash(html: String): String? =

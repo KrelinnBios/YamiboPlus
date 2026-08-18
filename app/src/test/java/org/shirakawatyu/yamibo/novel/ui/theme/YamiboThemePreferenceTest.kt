@@ -53,10 +53,25 @@ class YamiboThemePreferenceTest {
     @Test
     fun everyPaletteResolvesToPairedLightAndDarkThemes() {
         YamiboThemePalette.entries.forEach { palette ->
+            if (palette == YamiboThemePalette.WHITE || palette == YamiboThemePalette.BLACK) {
+                return@forEach
+            }
             assertFalse(palette.label, palette.resolve(isDark = false).isDark)
             assertTrue(palette.label, palette.resolve(isDark = true).isDark)
             assertNotEquals(palette.label, palette.lightTheme, palette.darkTheme)
         }
+    }
+
+    @Test
+    fun whitePaletteIsAlwaysLightAndBlackPaletteIsAlwaysDark() {
+        assertEquals(
+            YamiboAppTheme.WHITE,
+            YamiboThemePalette.WHITE.resolve(isDark = true)
+        )
+        assertEquals(
+            YamiboAppTheme.BLACK,
+            YamiboThemePalette.BLACK.resolve(isDark = false)
+        )
     }
 
     @Test
@@ -66,13 +81,15 @@ class YamiboThemePreferenceTest {
 
         assertEquals(light.scheme, light.effectiveScheme(pureBlack = true))
         assertEquals(Color.Black, dark.effectiveScheme(pureBlack = true).background)
+        assertEquals(Color.Black, dark.effectiveScheme(pureBlack = true).primaryContainer)
+        assertEquals(Color.Black, dark.effectiveScheme(pureBlack = true).surfaceVariant)
         assertEquals(Color.Black, dark.effectiveScheme(pureBlack = true).surfaceContainerLowest)
         assertNotEquals(dark.scheme.background, dark.effectiveScheme(pureBlack = true).background)
     }
 
     @Test
     fun pureBlackUsesItsOwnDisplayLabel() {
-        assertEquals("\u7EAF\u9ED1", YamiboThemeMode.DARK.displayLabel(pureBlack = true))
-        assertEquals("\u6DF1\u8272", YamiboThemeMode.DARK.displayLabel(pureBlack = false))
+        assertEquals("纯黑", YamiboThemeMode.DARK.displayLabel(pureBlack = true))
+        assertEquals("深色", YamiboThemeMode.DARK.displayLabel(pureBlack = false))
     }
 }

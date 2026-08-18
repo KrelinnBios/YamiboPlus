@@ -126,6 +126,7 @@ import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.ui.widget.BottomNavBar
 import org.shirakawatyu.yamibo.novel.ui.widget.OnboardingOverlay
 import org.shirakawatyu.yamibo.novel.ui.widget.OnboardingStep
+import org.shirakawatyu.yamibo.novel.ui.widget.SignBlockedDialogHost
 import org.shirakawatyu.yamibo.novel.ui.widget.YamiboToastHost
 import org.shirakawatyu.yamibo.novel.util.AccountSyncManager
 import org.shirakawatyu.yamibo.novel.util.AppUpdateInfo
@@ -1698,6 +1699,7 @@ fun App(webChromeClient: WebChromeClient) {
                                     }
                                 }
                             )
+                            SignBlockedDialogHost(navController = navController)
                         }
                     }
                 } else {

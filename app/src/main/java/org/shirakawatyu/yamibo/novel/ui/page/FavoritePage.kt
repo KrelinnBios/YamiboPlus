@@ -43,7 +43,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.AlertDialog
+import org.shirakawatyu.yamibo.novel.ui.component.YamiboAlertDialog as AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -106,6 +106,7 @@ import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.item.FavoriteItem
 import org.shirakawatyu.yamibo.novel.openNativeForumPost
 import org.shirakawatyu.yamibo.novel.ui.theme.yamiboComponentColors
+import org.shirakawatyu.yamibo.novel.ui.component.YamiboDialogSurface
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.FavoriteVM
 import org.shirakawatyu.yamibo.novel.ui.vm.FavoriteTypeResolver
@@ -667,9 +668,11 @@ fun FavoritePage(
         }
     }
 
+    // 底栏隐藏时不再保留 50dp 底部占位，避免内容底部留一段空白色块。
+    val bottomPadding = if (bottomNavBarVM.bottomBarScrollSuppressed) lockedNavHeight else lockedNavHeight + 50.dp
     Column(
         modifier = Modifier
-            .padding(bottom = lockedNavHeight + 50.dp)
+            .padding(bottom = bottomPadding)
     ) {
         Spacer(
             modifier = Modifier
@@ -1119,15 +1122,11 @@ fun FavoritePage(
             Dialog(
                 onDismissRequest = { itemActionTarget = null },
             ) {
-                Surface(
+                YamiboDialogSurface(
                     modifier = Modifier
                         .widthIn(max = 320.dp)
                         .fillMaxWidth()
-                        .padding(horizontal = 24.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 0.dp,
-                    shadowElevation = 8.dp
+                        .padding(horizontal = 24.dp)
                 ) {
                     Column(
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),

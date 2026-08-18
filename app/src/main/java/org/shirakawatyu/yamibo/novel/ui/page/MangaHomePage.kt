@@ -167,11 +167,13 @@ fun MangaHomePage(
         }
     }
 
+    // 底栏隐藏时不再保留 50dp 底部占位，避免内容底部留一段空白色块。
+    val bottomPadding = if (bottomNavBarVM.bottomBarScrollSuppressed) navBottom else navBottom + 50.dp
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .padding(bottom = navBottom + 50.dp)
+            .padding(bottom = bottomPadding)
     ) {
         Surface(
             color = headerContainerColor,

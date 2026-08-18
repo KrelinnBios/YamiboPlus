@@ -41,6 +41,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -59,6 +60,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import kotlinx.coroutines.launch
 import org.shirakawatyu.yamibo.novel.R
 import org.shirakawatyu.yamibo.novel.bean.forum.UserProfile
 import org.shirakawatyu.yamibo.novel.ui.component.YamiboLoadError
@@ -85,6 +87,8 @@ fun NativeMinePage(
     )
 ) {
     val state by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val loginSucceeded by navController.currentBackStackEntry
         ?.savedStateHandle
         ?.getStateFlow(NATIVE_MINE_LOGIN_RESULT_KEY, false)
@@ -221,9 +225,10 @@ fun NativeMinePage(
                                         "&uid=${profile.uid}&do=profile&mobile=2"
                                 navController.navigate("OtherWebPage/${Uri.encode(profileUrl)}")
                             },
-                            onOpenSignInPage = {
-                                val signInUrl = "https://bbs.yamibo.com/plugin.php?id=zqlj_sign&mobile=2"
-                                navController.navigate("OtherWebPage/${Uri.encode(signInUrl)}")
+                            onManualSign = {
+                                scope.launch {
+                                    AutoSignManager.checkAndSignIfNeeded(context, force = true)
+                                }
                             },
                             onOpenSpaceSection = { section ->
                                 when (section) {
@@ -331,7 +336,7 @@ private fun UserProfileCard(
     profile: UserProfile,
     signStatus: TodaySignStatus?,
     onOpenProfile: () -> Unit,
-    onOpenSignInPage: () -> Unit,
+    onManualSign: () -> Unit,
     onOpenSpaceSection: (String) -> Unit,
     onOpenCredits: () -> Unit,
     onOpenMessages: () -> Unit,
@@ -353,7 +358,7 @@ private fun UserProfileCard(
                 verticalAlignment = Alignment.Top
             ) {
                 Surface(
-                    modifier = Modifier.size(120.dp).clickable(onClick = onOpenSignInPage),
+                    modifier = Modifier.size(120.dp).clickable(onClick = onManualSign),
                     shape = avatarShape,
                     color = MaterialTheme.colorScheme.surface,
                     border = BorderStroke(
@@ -367,7 +372,7 @@ private fun UserProfileCard(
                 ) {
                     AsyncImage(
                         model = ImageRequest.Builder(LocalContext.current).data(profile.avatarUrl).crossfade(true).build(),
-                        contentDescription = "打开签到页面",
+                        contentDescription = "手动签到",
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize().clip(avatarShape)
                     )

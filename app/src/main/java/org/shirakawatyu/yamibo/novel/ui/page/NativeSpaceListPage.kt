@@ -72,6 +72,7 @@ import coil.request.ImageRequest
 import org.shirakawatyu.yamibo.novel.bean.space.SpaceListItem
 import org.shirakawatyu.yamibo.novel.bean.space.SpacePageKind
 import org.shirakawatyu.yamibo.novel.bean.space.SpaceTabSpec
+import org.shirakawatyu.yamibo.novel.ui.component.YamiboDialogSurface
 import org.shirakawatyu.yamibo.novel.ui.component.YamiboLoadError
 import org.shirakawatyu.yamibo.novel.ui.theme.yamiboComponentColors
 import org.shirakawatyu.yamibo.novel.ui.vm.SpaceListVM
@@ -284,7 +285,12 @@ fun NativeSpaceListPage(
                             start = 12.dp,
                             end = 12.dp,
                             top = 8.dp,
-                            bottom = if (showBottomNavBar) 96.dp else 24.dp
+                            // 底栏滚动隐藏时不留底部占位，避免内容底部留一段空白色块。
+                            bottom = when {
+                                !showBottomNavBar -> 24.dp
+                                bottomNavBarVM?.bottomBarScrollSuppressed == true -> 24.dp
+                                else -> 96.dp
+                            }
                         )
                     ) {
                         items(state.items, key = { item ->
@@ -661,13 +667,10 @@ private fun BlogActionMenu(
     onAction: (String) -> Unit
 ) {
     Dialog(onDismissRequest = onDismiss) {
-        Surface(
+        YamiboDialogSurface(
             modifier = Modifier
                 .widthIn(max = 280.dp)
-                .fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.surface,
-            shadowElevation = 8.dp
+                .fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(vertical = 4.dp)) {
                 if (target.title.isNotBlank()) {
