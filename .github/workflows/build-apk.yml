@@ -44,8 +44,8 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
 
-      - name: Install Android SDK 34
-        run: sdkmanager "platforms;android-34" "build-tools;34.0.0"
+      - name: Install Android SDK 36
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
 
       - name: Grant Gradle wrapper permission
         run: chmod +x ./gradlew
@@ -113,7 +113,7 @@ jobs:
       - name: Verify APK signature
         shell: bash
         run: |
-          apksigner="$ANDROID_HOME/build-tools/34.0.0/apksigner"
+          apksigner="$ANDROID_HOME/build-tools/36.0.0/apksigner"
           if [ ! -x "$apksigner" ]; then
             echo "❌ apksigner not found at $apksigner"
             exit 1

@@ -27,6 +27,7 @@ import kotlinx.coroutines.launch
 import org.shirakawatyu.yamibo.novel.constant.RequestConfig
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.ui.theme.effectiveScheme
+import org.shirakawatyu.yamibo.novel.util.AppErrorLog
 import org.shirakawatyu.yamibo.novel.util.CookieUtil
 import org.shirakawatyu.yamibo.novel.util.AutoSignManager
 import org.shirakawatyu.yamibo.novel.util.LanguageModeUtil
@@ -111,7 +112,9 @@ open class YamiboWebViewClient : WebViewClient() {
                         val dm = webView.context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
                         dm.enqueue(it)
                     }
-                } catch (_: Exception) {}
+                } catch (error: Exception) {
+                    AppErrorLog.record("附件下载失败：${error.message ?: error.javaClass.simpleName}")
+                }
             }
         }
 
@@ -157,7 +160,9 @@ open class YamiboWebViewClient : WebViewClient() {
 
     private fun isYamiboForumUrl(url: String?): Boolean {
         if (url.isNullOrBlank()) return false
-        val host = runCatching { Uri.parse(url).host.orEmpty().lowercase() }.getOrDefault("")
+        val parsed = runCatching { Uri.parse(url) }.getOrNull() ?: return false
+        if (!parsed.scheme.equals("https", ignoreCase = true)) return false
+        val host = parsed.host.orEmpty().lowercase()
         return host == "bbs.yamibo.com" || host == "m.yamibo.com" ||
                 host == "www.yamibo.com" || host == "yamibo.com"
     }
@@ -362,8 +367,19 @@ open class YamiboWebViewClient : WebViewClient() {
     protected fun handleCommonUrlOverride(view: WebView?, url: String?): Boolean? {
         val safeUrl = url ?: ""
         if (safeUrl.isBlank()) return false
+        val parsedUrl = runCatching { Uri.parse(safeUrl) }.getOrNull()
+        parsedUrl?.takeIf { parsed ->
+            parsed.scheme.equals("http", ignoreCase = true) &&
+                    parsed.host.orEmpty().lowercase().let { host ->
+                        host == "yamibo.com" || host.endsWith(".yamibo.com")
+                    }
+        }?.let { parsed ->
+            view?.loadUrl(parsed.buildUpon().scheme("https").build().toString())
+            return true
+        }
         if (!safeUrl.startsWith("http://") && !safeUrl.startsWith("https://")) {
-            return openExternalUrl(view, safeUrl)
+            openExternalUrl(view, safeUrl)
+            return true
         }
         if (!isYamiboForumUrl(safeUrl)) {
             openExternalUrl(view, safeUrl)

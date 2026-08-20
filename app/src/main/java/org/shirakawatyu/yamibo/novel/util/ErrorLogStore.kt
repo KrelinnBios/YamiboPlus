@@ -95,13 +95,16 @@ object ErrorLogStore {
             line.contains("reset", ignoreCase = true)
 
     /** 历史日志可能来自旧版本，读取/提交前统一隐藏会话凭证。 */
-    private fun redactSensitiveValues(text: String): String =
+    internal fun redactSensitiveValues(text: String): String =
         text.replace(
             Regex("(\"(?:auth|saltkey|password|token)\"\\s*:\\s*\")[^\"]*(\")"),
             "$1<redacted>$2"
         ).replace(
             Regex("((?:Cookie|cookie):\\s*)[^\\r\\n]+"),
             "$1<redacted>"
+        ).replace(
+            Regex("([?&](?:auth|saltkey|password|token|formhash|code|cookie)=[^&#\\s]*)", RegexOption.IGNORE_CASE),
+            { match -> match.value.substringBefore('=') + "=<redacted>" }
         )
 
     private fun logDir(): File? {
