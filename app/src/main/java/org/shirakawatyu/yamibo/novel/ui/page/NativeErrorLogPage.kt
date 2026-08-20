@@ -47,6 +47,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.shirakawatyu.yamibo.novel.ui.theme.yamiboComponentColors
+import org.shirakawatyu.yamibo.novel.ui.theme.yamiboDangerColor
 import org.shirakawatyu.yamibo.novel.ui.widget.YamiboToast
 import org.shirakawatyu.yamibo.novel.util.ErrorLogStore
 import org.shirakawatyu.yamibo.novel.util.LanguageModeUtil
@@ -162,7 +163,7 @@ fun NativeErrorLogPage(
                     YamiboToast.show(message = "日志已清空")
                     scope.launch { reload() }
                 }) {
-                    Text(LanguageModeUtil.displayText("确认"), color = MaterialTheme.colorScheme.error)
+                    Text(LanguageModeUtil.displayText("确认"), color = yamiboDangerColor())
                 }
             },
             dismissButton = {
@@ -226,7 +227,7 @@ fun NativeErrorLogPage(
                     YamiboToast.show(message = "已删除")
                     scope.launch { reload() }
                 }) {
-                    Text(LanguageModeUtil.displayText("删除"), color = MaterialTheme.colorScheme.error)
+                    Text(LanguageModeUtil.displayText("删除"), color = yamiboDangerColor())
                 }
             }
         )

@@ -26,6 +26,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import org.shirakawatyu.yamibo.novel.ui.component.YamiboAlertDialog as AlertDialog
+import org.shirakawatyu.yamibo.novel.ui.theme.yamiboDangerColor
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -299,7 +300,7 @@ fun ForumBlocklistDialog(
                                                 ForumBlocklistManager.remove(item.type, item.id)
                                             }
                                             .padding(horizontal = 10.dp, vertical = 7.dp),
-                                        color = MaterialTheme.colorScheme.error,
+                                        color = yamiboDangerColor(),
                                         fontSize = 13.sp
                                     )
                                 }
@@ -326,7 +327,7 @@ fun ForumBlocklistDialog(
                     onClick = { showClearConfirmation = true },
                     enabled = blockedItems.isNotEmpty()
                 ) {
-                    Text("清空", color = MaterialTheme.colorScheme.error)
+                    Text("清空", color = yamiboDangerColor())
                 }
             }
         }

@@ -56,7 +56,8 @@ sealed interface SpaceListItem {
         val url: String,
         val editUrl: String = "",
         val deleteUrl: String = "",
-        val stickUrl: String = ""
+        val stickUrl: String = "",
+        val tags: List<String> = emptyList()
     ) : SpaceListItem
 
     /** 我的主题/回复条目 */

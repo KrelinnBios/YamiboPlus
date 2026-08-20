@@ -4,6 +4,7 @@ import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 
 /**
  * 应用主题枚举。移植自 NeoDBLite 的配色，并保留 YamiboReaderLite 的经典浅色主题作为默认。
@@ -279,6 +280,34 @@ enum class YamiboAppTheme(val label: String, val isDark: Boolean, val scheme: Co
         )
     ),
 
+    INDIGO_LIGHT(
+        label = "黛蓝·浅",
+        isDark = false,
+        scheme = yamiboLightScheme(
+            primary = Color(0xFF455CA9),
+            primaryContainer = Color(0xFFDCE1FF),
+            secondary = Color(0xFF5B5D72),
+            secondaryContainer = Color(0xFFE0E1F9),
+            background = Color(0xFFF9F9FF),
+            surface = Color(0xFFFFFFFF),
+            surfaceVariant = Color(0xFFE1E1EF)
+        )
+    ),
+
+    INDIGO_DARK(
+        label = "黛蓝·深",
+        isDark = true,
+        scheme = yamiboDarkScheme(
+            primary = Color(0xFFB9C3FF),
+            primaryContainer = Color(0xFF3E4391),
+            secondary = Color(0xFFC4C5DD),
+            secondaryContainer = Color(0xFF44465B),
+            background = Color(0xFF12131A),
+            surface = Color(0xFF1B1C24),
+            surfaceVariant = Color(0xFF46464F)
+        )
+    ),
+
     GREEN_LIGHT(
         label = "新叶·浅",
         isDark = false,
@@ -304,6 +333,34 @@ enum class YamiboAppTheme(val label: String, val isDark: Boolean, val scheme: Co
             background = Color(0xFF11150F),
             surface = Color(0xFF1A2018),
             surfaceVariant = Color(0xFF43493F)
+        )
+    ),
+
+    JADE_LIGHT(
+        label = "翡翠·浅",
+        isDark = false,
+        scheme = yamiboLightScheme(
+            primary = Color(0xFF008F5B),
+            primaryContainer = Color(0xFFB4F3D2),
+            secondary = Color(0xFF4C6358),
+            secondaryContainer = Color(0xFFCEE9DB),
+            background = Color(0xFFF5FBF6),
+            surface = Color(0xFFFFFFFF),
+            surfaceVariant = Color(0xFFDBE8E0)
+        )
+    ),
+
+    JADE_DARK(
+        label = "翡翠·深",
+        isDark = true,
+        scheme = yamiboDarkScheme(
+            primary = Color(0xFF5ED9A8),
+            primaryContainer = Color(0xFF005B41),
+            secondary = Color(0xFFB2CCC0),
+            secondaryContainer = Color(0xFF35493F),
+            background = Color(0xFF0F1512),
+            surface = Color(0xFF182019),
+            surfaceVariant = Color(0xFF414B44)
         )
     ),
 
@@ -407,14 +464,42 @@ enum class YamiboAppTheme(val label: String, val isDark: Boolean, val scheme: Co
     GOLD_DARK(
         label = "鎏金·深",
         isDark = true,
-        scheme = yamiboDarkScheme(
-            primary = Color(0xFFFFE057),
-            primaryContainer = Color(0xFF665000),
-            secondary = Color(0xFFE6CB94),
-            secondaryContainer = Color(0xFF55471C),
-            background = Color(0xFF1C1504),
-            surface = Color(0xFF26200B),
-            surfaceVariant = Color(0xFF504417)
+        // 低饱和复古鎏金：主色收敛为哑光古金，背景改用深暖炭黑，
+        // 摒弃亮柠檬黄撞深藏青文字的廉价感，换之以温润的琥珀色层级。
+        scheme = darkColorScheme(
+            primary = Color(0xFFDBC06F),
+            onPrimary = Color(0xFF3A2E00),
+            primaryContainer = Color(0xFF51440A),
+            onPrimaryContainer = Color(0xFFF9E8B0),
+            secondary = Color(0xFFD3C294),
+            onSecondary = Color(0xFF332B14),
+            secondaryContainer = Color(0xFF453C22),
+            onSecondaryContainer = Color(0xFFF4E9CF),
+            tertiary = Color(0xFFC6AD7B),
+            onTertiary = Color(0xFF2D230F),
+            tertiaryContainer = Color(0xFF3E341C),
+            onTertiaryContainer = Color(0xFFEEDFB9),
+            background = Color(0xFF17130E),
+            onBackground = Color(0xFFECE4D3),
+            surface = Color(0xFF1D1913),
+            onSurface = Color(0xFFECE4D3),
+            surfaceVariant = Color(0xFF4B4230),
+            onSurfaceVariant = Color(0xFFCDC3AD),
+            outline = Color(0xFF948974),
+            outlineVariant = Color(0xFF4B4230),
+            error = Color(0xFFFFB4AB),
+            onError = Color(0xFF690005),
+            surfaceDim = Color(0xFF17130E),
+            surfaceBright = Color(0xFF40392D),
+            surfaceContainerLowest = Color(0xFF100D08),
+            surfaceContainerLow = Color(0xFF1D1913),
+            surfaceContainer = Color(0xFF221D16),
+            surfaceContainerHigh = Color(0xFF2C2720),
+            surfaceContainerHighest = Color(0xFF37312A),
+            inverseSurface = Color(0xFFECE4D3),
+            inverseOnSurface = Color(0xFF322C23),
+            inversePrimary = Color(0xFF6B5B14),
+            surfaceTint = Color(0xFFDBC06F)
         )
     ),
 
@@ -747,7 +832,7 @@ enum class YamiboThemePalette(
         "鎏金",
         YamiboAppTheme.GOLD_LIGHT,
         YamiboAppTheme.GOLD_DARK,
-        listOf(Color(0xFFF2B705), Color(0xFFFFE08A), Color(0xFFFFE057), Color(0xFF26200B))
+        listOf(Color(0xFFF2B705), Color(0xFFFFE08A), Color(0xFFDBC06F), Color(0xFF1D1913))
     ),
     LIME(
         "柠黄",
@@ -766,6 +851,12 @@ enum class YamiboThemePalette(
         YamiboAppTheme.MOSS_LIGHT,
         YamiboAppTheme.MOSS_DARK,
         listOf(Color(0xFF556B2F), Color(0xFFD6E9AC), Color(0xFFBBD37F), Color(0xFF1C200E))
+    ),
+    JADE(
+        "翡翠",
+        YamiboAppTheme.JADE_LIGHT,
+        YamiboAppTheme.JADE_DARK,
+        listOf(Color(0xFF008F5B), Color(0xFFB4F3D2), Color(0xFF5ED9A8), Color(0xFF182019))
     ),
     TEAL(
         "海青",
@@ -790,6 +881,12 @@ enum class YamiboThemePalette(
         YamiboAppTheme.MIST_LIGHT,
         YamiboAppTheme.MIST_DARK,
         listOf(Color(0xFF46627F), Color(0xFFCFE3F5), Color(0xFFA8C7E4), Color(0xFF191F25))
+    ),
+    INDIGO(
+        "黛蓝",
+        YamiboAppTheme.INDIGO_LIGHT,
+        YamiboAppTheme.INDIGO_DARK,
+        listOf(Color(0xFF455CA9), Color(0xFFDCE1FF), Color(0xFFB9C3FF), Color(0xFF1B1C24))
     ),
     PURPLE(
         "暮紫",
@@ -835,10 +932,12 @@ enum class YamiboThemePalette(
             YamiboAppTheme.LIME_LIGHT, YamiboAppTheme.LIME_DARK -> LIME
             YamiboAppTheme.GREEN_LIGHT, YamiboAppTheme.GREEN_DARK -> GREEN
             YamiboAppTheme.MOSS_LIGHT, YamiboAppTheme.MOSS_DARK -> MOSS
+            YamiboAppTheme.JADE_LIGHT, YamiboAppTheme.JADE_DARK -> JADE
             YamiboAppTheme.TEAL_LIGHT, YamiboAppTheme.TEAL_DARK -> TEAL
             YamiboAppTheme.CYAN_LIGHT, YamiboAppTheme.CYAN_DARK -> CYAN
             YamiboAppTheme.BLUE_LIGHT, YamiboAppTheme.BLUE_BLACK -> BLUE
             YamiboAppTheme.MIST_LIGHT, YamiboAppTheme.MIST_DARK -> MIST
+            YamiboAppTheme.INDIGO_LIGHT, YamiboAppTheme.INDIGO_DARK -> INDIGO
             YamiboAppTheme.PURPLE_LIGHT, YamiboAppTheme.MIDNIGHT_PURPLE -> PURPLE
             YamiboAppTheme.MAGENTA_LIGHT, YamiboAppTheme.MAGENTA_DARK -> MAGENTA
             YamiboAppTheme.WHITE -> WHITE
@@ -981,25 +1080,25 @@ private fun yamiboDarkScheme(
     surfaceVariant: Color
 ): ColorScheme = darkColorScheme(
     primary = primary,
-    onPrimary = Color(0xFF172028),
+    onPrimary = if (primary.luminance() > 0.4f) Color(0xFF211C11) else Color(0xFFF4EFE4),
     primaryContainer = primaryContainer,
-    onPrimaryContainer = Color(0xFFFFEDEA),
+    onPrimaryContainer = Color(0xFFF2ECDF),
     secondary = secondary,
-    onSecondary = Color(0xFF20252A),
+    onSecondary = if (secondary.luminance() > 0.4f) Color(0xFF262219) else Color(0xFFF4EFE4),
     secondaryContainer = secondaryContainer,
-    onSecondaryContainer = Color(0xFFF2E5E1),
+    onSecondaryContainer = Color(0xFFF0E9DA),
     tertiary = primary,
-    onTertiary = Color(0xFF20252A),
+    onTertiary = if (primary.luminance() > 0.4f) Color(0xFF211C11) else Color(0xFFF4EFE4),
     tertiaryContainer = primaryContainer,
-    onTertiaryContainer = Color(0xFFFFEDEA),
+    onTertiaryContainer = Color(0xFFF2ECDF),
     background = background,
-    onBackground = Color(0xFFE8E1DE),
+    onBackground = Color(0xFFECE6DB),
     surface = surface,
-    onSurface = Color(0xFFE8E1DE),
+    onSurface = Color(0xFFECE6DB),
     surfaceVariant = surfaceVariant,
-    onSurfaceVariant = Color(0xFFD0C4C0),
-    outline = Color(0xFF9B8F8B),
-    outlineVariant = Color(0xFF4E4542),
+    onSurfaceVariant = Color(0xFFCFC9BB),
+    outline = Color(0xFF938D81),
+    outlineVariant = Color(0xFF4B453C),
     error = Color(0xFFFFB4AB),
     onError = Color(0xFF690005),
     surfaceDim = background,
@@ -1009,8 +1108,8 @@ private fun yamiboDarkScheme(
     surfaceContainer = surface,
     surfaceContainerHigh = androidx.compose.ui.graphics.lerp(surface, surfaceVariant, 0.36f),
     surfaceContainerHighest = androidx.compose.ui.graphics.lerp(surface, surfaceVariant, 0.58f),
-    inverseSurface = Color(0xFFE8E1DE),
-    inverseOnSurface = Color(0xFF302A28),
+    inverseSurface = Color(0xFFECE6DB),
+    inverseOnSurface = Color(0xFF322D25),
     inversePrimary = primaryContainer,
     surfaceTint = primary
 )

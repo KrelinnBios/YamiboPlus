@@ -26,7 +26,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.outlined.FavoriteBorder
@@ -65,6 +65,7 @@ import org.shirakawatyu.yamibo.novel.bean.space.BlogContentBlock
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.ui.component.YamiboLoadError
 import org.shirakawatyu.yamibo.novel.ui.theme.yamiboComponentColors
+import org.shirakawatyu.yamibo.novel.ui.theme.yamiboDangerColor
 import org.shirakawatyu.yamibo.novel.ui.vm.BlogDetailVM
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.util.blog.BlogReactionSnapshot
@@ -152,7 +153,7 @@ fun NativeBlogDetailPage(
                 if (loaded != null && loaded.editUrl.isNotBlank()) {
                     IconButton(onClick = { onOpenWeb(loaded.editUrl) }) {
                         Icon(
-                            imageVector = Icons.Filled.Edit,
+                            imageVector = Icons.Filled.EditNote,
                             contentDescription = "编辑",
                             tint = colors.topBarContent
                         )
@@ -286,7 +287,7 @@ fun NativeBlogDetailPage(
                         deleteTarget = null
                         vm.deleteComment(comment) { result, _ -> YamiboToast.show(message = result) }
                     }
-                ) { Text("删除", color = MaterialTheme.colorScheme.error) }
+                ) { Text("删除", color = yamiboDangerColor()) }
             },
             dismissButton = {
                 TextButton(enabled = !commentBusy, onClick = { deleteTarget = null }) {
@@ -606,7 +607,7 @@ private fun BlogCommentCard(
                             ) {
                                 Text(
                                     "删除",
-                                    color = MaterialTheme.colorScheme.error,
+                                    color = yamiboDangerColor(),
                                     fontSize = 12.sp
                                 )
                             }

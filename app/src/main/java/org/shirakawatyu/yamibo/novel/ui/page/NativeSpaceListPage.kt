@@ -27,9 +27,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -75,6 +77,7 @@ import org.shirakawatyu.yamibo.novel.bean.space.SpaceTabSpec
 import org.shirakawatyu.yamibo.novel.ui.component.YamiboDialogSurface
 import org.shirakawatyu.yamibo.novel.ui.component.YamiboLoadError
 import org.shirakawatyu.yamibo.novel.ui.theme.yamiboComponentColors
+import org.shirakawatyu.yamibo.novel.ui.theme.yamiboDangerColor
 import org.shirakawatyu.yamibo.novel.ui.vm.SpaceListVM
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.widget.ObserveBottomBarLazyListScroll
@@ -184,7 +187,7 @@ fun NativeSpaceListPage(
                 )
                 if (onTopBarAction != null) {
                     IconButton(onClick = onTopBarAction) {
-                        Icon(Icons.Default.Edit, contentDescription = "编辑", tint = headerContent)
+                        Icon(Icons.Default.Add, contentDescription = "新增", tint = headerContent)
                     }
                 }
             }
@@ -647,7 +650,7 @@ private fun BlogItemRow(
                 text = item.summary,
                 fontSize = 13.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 3,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
             Spacer(Modifier.height(6.dp))
@@ -666,33 +669,46 @@ private fun BlogActionMenu(
     onDismiss: () -> Unit,
     onAction: (String) -> Unit
 ) {
+    val metadataLines = buildList {
+        target.category.takeIf(String::isNotBlank)?.let { add("分类：$it") }
+        target.tags
+            .joinToString("、")
+            .takeIf(String::isNotBlank)
+            ?.let { add("标签：$it") }
+    }
+
     Dialog(onDismissRequest = onDismiss) {
         YamiboDialogSurface(
             modifier = Modifier
-                .widthIn(max = 280.dp)
+                .widthIn(max = 320.dp)
                 .fillMaxWidth()
+                .padding(horizontal = 24.dp)
         ) {
-            Column(modifier = Modifier.padding(vertical = 4.dp)) {
+            Column(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
                 if (target.title.isNotBlank()) {
                     Text(
                         text = target.title,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                     )
-                    HorizontalDivider(
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                }
+                metadataLines.forEach { line ->
+                    Text(
+                        text = line,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 12.dp)
                     )
                 }
-                if (target.editUrl.isNotBlank()) {
-                    BlogMenuAction(
-                        label = "编辑",
-                        icon = Icons.Filled.Edit,
-                        onClick = { onAction(target.editUrl) }
+                if (target.title.isNotBlank() || metadataLines.isNotEmpty()) {
+                    HorizontalDivider(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                     )
                 }
                 if (target.stickUrl.isNotBlank()) {
@@ -700,6 +716,13 @@ private fun BlogActionMenu(
                         label = "置顶",
                         icon = Icons.Filled.KeyboardArrowUp,
                         onClick = { onAction(target.stickUrl) }
+                    )
+                }
+                if (target.editUrl.isNotBlank()) {
+                    BlogMenuAction(
+                        label = "编辑",
+                        icon = Icons.Filled.EditNote,
+                        onClick = { onAction(target.editUrl) }
                     )
                 }
                 if (target.deleteUrl.isNotBlank()) {
@@ -722,12 +745,13 @@ private fun BlogMenuAction(
     danger: Boolean = false,
     onClick: () -> Unit
 ) {
-    val contentColor = if (danger) MaterialTheme.colorScheme.error
-    else MaterialTheme.colorScheme.onSurface
+    val contentColor = if (danger) yamiboDangerColor()
+    else MaterialTheme.colorScheme.primary
     TextButton(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp)
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+        colors = ButtonDefaults.textButtonColors(contentColor = contentColor)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -739,7 +763,7 @@ private fun BlogMenuAction(
                 modifier = Modifier.size(20.dp),
                 tint = contentColor
             )
-            Spacer(Modifier.width(16.dp))
+            Spacer(Modifier.width(12.dp))
             Text(label, color = contentColor)
         }
     }

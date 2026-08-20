@@ -106,6 +106,7 @@ import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.item.FavoriteItem
 import org.shirakawatyu.yamibo.novel.openNativeForumPost
 import org.shirakawatyu.yamibo.novel.ui.theme.yamiboComponentColors
+import org.shirakawatyu.yamibo.novel.ui.theme.yamiboDangerColor
 import org.shirakawatyu.yamibo.novel.ui.component.YamiboDialogSurface
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.FavoriteVM
@@ -1328,7 +1329,7 @@ fun FavoritePage(
                             modifier = Modifier.fillMaxWidth(),
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                             colors = ButtonDefaults.textButtonColors(
-                                contentColor = MaterialTheme.colorScheme.primary
+                                contentColor = yamiboDangerColor()
                             )
                         ) {
                             Row(
@@ -1375,7 +1376,7 @@ fun FavoritePage(
                     ) {
                         Text(
                             "确认",
-                            color = MaterialTheme.colorScheme.error,
+                            color = yamiboDangerColor(),
                             fontSize = 15.sp
                         )
                     }
@@ -1414,7 +1415,7 @@ fun FavoritePage(
                                 YamiboToast.show(context = context, message = msg)
                             }
                         },
-                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                        colors = ButtonDefaults.textButtonColors(contentColor = yamiboDangerColor())
                     ) {
                         Text("确认", fontSize = 15.sp)
                     }

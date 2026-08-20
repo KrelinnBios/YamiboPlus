@@ -46,6 +46,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.ui.theme.yamiboComponentColors
+import org.shirakawatyu.yamibo.novel.ui.theme.yamiboDangerColor
 import org.shirakawatyu.yamibo.novel.ui.widget.YamiboToast
 import org.shirakawatyu.yamibo.novel.util.BackupUtil
 
@@ -221,7 +222,7 @@ fun NativeBackupPage(
                 }) {
                     Text(
                         "确认",
-                        color = MaterialTheme.colorScheme.error,
+                        color = yamiboDangerColor(),
                         fontSize = 15.sp
                     )
                 }

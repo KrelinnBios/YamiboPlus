@@ -13,6 +13,7 @@ import org.shirakawatyu.yamibo.novel.bean.space.BlogContentBlock
 import org.shirakawatyu.yamibo.novel.bean.space.BlogDetail
 import org.shirakawatyu.yamibo.novel.bean.space.PrivateMessageBubble
 import org.shirakawatyu.yamibo.novel.bean.space.PrivateMessageConversation
+import org.shirakawatyu.yamibo.novel.util.AppErrorLog
 
 /**
  * 手机版空间页 HTML 解析器。
@@ -95,6 +96,8 @@ object SpaceMobileParser {
             ?.removeSuffix("]")
             .orEmpty()
         val authorLink = document.selectFirst(".viewthread .authi a[href*='uid=']")
+            ?: document.selectFirst(".viewthread .authi a.xw1")
+            ?: document.selectFirst(".viewthread .authi a[href*='mod=space']")
         val ownerUid = Regex("[?&]uid=(\\d+)")
             .find(authorLink?.attr("href").orEmpty())
             ?.groupValues
@@ -104,6 +107,12 @@ object SpaceMobileParser {
         val time = document.selectFirst(".viewthread .authi .mtime")?.ownText()?.trim().orEmpty()
         val statText = document.selectFirst(".viewthread .authi .mtime .y")?.text().orEmpty()
         val stats = Regex("(\\d+)").findAll(statText).map { it.value }.toList()
+        val authorName = authorLink?.text()?.trim().orEmpty().ifBlank {
+            document.select("a[href*='uid=']")
+                .map { it.text().trim() }
+                .firstOrNull(String::isNotBlank)
+                .orEmpty()
+        }
         val message = document.selectFirst(".viewthread .message")
             ?: throw IllegalStateException("日志正文为空")
         val blocks = parseBlogBlocks(message)
@@ -137,7 +146,7 @@ object SpaceMobileParser {
             ownerUid = ownerUid,
             category = category,
             title = title,
-            authorName = authorLink?.text()?.trim().orEmpty(),
+            authorName = authorName,
             authorAvatarUrl = avatarUrl(
                 document.selectFirst(".viewthread .avatar img"),
                 ownerUid
@@ -300,6 +309,10 @@ object SpaceMobileParser {
             val time = li.selectFirst(".mtime span")?.text().orEmpty().trim()
             val summary = li.selectFirst(".threadlist_mes")?.text().orEmpty().trim()
             val author = li.selectFirst(".mmc")?.text().orEmpty().trim()
+            val tags = li.select("a[href*='mod=tag']")
+                .map { it.text().trim() }
+                .filter(String::isNotBlank)
+                .distinct()
             SpaceListItem.Blog(
                 blogId = blogId,
                 category = category,
@@ -310,7 +323,8 @@ object SpaceMobileParser {
                 url = link.attr("abs:href"),
                 editUrl = li.selectFirst("a[href*='op=edit']")?.attr("abs:href").orEmpty(),
                 deleteUrl = li.selectFirst("a[href*='op=delete']")?.attr("abs:href").orEmpty(),
-                stickUrl = li.selectFirst("a[href*='op=stick']")?.attr("abs:href").orEmpty()
+                stickUrl = li.selectFirst("a[href*='op=stick']")?.attr("abs:href").orEmpty(),
+                tags = tags
             )
         }
 
@@ -319,7 +333,11 @@ object SpaceMobileParser {
             val link = li.selectFirst("a[href*='mod=viewthread']") ?: return@mapNotNull null
             val tid = Regex("[?&]tid=(\\d+)").find(link.attr("href"))?.groupValues?.get(1)
                 ?: return@mapNotNull null
-            val title = li.selectFirst(".threadlist_tit")?.text().orEmpty().trim()
+            // 取标题前先剔掉 .micon（如「已关闭」图标），避免站点模板里
+            // !closed_thread!: 这类未替换的 lang 文本混进标题。
+            val titleElement = li.selectFirst(".threadlist_tit")
+            val title = titleElement?.clone()?.apply { select(".micon").remove() }
+                ?.text().orEmpty().trim()
             val time = li.selectFirst(".mtime")?.text().orEmpty().trim()
             val summary = li.selectFirst(".threadlist_mes")?.text().orEmpty().trim()
             val forumName = li.selectFirst(".threadlist_foot li.mr a")?.text().orEmpty().trim()

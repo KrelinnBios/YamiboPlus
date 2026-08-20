@@ -115,6 +115,7 @@ import org.shirakawatyu.yamibo.novel.module.CoilWebViewProxy
 import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
 import org.shirakawatyu.yamibo.novel.ui.component.YamiboLoadError
 import org.shirakawatyu.yamibo.novel.ui.theme.effectiveScheme
+import org.shirakawatyu.yamibo.novel.ui.theme.yamiboDangerColor
 import org.shirakawatyu.yamibo.novel.ui.theme.yamiboSwitchColors
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.widget.ObserveBottomBarWebViewScroll
@@ -1945,7 +1946,7 @@ fun MinePage(
                                 }) {
                                     Text(
                                         strings.confirm,
-                                        color = MaterialTheme.colorScheme.error,
+                                        color = yamiboDangerColor(),
                                         fontSize = 15.sp
                                     )
                                 }
@@ -2027,7 +2028,7 @@ fun MinePage(
                                     Text(
                                         strings.confirm,
                                         fontSize = 15.sp,
-                                        color = MaterialTheme.colorScheme.error
+                                        color = yamiboDangerColor()
                                     )
                                 }
                             },

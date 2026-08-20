@@ -72,6 +72,7 @@ import org.shirakawatyu.yamibo.novel.bean.HistoryEntry
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.openNativeForumPost
 import org.shirakawatyu.yamibo.novel.ui.theme.yamiboComponentColors
+import org.shirakawatyu.yamibo.novel.ui.theme.yamiboDangerColor
 import org.shirakawatyu.yamibo.novel.ui.widget.OnboardingOverlay
 import org.shirakawatyu.yamibo.novel.ui.widget.OnboardingStep
 import org.shirakawatyu.yamibo.novel.util.OnboardingUtil
@@ -583,7 +584,7 @@ fun HistoryPage(navController: NavController) {
                 }) {
                     Text(
                         "确认",
-                        color = MaterialTheme.colorScheme.error,
+                        color = yamiboDangerColor(),
                         fontSize = 15.sp
                     )
                 }

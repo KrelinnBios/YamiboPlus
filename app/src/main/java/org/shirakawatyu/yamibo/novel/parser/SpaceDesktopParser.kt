@@ -6,6 +6,7 @@ import org.jsoup.nodes.Element
 import org.shirakawatyu.yamibo.novel.bean.space.BlogComment
 import org.shirakawatyu.yamibo.novel.bean.space.BlogContentBlock
 import org.shirakawatyu.yamibo.novel.bean.space.BlogDetail
+import org.shirakawatyu.yamibo.novel.util.AppErrorLog
 
 /** 电脑版空间日志解析器。权限由页面实际输出的操作链接决定。 */
 object SpaceDesktopParser {
@@ -17,6 +18,13 @@ object SpaceDesktopParser {
         val article = document.selectFirst("#blog_article")
             ?: throw IllegalStateException("日志内容为空")
         val authorLink = document.selectFirst("#pcd .hm a[href*='space-uid-']")
+            ?: document.selectFirst("#pcd .hm a[href*='mod=space'][href*='uid=']")
+            ?: document.selectFirst("#pcd .hm a.xw1")
+            ?: document.selectFirst(".vw .hm a[href*='space-uid-']")
+            ?: document.selectFirst(".vw .hm a[href*='mod=space'][href*='uid=']")
+            ?: document.selectFirst(".vw .hm a.xw1")
+            ?: document.selectFirst("#pcd a[href*='space-uid-']")
+            ?: document.selectFirst(".vw a[href*='space-uid-']")
         val ownerUid = extractUid(authorLink?.attr("href").orEmpty())
             ?: Regex("blog-(\\d+)-\\d+")
                 .find(url)
@@ -40,6 +48,18 @@ object SpaceDesktopParser {
             ?.groupValues
             ?.getOrNull(1)
             .orEmpty()
+        val authorName = authorLink?.text()?.trim().orEmpty().ifBlank {
+            document.select("a[href*='space-uid-']")
+                .map { it.text().trim() }
+                .firstOrNull(String::isNotBlank)
+                .orEmpty()
+        }
+        if (authorName.isBlank()) {
+            val authorLinkCount = document.select("a[href*='uid='], a[href*='space-uid-']").size
+            AppErrorLog.record(
+                "桌面版日志作者名为空：作者链接数=$authorLinkCount，pcd作者区=${document.selectFirst("#pcd .hm") != null}，vw作者区=${document.selectFirst(".vw .hm") != null}"
+            )
+        }
         val time = datePattern.find(metaText)?.value.orEmpty()
         val comments = parseComments(document)
         val actionLinks = document.select(".vw .o a")
@@ -57,7 +77,7 @@ object SpaceDesktopParser {
             ownerUid = ownerUid,
             category = category,
             title = title,
-            authorName = authorLink?.text()?.trim().orEmpty(),
+            authorName = authorName,
             authorAvatarUrl = document.selectFirst("#pcd .hm img")?.let { avatarUrl(it) },
             time = time,
             viewCount = viewCount,

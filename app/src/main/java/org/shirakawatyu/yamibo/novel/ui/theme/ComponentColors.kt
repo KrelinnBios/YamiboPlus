@@ -9,6 +9,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import kotlin.math.abs
 
 data class YamiboComponentColors(
     val topBarContainer: Color,
@@ -36,6 +37,49 @@ fun yamiboComponentColors(scheme: ColorScheme): YamiboComponentColors {
 @Composable
 fun yamiboComponentColors(): YamiboComponentColors =
     yamiboComponentColors(MaterialTheme.colorScheme)
+
+/**
+ * 弹窗/菜单里破坏性操作（删除、清空、移除等）统一使用的警示色。
+ * 大部分主题直接复用主题自带 error（浅色 #BA1A1A / 深色 #FFB4AB），既醒目又贴合主题。
+ * 但红色系主题（经典/绯红/樱粉/蜜橙/品红等）的 primary 本身就是红/橙/粉，色相与 error
+ * 几乎重合——尤其深色下 primary 与 error 都是 #FFB4xx 的浅红，删除按钮会和普通按钮
+ * 完全分不开。此时改用一个更深、更饱和的「信号红」：与主色拉开差距（看得出是危险操作），
+ * 同时保持红色系暖调，贴合当前主题的明暗基调。
+ */
+fun yamiboDangerColor(scheme: ColorScheme): Color {
+    val error = scheme.error
+    val primaryHue = scheme.primary.rgbHueDegrees()
+    val errorHue = error.rgbHueDegrees()
+    // 主色或 error 是纯灰/黑白（如月白、墨黑）时没有色相概念，直接沿用 error。
+    if (primaryHue < 0f || errorHue < 0f) return error
+    // 主色与 error 色相距离足够大（蓝/绿/紫/黄等主题）时，error 本就醒目，直接沿用。
+    if (hueDistanceDegrees(primaryHue, errorHue) >= 30f) return error
+    // 红色系主题：深色下用偏深的饱和红、浅色下用更纯的深红，既区分主色又贴合暖调。
+    val isDark = scheme.background.luminance() < 0.5f
+    return if (isDark) Color(0xFFE5484D) else Color(0xFFC62828)
+}
+
+@Composable
+fun yamiboDangerColor(): Color = yamiboDangerColor(MaterialTheme.colorScheme)
+
+private fun Color.rgbHueDegrees(): Float {
+    val max = maxOf(red, green, blue)
+    val min = minOf(red, green, blue)
+    val delta = max - min
+    if (delta == 0f) return -1f
+    var hue = when (max) {
+        red -> ((green - blue) / delta) % 6f
+        green -> ((blue - red) / delta) + 2f
+        else -> ((red - green) / delta) + 4f
+    } * 60f
+    if (hue < 0f) hue += 360f
+    return hue
+}
+
+private fun hueDistanceDegrees(a: Float, b: Float): Float {
+    val diff = abs(a - b)
+    return minOf(diff, 360f - diff)
+}
 
 /**
  * 聚焦态高亮色：直接复用主题高亮色（primary），避免在棕色 / 暖色系主题下
