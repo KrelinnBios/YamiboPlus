@@ -124,18 +124,20 @@ fun NativeSpaceListPage(
     val headerContent = componentColors.topBarContent
     var selectedTab by remember { mutableIntStateOf(initialTabIndex.coerceIn(tabs.indices)) }
     var selectedCategoryId by remember { mutableStateOf("") }
+    var selectedFriendUid by remember { mutableStateOf("") }
     var blogMenuTarget by remember { mutableStateOf<SpaceListItem.Blog?>(null) }
     val viewModel: SpaceListVM = viewModel(
         key = "SpaceList-${tabs.joinToString("-") { it.request.kind.name }}-$uid",
         factory = SpaceListVM.Factory(uid)
     )
     val baseRequest = tabs[selectedTab.coerceIn(tabs.indices)].request
-    val currentRequest = baseRequest.copy(categoryId = selectedCategoryId)
+    val currentRequest = baseRequest.copy(categoryId = selectedCategoryId, fuid = selectedFriendUid)
     val baseState = viewModel.stateFor(baseRequest)
     val state = viewModel.stateFor(currentRequest)
 
     LaunchedEffect(selectedTab) {
         selectedCategoryId = ""
+        selectedFriendUid = ""
         viewModel.load(currentRequest)
     }
 
@@ -234,6 +236,21 @@ fun NativeSpaceListPage(
                         selected = selectedCategoryId == category.id,
                         onClick = { selectedCategoryId = category.id }
                     )
+                }
+            }
+        }
+        if (showCategories && baseRequest.kind == SpacePageKind.BLOG && baseRequest.view == "we" &&
+            baseState.friendFilters.isNotEmpty()) {
+            Row(
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 10.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                SpaceCategoryChip("全部好友", selectedFriendUid.isBlank()) { selectedFriendUid = "" }
+                baseState.friendFilters.forEach { friend ->
+                    SpaceCategoryChip(friend.name, selectedFriendUid == friend.uid) {
+                        selectedFriendUid = friend.uid
+                    }
                 }
             }
         }

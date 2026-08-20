@@ -8,6 +8,7 @@ import org.shirakawatyu.yamibo.novel.bean.space.SpaceListItem
 import org.shirakawatyu.yamibo.novel.bean.space.SpaceListPage
 import org.shirakawatyu.yamibo.novel.bean.space.SpacePageKind
 import org.shirakawatyu.yamibo.novel.bean.space.SpaceCategory
+import org.shirakawatyu.yamibo.novel.bean.space.SpaceFriendFilter
 import org.shirakawatyu.yamibo.novel.bean.space.BlogComment
 import org.shirakawatyu.yamibo.novel.bean.space.BlogContentBlock
 import org.shirakawatyu.yamibo.novel.bean.space.BlogDetail
@@ -41,7 +42,8 @@ object SpaceMobileParser {
             items = items,
             previousUrl = pageUrl(document, previous = true),
             nextUrl = pageUrl(document, previous = false),
-            categories = if (kind == SpacePageKind.BLOG) parseCategories(document) else emptyList()
+            categories = if (kind == SpacePageKind.BLOG) parseCategories(document) else emptyList(),
+            friendFilters = if (kind == SpacePageKind.BLOG) parseFriendFilters(document) else emptyList()
         )
     }
 
@@ -296,8 +298,9 @@ object SpaceMobileParser {
             )
         }
 
-    private fun parseBlogList(doc: Document): List<SpaceListItem> =
-        doc.select(".threadlist_box .threadlist ul > li.list, .threadlist ul > li").mapNotNull { li ->
+    private fun parseBlogList(doc: Document): List<SpaceListItem> {
+        val mobileItems = doc.select(".threadlist_box .threadlist ul > li.list, .threadlist ul > li")
+            .mapNotNull { li ->
             val link = li.selectFirst("a[href*='do=blog']") ?: return@mapNotNull null
             val blogId = Regex("[?&]id=(\\d+)").find(link.attr("href"))?.groupValues?.get(1)
                 ?: return@mapNotNull null
@@ -327,6 +330,23 @@ object SpaceMobileParser {
                 tags = tags
             )
         }
+        if (mobileItems.isNotEmpty()) return mobileItems
+
+        return doc.select(".xld > dl.bbda").mapNotNull { item ->
+            val link = item.selectFirst("dt a[href*='blog-']") ?: return@mapNotNull null
+            val blogId = Regex("blog-\\d+-(\\d+)").find(link.attr("href"))
+                ?.groupValues?.getOrNull(1) ?: return@mapNotNull null
+            SpaceListItem.Blog(
+                blogId = blogId,
+                category = "",
+                title = link.text().trim(),
+                time = item.selectFirst("dd > a[href*='space-uid-'] + span, dd .xg1")?.text()?.trim().orEmpty(),
+                summary = item.selectFirst("dd[id^=blog_article_]")?.text()?.trim().orEmpty(),
+                authorName = item.selectFirst("dd > a[href*='space-uid-']")?.text()?.trim().orEmpty(),
+                url = link.absUrl("href")
+            )
+        }
+    }
 
     private fun parseUserThreadList(doc: Document): List<SpaceListItem> =
         doc.select(".threadlist ul > li").mapNotNull { li ->
@@ -377,7 +397,7 @@ object SpaceMobileParser {
         } else {
             setOf("下一页", "下一頁", "next")
         }
-        return doc.select(".page a[href], .pgs .page a[href]")
+        return doc.select(".page a[href], .pgs .page a[href], .pgs .pg a[href]")
             .firstOrNull { link ->
                 val text = link.text().trim().lowercase()
                 labels.any { text.contains(it.lowercase()) } &&
@@ -398,4 +418,15 @@ object SpaceMobileParser {
                 SpaceCategory(id = id, name = link.text().trim())
             }
             .distinctBy { it.id }
+
+    private fun parseFriendFilters(doc: Document): List<SpaceFriendFilter> =
+        doc.select("select[name=fuidsel] option[value]")
+            .mapNotNull { option ->
+                val uid = option.attr("value").trim()
+                val name = option.text().trim()
+                if (uid.matches(Regex("[1-9]\\d*")) && name.isNotBlank()) {
+                    SpaceFriendFilter(uid, name)
+                } else null
+            }
+            .distinctBy { it.uid }
 }

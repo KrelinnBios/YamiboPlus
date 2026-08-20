@@ -12,6 +12,7 @@ import kotlinx.coroutines.withContext
 import org.shirakawatyu.yamibo.novel.bean.space.SpaceListItem
 import org.shirakawatyu.yamibo.novel.bean.space.SpaceListRequest
 import org.shirakawatyu.yamibo.novel.bean.space.SpaceCategory
+import org.shirakawatyu.yamibo.novel.bean.space.SpaceFriendFilter
 import org.shirakawatyu.yamibo.novel.repository.SpaceRepository
 
 class SpaceListVM(
@@ -29,6 +30,7 @@ class SpaceListVM(
         val previousUrl: String? = null,
         val nextUrl: String? = null,
         val categories: List<SpaceCategory> = emptyList()
+        , val friendFilters: List<SpaceFriendFilter> = emptyList()
     )
 
     val states = mutableStateMapOf<SpaceListRequest, TabState>()
@@ -69,6 +71,7 @@ class SpaceListVM(
                     previousUrl = result.previousUrl,
                     nextUrl = result.nextUrl,
                     categories = result.categories
+                    , friendFilters = result.friendFilters
                 )
             } catch (e: CancellationException) {
                 throw e
@@ -104,6 +107,7 @@ class SpaceListVM(
                     previousUrl = result.previousUrl,
                     nextUrl = result.nextUrl,
                     categories = result.categories
+                    , friendFilters = result.friendFilters
                 )
             } catch (e: CancellationException) {
                 throw e
@@ -139,6 +143,7 @@ class SpaceListVM(
                     previousUrl = result.previousUrl,
                     nextUrl = result.nextUrl,
                     categories = result.categories
+                    , friendFilters = result.friendFilters
                 )
             } catch (e: CancellationException) {
                 throw e

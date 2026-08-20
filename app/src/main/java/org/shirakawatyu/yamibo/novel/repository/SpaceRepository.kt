@@ -53,6 +53,7 @@ class SpaceRepository(
                 doParam = "blog",
                 view = request.view,
                 classId = request.categoryId.ifBlank { null },
+                friendUid = request.fuid.ifBlank { null },
                 page = page
             ).string()
             SpacePageKind.USER_THREAD -> api.getSpacePage(
@@ -63,7 +64,7 @@ class SpaceRepository(
                 page = page
             ).string()
         }
-        val result = SpaceMobileParser.parsePage(request.kind, html)
+        val result = SpaceDesktopParser.parseListPage(request.kind, html)
         if (result.items.isEmpty()) {
             if (SpaceMobileParser.isLoginRequired(html)) {
                 throw IllegalStateException("需要登录后才能查看此页面")
@@ -77,7 +78,7 @@ class SpaceRepository(
 
     suspend fun getListByUrl(request: SpaceListRequest, url: String): SpaceListPage {
         val html = api.getPageByUrl(url).string()
-        val result = SpaceMobileParser.parsePage(request.kind, html)
+        val result = SpaceDesktopParser.parseListPage(request.kind, html)
         if (result.items.isEmpty()) {
             if (SpaceMobileParser.isLoginRequired(html)) {
                 throw IllegalStateException("需要登录后才能查看此页面")

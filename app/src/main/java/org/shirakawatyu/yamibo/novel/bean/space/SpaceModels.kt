@@ -93,7 +93,8 @@ data class SpaceListRequest(
     val uid: String = "",
     val view: String = "",
     val type: String = "",
-    val categoryId: String = ""
+    val categoryId: String = "",
+    val fuid: String = ""
 )
 
 data class SpaceTabSpec(
@@ -105,11 +106,17 @@ data class SpaceListPage(
     val items: List<SpaceListItem>,
     val previousUrl: String? = null,
     val nextUrl: String? = null,
-    val categories: List<SpaceCategory> = emptyList()
+    val categories: List<SpaceCategory> = emptyList(),
+    val friendFilters: List<SpaceFriendFilter> = emptyList()
 )
 
 data class SpaceCategory(
     val id: String,
+    val name: String
+)
+
+data class SpaceFriendFilter(
+    val uid: String,
     val name: String
 )
 

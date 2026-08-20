@@ -6,12 +6,149 @@ import org.jsoup.nodes.Element
 import org.shirakawatyu.yamibo.novel.bean.space.BlogComment
 import org.shirakawatyu.yamibo.novel.bean.space.BlogContentBlock
 import org.shirakawatyu.yamibo.novel.bean.space.BlogDetail
+import org.shirakawatyu.yamibo.novel.bean.space.DoingComment
+import org.shirakawatyu.yamibo.novel.bean.space.SpaceCategory
+import org.shirakawatyu.yamibo.novel.bean.space.SpaceFriendFilter
+import org.shirakawatyu.yamibo.novel.bean.space.SpaceListItem
+import org.shirakawatyu.yamibo.novel.bean.space.SpaceListPage
+import org.shirakawatyu.yamibo.novel.bean.space.SpacePageKind
 import org.shirakawatyu.yamibo.novel.util.AppErrorLog
 
 /** 电脑版空间日志解析器。权限由页面实际输出的操作链接决定。 */
 object SpaceDesktopParser {
     private const val ORIGIN = "https://bbs.yamibo.com"
     private val datePattern = Regex("\\d{4}[-/]\\d{1,2}[-/]\\d{1,2}\\s+\\d{1,2}:\\d{2}")
+
+    fun parseListPage(kind: SpacePageKind, html: String): SpaceListPage {
+        val document = Jsoup.parse(html, ORIGIN)
+        val items = when (kind) {
+            SpacePageKind.BLOG -> parseBlogList(document)
+            SpacePageKind.DOING -> parseDoingList(document)
+            SpacePageKind.FRIEND -> parseFriendList(document)
+            SpacePageKind.USER_THREAD -> parseThreadList(document)
+            SpacePageKind.PRIVATE_MESSAGE -> parseMessageList(document)
+            SpacePageKind.NOTICE -> parseNoticeList(document)
+        }
+        return SpaceListPage(
+            items = items,
+            previousUrl = pageUrl(document, true),
+            nextUrl = pageUrl(document, false),
+            categories = document.select("a[href*='classid=']").mapNotNull { link ->
+                Regex("[?&]classid=(\\d+)").find(link.attr("href"))?.groupValues?.get(1)
+                    ?.let { SpaceCategory(it, link.text().trim()) }
+            }.filter { it.name.isNotBlank() }.distinctBy { it.id },
+            friendFilters = document.select("select[name=fuidsel] option[value]").mapNotNull { option ->
+                val uid = option.attr("value")
+                if (uid.matches(Regex("[1-9]\\d*"))) SpaceFriendFilter(uid, option.text().trim()) else null
+            }.filter { it.name.isNotBlank() }.distinctBy { it.uid }
+        )
+    }
+
+    private fun parseBlogList(document: Document): List<SpaceListItem> =
+        document.select(".xld > dl.bbda").mapNotNull { item ->
+            val link = item.selectFirst("dt a[href*='blog-']") ?: return@mapNotNull null
+            val id = Regex("blog-\\d+-(\\d+)").find(link.attr("href"))?.groupValues?.get(1)
+                ?: return@mapNotNull null
+            SpaceListItem.Blog(
+                blogId = id,
+                title = link.text().trim(),
+                category = "",
+                time = item.selectFirst("dd .xg1")?.text()?.trim().orEmpty(),
+                summary = item.selectFirst("dd[id^=blog_article_]")?.text()?.trim().orEmpty(),
+                authorName = item.selectFirst("dd a[href*='space-uid-']")?.text()?.trim().orEmpty(),
+                url = link.absUrl("href")
+            )
+        }
+
+    private fun parseDoingList(document: Document): List<SpaceListItem> =
+        document.select(".doing_list_box li.doing_list_li, .xld dl").mapNotNull { item ->
+            val user = item.selectFirst("a[href*='space-uid-'], a[href*='uid=']") ?: return@mapNotNull null
+            val uid = extractUid(user.attr("href")) ?: return@mapNotNull null
+            SpaceListItem.Doing(
+                uid = uid,
+                name = user.text().trim(),
+                avatarUrl = item.selectFirst("img")?.let { avatarUrl(it) },
+                time = item.selectFirst(".xg1, .mtime")?.text()?.trim().orEmpty(),
+                content = item.selectFirst(".do_comment, dd.cl, .message")?.text()?.trim().orEmpty(),
+                comments = emptyList(),
+                spaceUrl = user.absUrl("href")
+            )
+        }
+
+    private fun parseMessageList(document: Document): List<SpaceListItem> =
+        document.select("#pmlist li, .xld dl, .imglist li").mapNotNull { item ->
+            val link = item.selectFirst("a[href*='subop=view'], a[href*='touid=']") ?: return@mapNotNull null
+            val uid = Regex("[?&]touid=(\\d+)").find(link.attr("href"))?.groupValues?.get(1)
+                ?: return@mapNotNull null
+            SpaceListItem.PrivateMessage(
+                touid = uid,
+                name = item.selectFirst(".xw1, .mtit, dt a")?.text()?.trim().orEmpty(),
+                time = item.selectFirst(".xg1, .mtime")?.text()?.trim().orEmpty(),
+                summary = item.selectFirst(".xg1 + *, .mtxt, dd")?.text()?.trim().orEmpty(),
+                avatarUrl = item.selectFirst("img")?.let { avatarUrl(it) },
+                url = link.absUrl("href")
+            )
+        }
+
+    private fun parseNoticeList(document: Document): List<SpaceListItem> =
+        document.select(".nts dl, .xld dl, .imglist li").mapNotNull { item ->
+            val link = item.selectFirst("a[href]") ?: return@mapNotNull null
+            SpaceListItem.Notice(
+                title = item.selectFirst(".xw1, .mtit, dt a")?.text()?.trim().orEmpty(),
+                time = item.selectFirst(".xg1, .mtime")?.text()?.trim().orEmpty(),
+                summary = item.selectFirst(".ntc_body, .mtxt, dd")?.text()?.trim().orEmpty(),
+                avatarUrl = item.selectFirst("img")?.let { avatarUrl(it) },
+                url = link.absUrl("href")
+            )
+        }
+
+    private fun parseFriendList(document: Document): List<SpaceListItem> =
+        document.select("#friend_ul li, .buddy li, .xld dl, .imglist li").mapNotNull { item ->
+            val link = item.select("a[href*='space-uid-'], a[href*='uid=']").lastOrNull()
+                ?: return@mapNotNull null
+            val uid = extractUid(link.attr("href")) ?: return@mapNotNull null
+            SpaceListItem.Friend(
+                uid = uid,
+                name = link.text().trim(),
+                avatarUrl = item.selectFirst("img")?.let { avatarUrl(it) },
+                statusText = item.selectFirst(".xg1, .mtxt, dd")?.text()?.trim().orEmpty(),
+                spaceUrl = link.absUrl("href"),
+                pmUrl = item.selectFirst("a[href*='subop=view']")?.absUrl("href").orEmpty()
+            )
+        }
+
+    private fun parseThreadList(document: Document): List<SpaceListItem> =
+        document.select("#threadlisttableid tr, .tl tbody tr").mapNotNull { row ->
+            val link = row.selectFirst("a[href*='tid='], a[href*='mod=viewthread']") ?: return@mapNotNull null
+            val tid = Regex("[?&]tid=(\\d+)").find(link.attr("href"))?.groupValues?.get(1)
+                ?: return@mapNotNull null
+            SpaceListItem.UserThread(
+                tid = tid,
+                title = link.text().trim(),
+                time = row.selectFirst(".by em, .xg1")?.text()?.trim().orEmpty(),
+                forumName = row.selectFirst(".by a")?.text()?.trim().orEmpty(),
+                viewCount = row.select(".num em").firstOrNull()?.text().orEmpty(),
+                replyCount = row.select(".num em").getOrNull(1)?.text().orEmpty(),
+                isClosed = row.selectFirst(".lock, img[src*='lock']") != null,
+                url = link.absUrl("href")
+            )
+        }
+
+    private fun pageUrl(document: Document, previous: Boolean): String? {
+        val labels = if (previous) setOf("上一页", "上一頁", "prev") else setOf("下一页", "下一頁", "next")
+        return document.select(".pg a[href], .pgs a[href]").firstOrNull { link ->
+            labels.any { link.text().trim().contains(it, ignoreCase = true) } &&
+                !link.attr("href").startsWith("javascript:", ignoreCase = true)
+        }?.absUrl("href")?.takeIf { it.startsWith("http") }
+    }
+
+    private fun extractUid(href: String): String? =
+        Regex("space-uid-(\\d+)").find(href)?.groupValues?.get(1)
+            ?: Regex("[?&]uid=(\\d+)").find(href)?.groupValues?.get(1)
+
+    private fun avatarUrl(image: Element): String? =
+        image.absUrl("src").takeIf(String::isNotBlank)
+            ?: image.absUrl("zsrc").takeIf(String::isNotBlank)
 
     fun parseBlogDetail(html: String, url: String): BlogDetail {
         val document = Jsoup.parse(html, ORIGIN)
@@ -164,20 +301,6 @@ object SpaceDesktopParser {
         }
         return blocks
     }
-
-    private fun extractUid(href: String): String? =
-        Regex("space-uid-(\\d+)")
-            .find(href)
-            ?.groupValues
-            ?.getOrNull(1)
-            ?: Regex("[?&]uid=(\\d+)")
-                .find(href)
-                ?.groupValues
-                ?.getOrNull(1)
-
-    private fun avatarUrl(image: Element): String? =
-        image.absUrl("src").takeIf(String::isNotBlank)
-            ?: image.absUrl("zsrc").takeIf(String::isNotBlank)
 
     private fun absoluteUrl(value: String): String {
         val trimmed = value.trim()
