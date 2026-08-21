@@ -2,6 +2,8 @@ package org.shirakawatyu.yamibo.novel.ui.page
 
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,6 +31,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import org.shirakawatyu.yamibo.novel.ui.component.YamiboAlertDialog as AlertDialog
 import androidx.compose.material3.Button
@@ -41,6 +45,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -57,6 +62,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
@@ -64,6 +70,7 @@ import coil.request.ImageRequest
 import org.shirakawatyu.yamibo.novel.bean.space.BlogContentBlock
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.ui.component.YamiboLoadError
+import org.shirakawatyu.yamibo.novel.ui.component.YamiboDialogSurface
 import org.shirakawatyu.yamibo.novel.ui.theme.yamiboComponentColors
 import org.shirakawatyu.yamibo.novel.ui.theme.yamiboDangerColor
 import org.shirakawatyu.yamibo.novel.ui.vm.BlogDetailVM
@@ -73,6 +80,7 @@ import org.shirakawatyu.yamibo.novel.ui.widget.YamiboToast
 import org.shirakawatyu.yamibo.novel.ui.widget.ObserveBottomBarLazyListScroll
 
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
 fun NativeBlogDetailPage(
     navController: NavController,
     url: String,
@@ -98,6 +106,7 @@ fun NativeBlogDetailPage(
     ObserveBottomBarLazyListScroll(listState, bottomNavBarVM)
     var editorRequest by remember { mutableStateOf<BlogCommentEditorRequest?>(null) }
     var deleteTarget by remember { mutableStateOf<org.shirakawatyu.yamibo.novel.bean.space.BlogComment?>(null) }
+    var actionMenuVisible by remember { mutableStateOf(false) }
 
     // 隐藏底栏时移除其 52dp 占位，但保留系统导航栏安全区。
     val systemNavigationPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
@@ -186,7 +195,10 @@ fun NativeBlogDetailPage(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     item {
-                        BlogDetailHeader(current)
+                        BlogDetailHeader(
+                            detail = current,
+                            onLongClick = { actionMenuVisible = true }
+                        )
                     }
                     items(current.blocks) { block ->
                         BlogContentBlockView(block)
@@ -296,12 +308,57 @@ fun NativeBlogDetailPage(
             }
         )
     }
+
+    val loadedDetail = detail
+    if (actionMenuVisible && loadedDetail != null) {
+        BlogDetailActionMenu(
+            detail = loadedDetail,
+            onDismiss = { actionMenuVisible = false },
+            onAction = { actionUrl ->
+                actionMenuVisible = false
+                onOpenWeb(actionUrl)
+            }
+        )
+    }
 }
 
 @Composable
-private fun BlogDetailHeader(detail: org.shirakawatyu.yamibo.novel.bean.space.BlogDetail) {
-    Column {
+private fun BlogDetailHeader(
+    detail: org.shirakawatyu.yamibo.novel.bean.space.BlogDetail,
+    onLongClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier.combinedClickable(
+            onClick = {},
+            onLongClick = onLongClick
+        )
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
+            if (detail.visibilityText.isNotBlank()) {
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = MaterialTheme.colorScheme.tertiaryContainer
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Filled.Lock,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                            modifier = Modifier.size(12.dp)
+                        )
+                        Spacer(Modifier.width(3.dp))
+                        Text(
+                            detail.visibilityText,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+                Spacer(Modifier.size(8.dp))
+            }
             if (detail.category.isNotBlank()) {
                 Surface(
                     shape = RoundedCornerShape(6.dp),
@@ -344,6 +401,87 @@ private fun BlogDetailHeader(detail: org.shirakawatyu.yamibo.novel.bean.space.Bl
                     fontSize = 12.sp
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun BlogDetailActionMenu(
+    detail: org.shirakawatyu.yamibo.novel.bean.space.BlogDetail,
+    onDismiss: () -> Unit,
+    onAction: (String) -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        YamiboDialogSurface(
+            modifier = Modifier
+                .widthIn(max = 320.dp)
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Text(
+                    detail.title,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                )
+                if (detail.category.isNotBlank()) {
+                    Text(
+                        "分类：${detail.category}",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(horizontal = 12.dp)
+                    )
+                }
+                if (detail.visibilityText.isNotBlank()) {
+                    Text(
+                        "权限：" + detail.visibilityText,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(horizontal = 12.dp)
+                    )
+                }
+                if (detail.tags.isNotEmpty()) {
+                    Text(
+                        "标签：${detail.tags.joinToString("、")}",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(horizontal = 12.dp)
+                    )
+                }
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
+                BlogDetailMenuAction("置顶", Icons.Filled.KeyboardArrowUp, detail.stickUrl, onAction)
+                BlogDetailMenuAction("编辑", Icons.Filled.EditNote, detail.editUrl, onAction)
+                BlogDetailMenuAction("删除", Icons.Filled.Delete, detail.deleteUrl, onAction, danger = true)
+            }
+        }
+    }
+}
+
+@Composable
+private fun BlogDetailMenuAction(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    url: String,
+    onAction: (String) -> Unit,
+    danger: Boolean = false
+) {
+    val color = if (danger) yamiboDangerColor() else MaterialTheme.colorScheme.primary
+    TextButton(
+        enabled = url.isNotBlank(),
+        onClick = { onAction(url) },
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+        colors = androidx.compose.material3.ButtonDefaults.textButtonColors(contentColor = color)
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp), tint = color)
+            Spacer(Modifier.width(12.dp))
+            Text(label, color = color)
         }
     }
 }

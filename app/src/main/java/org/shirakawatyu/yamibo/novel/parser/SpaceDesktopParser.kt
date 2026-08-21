@@ -49,31 +49,101 @@ object SpaceDesktopParser {
             val link = item.selectFirst("dt a[href*='blog-']") ?: return@mapNotNull null
             val id = Regex("blog-\\d+-(\\d+)").find(link.attr("href"))?.groupValues?.get(1)
                 ?: return@mapNotNull null
+            val authorLink = item.selectFirst(
+                "dd a[href*='space-uid-'], " +
+                    "dd a[href*='mod=space'][href*='uid=']:not([href*='do=blog'])"
+            )
+            val authorUid = extractUid(authorLink?.attr("href").orEmpty()).orEmpty()
+            val metadataTexts = item.select("dd .xg1, dt .xg1")
+                .map { it.text().trim() }
             SpaceListItem.Blog(
                 blogId = id,
                 title = link.text().trim(),
-                category = "",
-                time = item.selectFirst("dd .xg1")?.text()?.trim().orEmpty(),
+                category = item.selectFirst("a[href*='classid=']")?.text()?.trim().orEmpty(),
+                time = metadataTexts.firstOrNull { datePattern.containsMatchIn(it) }.orEmpty(),
                 summary = item.selectFirst("dd[id^=blog_article_]")?.text()?.trim().orEmpty(),
-                authorName = item.selectFirst("dd a[href*='space-uid-']")?.text()?.trim().orEmpty(),
-                url = link.absUrl("href")
+                authorName = authorLink?.text()?.trim().orEmpty(),
+                url = link.absUrl("href"),
+                authorUid = authorUid,
+                authorAvatarUrl = item.selectFirst(
+                    "a[href*='space-uid-'] img, " +
+                        "a[href*='mod=space'][href*='uid=']:not([href*='do=blog']) img, " +
+                        "img[src*='avatar'], img[zsrc*='avatar']"
+                )?.let(::avatarUrl)
+                    ?: authorUid.takeIf(String::isNotBlank)
+                        ?.let { "$ORIGIN/uc_server/avatar.php?uid=$it&size=small" },
+                visibilityText = extractBlogVisibilityText(metadataTexts)
             )
         }
 
     private fun parseDoingList(document: Document): List<SpaceListItem> =
-        document.select(".doing_list_box li.doing_list_li, .xld dl").mapNotNull { item ->
-            val user = item.selectFirst("a[href*='space-uid-'], a[href*='uid=']") ?: return@mapNotNull null
+        document.select(".xld.xlda > dl, .doing_list_box li.doing_list_li").mapNotNull { item ->
+            // 电脑版第一条空间链接位于头像中，本身没有文本；作者名必须从正文 dd 中取。
+            val contentCell = item.selectFirst("dd.ptm.xs2, .do_comment, .message")
+                ?: return@mapNotNull null
+            val user = contentCell.children().firstOrNull { child ->
+                child.tagName() == "a" && extractUid(child.attr("href")) != null
+            } ?: return@mapNotNull null
             val uid = extractUid(user.attr("href")) ?: return@mapNotNull null
+            val content = contentCell.children().firstOrNull { it.tagName() == "span" }
+                ?.let(::plainTextWithImages)
+                .orEmpty()
+                .ifBlank {
+                    plainTextWithImages(contentCell.clone().apply {
+                        children().firstOrNull { child ->
+                            child.tagName() == "a" && extractUid(child.attr("href")) != null
+                        }?.remove()
+                    })
+                        .removePrefix(":")
+                        .removePrefix("：")
+                        .trim()
+                }
+            val comments = item.select("dd.cmt > ul > li").mapNotNull(::parseDoingComment)
             SpaceListItem.Doing(
                 uid = uid,
                 name = user.text().trim(),
-                avatarUrl = item.selectFirst("img")?.let { avatarUrl(it) },
-                time = item.selectFirst(".xg1, .mtime")?.text()?.trim().orEmpty(),
-                content = item.selectFirst(".do_comment, dd.cl, .message")?.text()?.trim().orEmpty(),
-                comments = emptyList(),
+                avatarUrl = item.selectFirst("dd.m.avt img, .avatar img, .mimg img")
+                    ?.let(::avatarUrl),
+                // 评论也使用 .xg1；只取条目底部的发布时间，避免误取第一条评论时间。
+                time = item.selectFirst("dd.ptn.xg1 > span.y, .mtime > span, .mtime")
+                    ?.text()
+                    ?.trim()
+                    .orEmpty(),
+                content = content,
+                comments = comments,
                 spaceUrl = user.absUrl("href")
             )
         }
+
+    private fun parseDoingComment(item: Element): DoingComment? {
+        val author = item.selectFirst(
+            "a.lit[href*='space-uid-'], a.lit[href*='uid='], " +
+                "a[href*='space-uid-'], a[href*='mod=space'][href*='uid=']"
+        ) ?: return null
+        val content = plainTextWithImages(item.clone().apply {
+            select("a.lit, .xg1, a[onclick*='docomment_form'], " +
+                "a[href*='ac=doing'][href*='op=delete'], div[id*='_form_']")
+                .remove()
+        }).removePrefix(":").removePrefix("：").trim()
+        return DoingComment(
+            authorName = author.text().trim(),
+            time = item.selectFirst(".xg1")?.text()?.trim()?.removeSurrounding("(", ")").orEmpty(),
+            content = content
+        )
+    }
+
+    /** 论坛表情是无 alt 的图片；原生纯文本列表至少保留一个可见占位，避免语义被静默吞掉。 */
+    private fun plainTextWithImages(element: Element): String {
+        val copy = element.clone()
+        copy.select("img").forEach { image ->
+            val label = image.attr("alt").trim()
+                .ifBlank { image.attr("title").trim() }
+                .ifBlank { "[表情]" }
+            image.after(" $label ")
+            image.remove()
+        }
+        return copy.text().trim()
+    }
 
     private fun parseMessageList(document: Document): List<SpaceListItem> =
         document.select("#pmlist li, .xld dl, .imglist li").mapNotNull { item ->
@@ -117,29 +187,89 @@ object SpaceDesktopParser {
             )
         }
 
-    private fun parseThreadList(document: Document): List<SpaceListItem> =
-        document.select("#threadlisttableid tr, .tl tbody tr").mapNotNull { row ->
-            val link = row.selectFirst("a[href*='tid='], a[href*='mod=viewthread']") ?: return@mapNotNull null
-            val tid = Regex("[?&]tid=(\\d+)").find(link.attr("href"))?.groupValues?.get(1)
-                ?: return@mapNotNull null
+    private fun parseThreadList(document: Document): List<SpaceListItem> {
+        val entryType = when {
+            document.selectFirst("a.a[href*='type=postcomment']") != null -> "点评"
+            document.selectFirst("a.a[href*='type=reply']") != null -> "回复"
+            else -> ""
+        }
+        return document.select("#threadlisttableid tr, .tl tbody tr").mapNotNull { row ->
+            val link = row.selectFirst("th > a[href]") ?: return@mapNotNull null
+            val tid = extractUserThreadId(link.attr("href")) ?: return@mapNotNull null
+            val detailCell = row.nextElementSibling()?.selectFirst("td[colspan].xg1")
+            val detailLink = detailCell
+                ?.selectFirst("a[href*='goto=findpost'][href*='pid=']")
+            val destinationUrl = detailLink?.absUrl("href")?.takeIf(String::isNotBlank)
+                ?: link.absUrl("href")
             SpaceListItem.UserThread(
                 tid = tid,
                 title = link.text().trim(),
-                time = row.selectFirst(".by em, .xg1")?.text()?.trim().orEmpty(),
-                forumName = row.selectFirst(".by a")?.text()?.trim().orEmpty(),
-                viewCount = row.select(".num em").firstOrNull()?.text().orEmpty(),
-                replyCount = row.select(".num em").getOrNull(1)?.text().orEmpty(),
-                isClosed = row.selectFirst(".lock, img[src*='lock']") != null,
-                url = link.absUrl("href")
+                time = row.selectFirst("td.by em")?.text()?.trim().orEmpty(),
+                forumName = row.selectFirst("th + td a")?.text()?.trim().orEmpty(),
+                viewCount = row.selectFirst("td.num em")?.text()?.trim().orEmpty(),
+                replyCount = row.selectFirst("td.num a")?.text()?.trim().orEmpty(),
+                isClosed = row.selectFirst(".fico-lock, .lock, img[src*='lock']") != null ||
+                    row.selectFirst("th .xg1")?.text()?.contains("已关闭") == true,
+                url = destinationUrl,
+                replyExcerpt = detailLink?.text()?.trim()
+                    ?: detailCell?.text()?.trim().orEmpty(),
+                entryType = entryType
             )
         }
+    }
+
+    private fun extractUserThreadId(url: String): String? =
+        Regex("[?&](?:tid|ptid)=(\\d+)").find(url)?.groupValues?.getOrNull(1)
+            ?: Regex("(?:^|/)thread-(\\d+)").find(url)?.groupValues?.getOrNull(1)
 
     private fun pageUrl(document: Document, previous: Boolean): String? {
         val labels = if (previous) setOf("上一页", "上一頁", "prev") else setOf("下一页", "下一頁", "next")
-        return document.select(".pg a[href], .pgs a[href]").firstOrNull { link ->
-            labels.any { link.text().trim().contains(it, ignoreCase = true) } &&
+        val pageLinks = document.select(
+            ".pg a[href], .pgs a[href], a.prev[href], a.nxt[href], " +
+                ".prev a[href], .nxt a[href], a[rel=prev][href], a[rel=next][href]"
+        )
+        val direct = pageLinks.firstOrNull { link ->
+            val classes = link.classNames().map(String::lowercase)
+            val parentClasses = link.parent()?.classNames()?.map(String::lowercase).orEmpty()
+            val classMatches = if (previous) {
+                "prev" in classes || "prev" in parentClasses
+            } else {
+                "nxt" in classes || "next" in classes ||
+                    "nxt" in parentClasses || "next" in parentClasses
+            }
+            val semanticText = listOf(
+                link.text(),
+                link.attr("title"),
+                link.attr("aria-label"),
+                link.attr("rel")
+            ).joinToString(" ")
+            val textMatches = labels.any { semanticText.trim().contains(it, ignoreCase = true) }
+            (classMatches || textMatches) &&
                 !link.attr("href").startsWith("javascript:", ignoreCase = true)
         }?.absUrl("href")?.takeIf { it.startsWith("http") }
+        if (direct != null) return direct
+
+        return numericPageUrl(pageLinks, previous)
+    }
+
+    private fun numericPageUrl(pageLinks: List<Element>, previous: Boolean): String? {
+        val current = pageLinks
+            .flatMap { it.parent()?.select("strong, .a")?.map { node -> node.text().trim() }.orEmpty() }
+            .firstNotNullOfOrNull { it.toIntOrNull() }
+            ?: return null
+        val candidates = pageLinks.mapNotNull { link ->
+            val page = Regex("[?&]page=(\\d+)").find(link.attr("href"))
+                ?.groupValues?.getOrNull(1)?.toIntOrNull()
+                ?: link.text().trim().toIntOrNull()
+                ?: return@mapNotNull null
+            page to link
+        }
+        val target = if (previous) {
+            candidates.filter { it.first < current }.maxByOrNull { it.first }
+        } else {
+            candidates.filter { it.first > current }.minByOrNull { it.first }
+        }
+        return target?.second?.absUrl("href")?.takeIf { it.startsWith("http") }
     }
 
     private fun extractUid(href: String): String? =
@@ -178,8 +308,18 @@ object SpaceDesktopParser {
                 ?.getOrNull(1)
                 .orEmpty()
         val title = document.selectFirst(".vw .ph")?.text()?.trim().orEmpty()
-        val category = document.selectFirst(".vw .h p.xg2 a")?.text()?.trim().orEmpty()
+        val category = document.selectFirst(".vw .h p.xg2 a[href*='classid=']")
+            ?.text()
+            ?.trim()
+            .orEmpty()
+        val tags = document.select(".vw .h p.xg2 .ptg a")
+            .map { it.text().trim() }
+            .filter(String::isNotBlank)
         val metaText = document.selectFirst(".vw .h p.xg2")?.text().orEmpty()
+        val visibilityText = extractBlogVisibilityText(
+            document.select(".vw .h p.xg2 .y, .vw .h p.xg2 .xg1")
+                .map { it.text().trim() }
+        )
         val viewCount = Regex("已有\\s*(\\d+)\\s*次阅读")
             .find(metaText)
             ?.groupValues
@@ -200,6 +340,7 @@ object SpaceDesktopParser {
         val time = datePattern.find(metaText)?.value.orEmpty()
         val comments = parseComments(document)
         val actionLinks = document.select(".vw .o a")
+        val managementLinks = document.select(".vw a")
         val commentForm = document.selectFirst("form[id^=quickcommentform]")
         val commentReferer = commentForm
             ?.selectFirst("input[name=referer]")
@@ -224,11 +365,20 @@ object SpaceDesktopParser {
             favoriteUrl = actionLinks.firstOrNull { it.id() == "a_favorite" }?.absUrl("href").orEmpty(),
             shareUrl = actionLinks.firstOrNull { it.id() == "a_share" }?.absUrl("href").orEmpty(),
             inviteUrl = actionLinks.firstOrNull { it.id() == "a_invite" }?.absUrl("href").orEmpty(),
-            editUrl = actionLinks.firstOrNull { it.text().trim() == "编辑" }?.absUrl("href").orEmpty(),
-            deleteUrl = actionLinks.firstOrNull { it.id().contains("delete") }?.absUrl("href").orEmpty(),
+            stickUrl = managementLinks.firstOrNull {
+                it.text().trim() == "置顶" || it.attr("href").contains("op=stick")
+            }?.absUrl("href").orEmpty(),
+            editUrl = managementLinks.firstOrNull {
+                it.text().trim() == "编辑" || it.attr("href").contains("op=edit")
+            }?.absUrl("href").orEmpty(),
+            deleteUrl = managementLinks.firstOrNull {
+                it.id().contains("delete") || it.attr("href").contains("op=delete")
+            }?.absUrl("href").orEmpty(),
             reportUrl = actionLinks.firstOrNull { it.text().trim() == "举报" }
                 ?.let { actionUrl(it) }
                 .orEmpty(),
+            tags = tags,
+            visibilityText = visibilityText,
             commentFormUrl = commentForm?.absUrl("action").orEmpty(),
             commentFormHash = commentForm
                 ?.selectFirst("input[name=formhash]")

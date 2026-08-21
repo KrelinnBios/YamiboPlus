@@ -28,6 +28,9 @@ class SpaceRepository(
     }
 
     suspend fun getList(request: SpaceListRequest, page: Int): SpaceListPage {
+        if (request.kind == SpacePageKind.USER_THREAD && request.type == "reply") {
+            return getRepliesWithPostComments(request, page)
+        }
         val html = when (request.kind) {
             SpacePageKind.PRIVATE_MESSAGE -> api.getSpacePage(
                 doParam = "pm",
@@ -74,6 +77,32 @@ class SpaceRepository(
             )
         }
         return result
+    }
+
+    private suspend fun getRepliesWithPostComments(
+        request: SpaceListRequest,
+        page: Int
+    ): SpaceListPage {
+        suspend fun load(type: String): SpaceListPage {
+            val html = api.getSpacePage(
+                uid = request.uid,
+                doParam = "thread",
+                view = "me",
+                type = type,
+                page = page
+            ).string()
+            return SpaceDesktopParser.parseListPage(SpacePageKind.USER_THREAD, html)
+        }
+
+        val replies = load("reply")
+        val comments = runCatching { load("postcomment") }
+            .onFailure { AppErrorLog.record("点评列表加载失败：${it.message}") }
+            .getOrNull()
+        return SpaceListPage(
+            items = replies.items + comments?.items.orEmpty(),
+            previousUrl = replies.previousUrl ?: comments?.previousUrl,
+            nextUrl = replies.nextUrl ?: comments?.nextUrl
+        )
     }
 
     suspend fun getListByUrl(request: SpaceListRequest, url: String): SpaceListPage {

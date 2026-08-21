@@ -1391,9 +1391,15 @@ fun App(webChromeClient: WebChromeClient) {
                                             uid = GlobalData.currentUid,
                                             initialTab = entry.arguments?.getString("tab") ?: "thread",
                                             onOpenThread = { item ->
-                                                navController.navigate(
-                                                    "NativeThreadPage/" + item.tid
-                                                )
+                                                if (item.entryType.isNotBlank() && item.url.isNotBlank()) {
+                                                    navController.navigate(
+                                                        "OtherWebPage/" + Uri.encode(item.url)
+                                                    )
+                                                } else {
+                                                    navController.navigate(
+                                                        "NativeThreadPage/" + item.tid
+                                                    )
+                                                }
                                             }
                                         )
                                         Box(

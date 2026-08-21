@@ -52,6 +52,15 @@ class DarkClassicCssTest {
     }
 
     @Test
+    fun themesMobileSignPageFromRealPageStructure() {
+        assertTrue(css.contains("#calendar .table-wrapper"))
+        assertTrue(css.contains("#calendar #tablehead"))
+        assertTrue(css.contains("#calendar .fl-table thead th span"))
+        assertTrue(css.contains("#tblist .hui-media-content p"))
+        assertTrue(css.contains("#tblist .page a"))
+    }
+
+    @Test
     fun privateMessageSpacerUsesPageBackgroundInsteadOfComposerPanel() {
         assertTrue(css.contains("#pmform { background-color: transparent !important"))
         assertTrue(css.contains("#pmform .foot_height { background-color: #0d141d !important; }"))

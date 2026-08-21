@@ -108,6 +108,10 @@ object SpaceMobileParser {
         val blogId = Regex("[?&]id=(\\d+)").find(url)?.groupValues?.getOrNull(1).orEmpty()
         val time = document.selectFirst(".viewthread .authi .mtime")?.ownText()?.trim().orEmpty()
         val statText = document.selectFirst(".viewthread .authi .mtime .y")?.text().orEmpty()
+        val visibilityText = extractBlogVisibilityText(
+            document.select(".viewthread .authi .y, .viewthread .authi .xg1")
+                .map { it.text().trim() }
+        )
         val stats = Regex("(\\d+)").findAll(statText).map { it.value }.toList()
         val authorName = authorLink?.text()?.trim().orEmpty().ifBlank {
             document.select("a[href*='uid=']")
@@ -143,6 +147,7 @@ object SpaceMobileParser {
             )
         }
         val actionLinks = document.select(".viewthread .threadlist_foot a")
+        val managementLinks = document.select(".viewthread a")
         return BlogDetail(
             blogId = blogId,
             ownerUid = ownerUid,
@@ -161,8 +166,16 @@ object SpaceMobileParser {
             favoriteUrl = actionLinks.firstOrNull { it.id() == "a_favorite" }?.attr("abs:href").orEmpty(),
             shareUrl = actionLinks.firstOrNull { it.id() == "a_share" }?.attr("abs:href").orEmpty(),
             inviteUrl = actionLinks.firstOrNull { it.id() == "a_invite" }?.attr("abs:href").orEmpty(),
-            editUrl = actionLinks.firstOrNull { it.text().trim() == "编辑" }?.attr("abs:href").orEmpty(),
-            deleteUrl = actionLinks.firstOrNull { it.id().contains("delete") }?.attr("abs:href").orEmpty()
+            stickUrl = managementLinks.firstOrNull {
+                it.text().trim() == "置顶" || it.attr("href").contains("op=stick")
+            }?.attr("abs:href").orEmpty(),
+            editUrl = managementLinks.firstOrNull {
+                it.text().trim() == "编辑" || it.attr("href").contains("op=edit")
+            }?.attr("abs:href").orEmpty(),
+            deleteUrl = managementLinks.firstOrNull {
+                it.id().contains("delete") || it.attr("href").contains("op=delete")
+            }?.attr("abs:href").orEmpty(),
+            visibilityText = visibilityText
         )
     }
 
@@ -312,6 +325,14 @@ object SpaceMobileParser {
             val time = li.selectFirst(".mtime span")?.text().orEmpty().trim()
             val summary = li.selectFirst(".threadlist_mes")?.text().orEmpty().trim()
             val author = li.selectFirst(".mmc")?.text().orEmpty().trim()
+            val authorLink = li.selectFirst(
+                "a.mmc[href], .muser a[href*='uid='], " +
+                    "a[href*='mod=space'][href*='uid=']:not([href*='do=blog']), " +
+                    "a[href*='space-uid-']"
+            )
+            val authorUid = extractUid(authorLink?.attr("href").orEmpty()).orEmpty()
+            val metadataTexts = li.select(".xg1, .mtime")
+                .map { it.text().trim() }
             val tags = li.select("a[href*='mod=tag']")
                 .map { it.text().trim() }
                 .filter(String::isNotBlank)
@@ -324,6 +345,12 @@ object SpaceMobileParser {
                 summary = summary,
                 authorName = author,
                 url = link.attr("abs:href"),
+                authorUid = authorUid,
+                authorAvatarUrl = avatarUrl(
+                    li.selectFirst(".mimg img, .avatar img, img[src*='avatar']"),
+                    authorUid
+                ),
+                visibilityText = extractBlogVisibilityText(metadataTexts),
                 editUrl = li.selectFirst("a[href*='op=edit']")?.attr("abs:href").orEmpty(),
                 deleteUrl = li.selectFirst("a[href*='op=delete']")?.attr("abs:href").orEmpty(),
                 stickUrl = li.selectFirst("a[href*='op=stick']")?.attr("abs:href").orEmpty(),
@@ -336,20 +363,44 @@ object SpaceMobileParser {
             val link = item.selectFirst("dt a[href*='blog-']") ?: return@mapNotNull null
             val blogId = Regex("blog-\\d+-(\\d+)").find(link.attr("href"))
                 ?.groupValues?.getOrNull(1) ?: return@mapNotNull null
+            val authorLink = item.selectFirst(
+                "dd a[href*='space-uid-'], " +
+                    "dd a[href*='mod=space'][href*='uid=']:not([href*='do=blog'])"
+            )
+            val authorUid = extractUid(authorLink?.attr("href").orEmpty()).orEmpty()
+            val metadataTexts = item.select("dd .xg1, dt .xg1")
+                .map { it.text().trim() }
             SpaceListItem.Blog(
                 blogId = blogId,
-                category = "",
+                category = item.selectFirst("a[href*='classid=']")?.text()?.trim().orEmpty(),
                 title = link.text().trim(),
-                time = item.selectFirst("dd > a[href*='space-uid-'] + span, dd .xg1")?.text()?.trim().orEmpty(),
+                time = metadataTexts.firstOrNull {
+                    it.length >= 8 && it.any(Char::isDigit) && (it.contains("-") || it.contains("/"))
+                }.orEmpty(),
                 summary = item.selectFirst("dd[id^=blog_article_]")?.text()?.trim().orEmpty(),
-                authorName = item.selectFirst("dd > a[href*='space-uid-']")?.text()?.trim().orEmpty(),
-                url = link.absUrl("href")
+                authorName = authorLink?.text()?.trim().orEmpty(),
+                url = link.absUrl("href"),
+                authorUid = authorUid,
+                authorAvatarUrl = avatarUrl(
+                    item.selectFirst(
+                        "a[href*='space-uid-'] img, " +
+                            "a[href*='mod=space'][href*='uid=']:not([href*='do=blog']) img, " +
+                            "img[src*='avatar'], img[zsrc*='avatar']"
+                    ),
+                    authorUid
+                ),
+                visibilityText = extractBlogVisibilityText(metadataTexts)
             )
         }
     }
 
-    private fun parseUserThreadList(doc: Document): List<SpaceListItem> =
-        doc.select(".threadlist ul > li").mapNotNull { li ->
+    private fun parseUserThreadList(doc: Document): List<SpaceListItem> {
+        val entryType = when {
+            doc.selectFirst("a.a[href*='type=postcomment']") != null -> "点评"
+            doc.selectFirst("a.a[href*='type=reply']") != null -> "回复"
+            else -> ""
+        }
+        return doc.select(".threadlist ul > li").mapNotNull { li ->
             val link = li.selectFirst("a[href*='mod=viewthread']") ?: return@mapNotNull null
             val tid = Regex("[?&]tid=(\\d+)").find(link.attr("href"))?.groupValues?.get(1)
                 ?: return@mapNotNull null
@@ -377,9 +428,12 @@ object SpaceMobileParser {
                 viewCount = viewCount,
                 replyCount = replyCount,
                 isClosed = isClosed,
-                url = link.attr("abs:href")
+                url = link.attr("abs:href"),
+                replyExcerpt = summary,
+                entryType = entryType
             )
         }
+    }
 
     private fun avatarUrl(img: Element?, uid: String?): String? {
         val src = img?.let { element ->
@@ -397,15 +451,57 @@ object SpaceMobileParser {
         } else {
             setOf("下一页", "下一頁", "next")
         }
-        return doc.select(".page a[href], .pgs .page a[href], .pgs .pg a[href]")
+        val pageLinks = doc.select(
+            ".page a[href], .pgs .page a[href], .pgs .pg a[href], .pg a[href], " +
+                "a.prev[href], a.nxt[href], .prev a[href], .nxt a[href], " +
+                "a[rel=prev][href], a[rel=next][href]"
+        )
+        val direct = pageLinks
             .firstOrNull { link ->
                 val text = link.text().trim().lowercase()
-                labels.any { text.contains(it.lowercase()) } &&
+                val classes = link.classNames().map(String::lowercase)
+                val parentClasses = link.parent()?.classNames()?.map(String::lowercase).orEmpty()
+                val classMatches = if (previous) {
+                    "prev" in classes || "prev" in parentClasses
+                } else {
+                    "nxt" in classes || "next" in classes ||
+                        "nxt" in parentClasses || "next" in parentClasses
+                }
+                val semanticText = listOf(
+                    text,
+                    link.attr("title"),
+                    link.attr("aria-label"),
+                    link.attr("rel")
+                ).joinToString(" ").lowercase()
+                (classMatches || labels.any { semanticText.contains(it.lowercase()) }) &&
                     !link.attr("href").trim().startsWith("javascript:", ignoreCase = true)
             }
             ?.attr("abs:href")
             ?.takeIf { it.startsWith("http", ignoreCase = true) }
+        if (direct != null) return direct
+
+        val current = pageLinks
+            .flatMap { it.parent()?.select("strong, .a")?.map { node -> node.text().trim() }.orEmpty() }
+            .firstNotNullOfOrNull { it.toIntOrNull() }
+            ?: return null
+        val candidates = pageLinks.mapNotNull { link ->
+            val page = Regex("[?&]page=(\\d+)").find(link.attr("href"))
+                ?.groupValues?.getOrNull(1)?.toIntOrNull()
+                ?: link.text().trim().toIntOrNull()
+                ?: return@mapNotNull null
+            page to link
+        }
+        val target = if (previous) {
+            candidates.filter { it.first < current }.maxByOrNull { it.first }
+        } else {
+            candidates.filter { it.first > current }.minByOrNull { it.first }
+        }
+        return target?.second?.attr("abs:href")?.takeIf { it.startsWith("http", ignoreCase = true) }
     }
+
+    private fun extractUid(href: String): String? =
+        Regex("space-uid-(\\d+)").find(href)?.groupValues?.getOrNull(1)
+            ?: Regex("[?&]uid=(\\d+)").find(href)?.groupValues?.getOrNull(1)
 
     private fun parseCategories(doc: Document): List<SpaceCategory> =
         doc.select("#dhnavs_li a[href*='classid=']")
@@ -429,4 +525,21 @@ object SpaceMobileParser {
                 } else null
             }
             .distinctBy { it.uid }
+}
+
+internal fun extractBlogVisibilityText(texts: Iterable<String>): String {
+    val markers = listOf(
+        "仅好友可见",
+        "僅好友可見",
+        "好友可见",
+        "好友可見",
+        "仅自己可见",
+        "僅自己可見",
+        "自己可见",
+        "自己可見"
+    )
+    return texts.asSequence()
+        .map(String::trim)
+        .firstOrNull { text -> markers.any(text::contains) }
+        .orEmpty()
 }

@@ -174,6 +174,16 @@ object AutoSignManager {
         GlobalData.dataStore?.edit { it[getQuotaKey(hash)] = "$date:$launchCount:$resumeCount" }
     }
 
+    /**
+     * WAF 已明确拦截后台请求时，当天停止继续自动尝试。
+     *
+     * 之前会退还本次配额，导致每次冷启动/回前台都再次触发同一个验证弹窗；
+     * 可见签到页一旦真正加载成功，[captureSignPageHtml] 会重置配额并补签。
+     */
+    private suspend fun suspendAutomaticRetriesForToday(hash: Int, date: String) {
+        updateQuota(hash, date, MAX_DAILY_RETRIES, 0)
+    }
+
     private suspend fun getCachedTodaySignStatus(hash: Int, today: String): TodaySignStatus? {
         val rawStatus = GlobalData.dataStore?.data?.first()?.get(getSignStatusKey(hash))
         return rawStatus?.let { TodaySignStatusCache.decode(it, today) }
@@ -228,8 +238,9 @@ object AutoSignManager {
             capturedSignAction = captured.actionUrl
                 ?.takeIf(String::isNotBlank)
                 ?.let { CapturedSignAction(it, accountHash, today) }
-            // 用户刚通过验证、页面显示未签到：顺手自动签一次，失败消耗配额不会循环。
+            // 用户刚通过验证、页面显示未签到：解除 WAF 熔断并顺手自动签一次。
             if (captured.status == TodaySignStatus.NOT_SIGNED) {
+                resetQuota(accountHash)
                 GlobalData.applicationContext?.let { context ->
                     checkAndSignIfNeeded(context, SignTrigger.RESUME, force = false)
                 }
@@ -335,15 +346,16 @@ object AutoSignManager {
                     ?.let { runCatching { ProfileApiParser.parseProfile(it).formhash }.getOrNull() }
                     ?.takeIf(String::isNotBlank)
                 if (formHash == null) {
-                    refundQuota()
                     val wafBlocked = profileResponse.code() == 403 ||
                             profileResponse.code() == 405 ||
                             looksLikeChallengePage(profileHtml.orEmpty())
                     if (wafBlocked) {
+                        if (!force) suspendAutomaticRetriesForToday(accountHash, today)
                         AppErrorLog.record("签到被 WAF 拦截：请在签到页完成验证后重试")
-                        YamiboGlobalEvents.notifySignBlocked()
+                        if (force) YamiboGlobalEvents.notifySignBlocked()
                         return@withContext ManualSignResult.WAF_BLOCKED
                     }
+                    refundQuota()
                     if (force) showToast(context, "签到页面验证失败，请重新登录后重试")
                     return@withContext ManualSignResult.FAILED
                 }
@@ -369,9 +381,9 @@ object AutoSignManager {
                     }
 
                     looksLikeChallengePage(actionResponseHtml) -> {
-                        refundQuota()
+                        if (!force) suspendAutomaticRetriesForToday(accountHash, today)
                         AppErrorLog.record("签到被 WAF 拦截：请在签到页完成验证后重试")
-                        YamiboGlobalEvents.notifySignBlocked()
+                        if (force) YamiboGlobalEvents.notifySignBlocked()
                         ManualSignResult.WAF_BLOCKED
                     }
 
@@ -384,12 +396,13 @@ object AutoSignManager {
                 }
             } catch (error: HttpException) {
                 val code = error.code()
-                refundQuota()
                 if (code == 403 || code == 405) {
+                    if (!force) suspendAutomaticRetriesForToday(accountHash, today)
                     AppErrorLog.record("签到被 WAF 拦截($code)：请在签到页完成验证后重试")
-                    YamiboGlobalEvents.notifySignBlocked()
+                    if (force) YamiboGlobalEvents.notifySignBlocked()
                     ManualSignResult.WAF_BLOCKED
                 } else {
+                    refundQuota()
                     AppErrorLog.record("签到请求失败：HTTP $code")
                     if (force) showToast(context, "签到请求失败，请稍后重试")
                     ManualSignResult.FAILED

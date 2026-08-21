@@ -96,7 +96,13 @@ class SpaceListVM(
             states[baseRequest] = current.copy(isLoadingMore = true, error = null)
             try {
                 val result = withContext(Dispatchers.IO) {
-                    repository.getListByUrl(baseRequest, nextUrl)
+                    if (baseRequest.kind == org.shirakawatyu.yamibo.novel.bean.space.SpacePageKind.USER_THREAD &&
+                        baseRequest.type == "reply"
+                    ) {
+                        repository.getList(baseRequest, nextPage)
+                    } else {
+                        repository.getListByUrl(baseRequest, nextUrl)
+                    }
                 }
                 val now = states[baseRequest] ?: current
                 states[baseRequest] = now.copy(
@@ -132,7 +138,13 @@ class SpaceListVM(
             states[baseRequest] = current.copy(isLoadingMore = true, error = null)
             try {
                 val result = withContext(Dispatchers.IO) {
-                    repository.getListByUrl(baseRequest, previousUrl)
+                    if (baseRequest.kind == org.shirakawatyu.yamibo.novel.bean.space.SpacePageKind.USER_THREAD &&
+                        baseRequest.type == "reply"
+                    ) {
+                        repository.getList(baseRequest, previousPage)
+                    } else {
+                        repository.getListByUrl(baseRequest, previousUrl)
+                    }
                 }
                 val now = states[baseRequest] ?: current
                 states[baseRequest] = now.copy(

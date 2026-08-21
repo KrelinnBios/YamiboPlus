@@ -496,7 +496,8 @@ fun OtherWebPage(
                 if (request?.isForMainFrame == true &&
                     request.method == "GET" &&
                     PageJsScripts.shouldApplyWebTheme(GlobalData.appTheme.value) &&
-                    urlStr.contains("bbs.yamibo.com")
+                    urlStr.contains("bbs.yamibo.com") &&
+                    !returnsToNativeMineSignStatus
                 ) {
                     val html = YamiboRetrofit.proxyHtmlForDarkMode(request)
                     if (html != null) {

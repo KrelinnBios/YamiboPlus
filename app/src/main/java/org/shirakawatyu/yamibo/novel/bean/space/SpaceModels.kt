@@ -54,6 +54,9 @@ sealed interface SpaceListItem {
         val summary: String,
         val authorName: String,
         val url: String,
+        val authorUid: String = "",
+        val authorAvatarUrl: String? = null,
+        val visibilityText: String = "",
         val editUrl: String = "",
         val deleteUrl: String = "",
         val stickUrl: String = "",
@@ -69,7 +72,9 @@ sealed interface SpaceListItem {
         val viewCount: String,
         val replyCount: String,
         val isClosed: Boolean,
-        val url: String
+        val url: String,
+        val replyExcerpt: String = "",
+        val entryType: String = ""
     ) : SpaceListItem
 }
 
@@ -153,9 +158,12 @@ data class BlogDetail(
     val favoriteUrl: String = "",
     val shareUrl: String = "",
     val inviteUrl: String = "",
+    val stickUrl: String = "",
     val editUrl: String = "",
     val deleteUrl: String = "",
     val reportUrl: String = "",
+    val tags: List<String> = emptyList(),
+    val visibilityText: String = "",
     val commentFormUrl: String = "",
     val commentFormHash: String = "",
     val commentReferer: String = ""
