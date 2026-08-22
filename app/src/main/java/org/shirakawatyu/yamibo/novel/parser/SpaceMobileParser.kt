@@ -47,8 +47,25 @@ object SpaceMobileParser {
         )
     }
 
-    fun isLoginRequired(html: String): Boolean =
-        html.contains("mod=logging") && html.contains("formhash")
+    fun isLoginRequired(html: String): Boolean {
+        val document = Jsoup.parse(html)
+        if (document.select(
+                "form#loginform, form[id*=login][action*='mod=logging'], " +
+                    "form[action*='member.php'][action*='mod=logging']"
+            ).isNotEmpty()
+        ) {
+            return true
+        }
+        val text = document.text()
+        return listOf(
+            "请先登录后再操作",
+            "您需要先登录才能继续本操作",
+            "您尚未登录",
+            "请先登录"
+        ).any(text::contains) ||
+            html.contains("showWindow('login'", ignoreCase = true) ||
+            html.contains("showWindow(\"login\"", ignoreCase = true)
+    }
 
     /**
      * 解析私信对话页（do=pm&subop=view）：
@@ -295,12 +312,14 @@ object SpaceMobileParser {
                 val commentTime = commentLi.selectFirst(".xg1")?.text().orEmpty().trim()
                 val commentText = commentLi.ownText().trim()
                 DoingComment(
+                    id = "",
                     authorName = author,
                     time = commentTime,
                     content = commentText
                 )
             }
             SpaceListItem.Doing(
+                doId = "",
                 uid = uid,
                 name = name,
                 avatarUrl = avatarUrl(li.selectFirst(".avatar img, .mimg img, img"), uid),
@@ -428,6 +447,9 @@ object SpaceMobileParser {
                 viewCount = viewCount,
                 replyCount = replyCount,
                 isClosed = isClosed,
+                isPoll = li.selectFirst(
+                    ".fico-vote, [alt='投票'], [title='投票'], .micon.vote, img[src*='poll']"
+                ) != null,
                 url = link.attr("abs:href"),
                 replyExcerpt = summary,
                 entryType = entryType

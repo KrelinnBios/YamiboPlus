@@ -36,13 +36,16 @@ sealed interface SpaceListItem {
 
     /** 记录（doing）条目 */
     data class Doing(
+        val doId: String,
         val uid: String,
         val name: String,
         val avatarUrl: String?,
         val time: String,
         val content: String,
         val comments: List<DoingComment>,
-        val spaceUrl: String
+        val spaceUrl: String,
+        val replyUrl: String = "",
+        val deleteUrl: String = ""
     ) : SpaceListItem
 
     /** 日志条目 */
@@ -72,16 +75,21 @@ sealed interface SpaceListItem {
         val viewCount: String,
         val replyCount: String,
         val isClosed: Boolean,
+        val isPoll: Boolean = false,
         val url: String,
         val replyExcerpt: String = "",
-        val entryType: String = ""
+        val entryType: String = "",
+        val postId: String = ""
     ) : SpaceListItem
 }
 
 data class DoingComment(
+    val id: String,
     val authorName: String,
     val time: String,
-    val content: String
+    val content: String,
+    val replyUrl: String = "",
+    val deleteUrl: String = ""
 )
 
 enum class SpacePageKind {
@@ -138,6 +146,8 @@ data class BlogComment(
     val avatarUrl: String?,
     val time: String,
     val content: String,
+    val quotedAuthor: String = "",
+    val quotedContent: String = "",
     val replyUrl: String = "",
     val editUrl: String = "",
     val deleteUrl: String = ""

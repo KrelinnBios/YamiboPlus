@@ -382,14 +382,21 @@ private fun BlogDetailHeader(
         }
         Spacer(Modifier.height(10.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            SpaceAvatar(detail.authorAvatarUrl, 34)
-            Spacer(Modifier.width(8.dp))
-            Column {
-                Text(detail.authorName, color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
+            SpaceAvatar(detail.authorAvatarUrl, 42)
+            Spacer(Modifier.width(10.dp))
+            Column(
+                modifier = Modifier.height(42.dp),
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(detail.authorName, color = MaterialTheme.colorScheme.primary, fontSize = 14.sp)
                 Text(detail.time, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
             }
             Spacer(Modifier.weight(1f))
-            Column(horizontalAlignment = Alignment.End) {
+            Column(
+                modifier = Modifier.height(42.dp),
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
                 Text(
                     "浏览 ${detail.viewCount.ifBlank { "0" }}",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -754,7 +761,42 @@ private fun BlogCommentCard(
                 }
             }
             Spacer(Modifier.height(7.dp))
-            Text(comment.content, color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp, lineHeight = 23.sp)
+            if (comment.quotedContent.isNotBlank()) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(7.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        Text(
+                            text = if (comment.quotedAuthor.isBlank()) {
+                                "回复内容"
+                            } else {
+                                "回复 ${comment.quotedAuthor}"
+                            },
+                            color = MaterialTheme.colorScheme.primary,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = comment.quotedContent,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 13.sp,
+                            lineHeight = 20.sp
+                        )
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+            Text(
+                text = comment.content,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 14.sp,
+                lineHeight = 23.sp
+            )
         }
     }
 }

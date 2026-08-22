@@ -167,35 +167,35 @@ import org.shirakawatyu.yamibo.novel.ui.widget.YamiboToast
 
 internal object ForumActionUrls {
     private const val ORIGIN = "https://bbs.yamibo.com"
-    val search get() = "$ORIGIN/search.php?mod=forum&mobile=2"
-    val home get() = "$ORIGIN/forum.php?mobile=2"
-    val creditLog get() = "$ORIGIN/home.php?mod=spacecp&ac=credit&op=log&mobile=2"
-    val messages get() = "$ORIGIN/home.php?mod=space&do=pm&page=1&mobile=2"
-    val reminders get() = "$ORIGIN/home.php?mod=space&do=notice&mobile=2"
+    val search get() = "$ORIGIN/search.php?mod=forum&mobile=no"
+    val home get() = "$ORIGIN/forum.php?mobile=no"
+    val creditLog get() = "$ORIGIN/home.php?mod=spacecp&ac=credit&op=log&mobile=no"
+    val messages get() = "$ORIGIN/home.php?mod=space&do=pm&page=1&mobile=no"
+    val reminders get() = "$ORIGIN/home.php?mod=space&do=notice&mobile=no"
     fun messageCenter(hasNewPrompt: Boolean) = if (hasNewPrompt) reminders else messages
-    fun board(fid: String) = "$ORIGIN/forum.php?mod=forumdisplay&fid=$fid&mobile=2"
+    fun board(fid: String) = desktopBoard(fid)
     fun desktopBoard(fid: String) = "$ORIGIN/forum.php?mod=forumdisplay&fid=$fid&mobile=no"
-    fun newThread(fid: String) = "$ORIGIN/forum.php?mod=post&action=newthread&fid=$fid&mobile=2"
-    fun thread(tid: String) = "$ORIGIN/forum.php?mod=viewthread&tid=$tid&mobile=2"
+    fun newThread(fid: String) = "$ORIGIN/forum.php?mod=post&action=newthread&fid=$fid&mobile=no"
+    fun thread(tid: String) = desktopThread(tid)
     fun desktopThread(tid: String) = "$ORIGIN/forum.php?mod=viewthread&tid=$tid&mobile=no"
     fun reply(tid: String, fid: String, pid: String? = null, page: Int = 1) = buildString {
         append(ORIGIN).append("/forum.php?mod=post&action=reply&fid=").append(fid)
         append("&tid=").append(tid)
         if (!pid.isNullOrBlank()) append("&repquote=").append(pid)
-        append("&page=").append(page.coerceAtLeast(1)).append("&mobile=2")
+        append("&page=").append(page.coerceAtLeast(1)).append("&mobile=no")
     }
     fun edit(tid: String, fid: String, pid: String) =
-        "$ORIGIN/forum.php?mod=post&action=edit&fid=$fid&tid=$tid&pid=$pid&mobile=2"
+        "$ORIGIN/forum.php?mod=post&action=edit&fid=$fid&tid=$tid&pid=$pid&mobile=no"
     fun comment(tid: String, pid: String) =
-        "$ORIGIN/forum.php?mod=misc&action=postreview&tid=$tid&pid=$pid&mobile=2"
+        "$ORIGIN/forum.php?mod=misc&action=postreview&tid=$tid&pid=$pid&mobile=no"
     fun rate(tid: String, pid: String) =
-        "$ORIGIN/forum.php?mod=misc&action=rate&tid=$tid&pid=$pid&mobile=2"
+        "$ORIGIN/forum.php?mod=misc&action=rate&tid=$tid&pid=$pid&mobile=no"
     fun topicAdmin(fid: String, tid: String) =
-        "$ORIGIN/forum.php?mod=topicadmin&action=stick&fid=$fid&tid=$tid&mobile=2"
+        "$ORIGIN/forum.php?mod=topicadmin&action=stick&fid=$fid&tid=$tid&mobile=no"
     fun userSpace(uid: String, section: String) = when (section) {
-        "reply" -> "$ORIGIN/home.php?mod=space&uid=$uid&do=thread&view=me&type=reply&mobile=2"
-        "thread" -> "$ORIGIN/home.php?mod=space&uid=$uid&do=thread&view=me&mobile=2"
-        else -> "$ORIGIN/home.php?mod=space&uid=$uid&do=$section&view=me&mobile=2"
+        "reply" -> "$ORIGIN/home.php?mod=space&uid=$uid&do=thread&view=me&type=reply&mobile=no"
+        "thread" -> "$ORIGIN/home.php?mod=space&uid=$uid&do=thread&view=me&mobile=no"
+        else -> "$ORIGIN/home.php?mod=space&uid=$uid&do=$section&view=me&mobile=no"
     }
 }
 
@@ -1010,6 +1010,7 @@ private fun forumPaginationButtonColors() = ButtonDefaults.buttonColors(
 @Composable
 fun NativeThreadPageV2(
     threadId: String,
+    targetPostId: String = "",
     forumName: String? = null,
     onBack: () -> Unit,
     onGoHome: () -> Unit,
@@ -1019,8 +1020,8 @@ fun NativeThreadPageV2(
     onOpenReader: (String) -> Unit = {},
     bottomNavBarVM: BottomNavBarVM,
     vm: ForumThreadVM = viewModel(
-        key = "NativeThreadPageV2-$threadId",
-        factory = ForumThreadVM.factory(threadId)
+        key = "NativeThreadPageV2-$threadId-$targetPostId",
+        factory = ForumThreadVM.factory(threadId, targetPostId)
     )
 ) {
     val state by vm.uiState.collectAsState()
@@ -1063,6 +1064,9 @@ fun NativeThreadPageV2(
         }
     }
     val displayPosts = if (state.reverseOrder) posts.asReversed() else posts
+    var targetPostHandled by rememberSaveable(threadId, targetPostId) {
+        mutableStateOf(targetPostId.isBlank())
+    }
 
     DisposableEffect(lifecycleOwner, state.verificationUrl) {
         val observer = LifecycleEventObserver { _, event ->
@@ -1074,11 +1078,22 @@ fun NativeThreadPageV2(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    LaunchedEffect(state.page) {
+    LaunchedEffect(state.page, displayPosts.map(ForumPost::id), targetPostId) {
         if (state.posts.isNotEmpty()) {
-            // 等待列表用新页数据完成一次布局后再回到顶部，避免翻页后停在上一页的滚动位置。
+            // 等待列表完成新页布局；首次带 pid 进入时定位该楼，之后正常翻页回到顶部。
             withFrameNanos { }
-            listState.scrollToItem(0)
+            val postIndex = if (!targetPostHandled) {
+                displayPosts.indexOfFirst { it.id == targetPostId }
+            } else {
+                -1
+            }
+            if (postIndex >= 0) {
+                val summaryOffset = if (displayPosts.none(ForumPost::isOriginalPost) && state.thread != null) 1 else 0
+                listState.scrollToItem(postIndex + summaryOffset)
+                targetPostHandled = true
+            } else {
+                listState.scrollToItem(0)
+            }
         }
     }
     LaunchedEffect(bottomNavBarVM) {
@@ -1131,7 +1146,9 @@ fun NativeThreadPageV2(
             )
     ) {
         ForumTopBarV2(
-            title = state.thread?.forumName?.takeIf(String::isNotBlank)
+            title = state.thread?.forumName
+                ?.takeIf(String::isNotBlank)
+                ?.takeUnless { it.startsWith("[") && it.endsWith("]") }
                 ?: forumName?.takeIf(String::isNotBlank)
                 ?: "论坛",
             headerColor = componentColors.topBarContainer,
@@ -1148,7 +1165,7 @@ fun NativeThreadPageV2(
             if (ReaderModeDetector.isNovelForum(state.thread?.forumName)) {
                 IconButton(onClick = {
                     val readerUrl =
-                        "https://bbs.yamibo.com/forum.php?mod=viewthread&tid=$threadId&mobile=2"
+                        "https://bbs.yamibo.com/forum.php?mod=viewthread&tid=$threadId&mobile=no"
                     if (threadId.isBlank()) {
                         YamiboToast.show(message = "帖子信息加载中，请稍后再试")
                     } else {

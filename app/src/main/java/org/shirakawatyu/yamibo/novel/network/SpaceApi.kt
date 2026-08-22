@@ -22,6 +22,7 @@ interface SpaceApi {
         @Query("classid") classId: String? = null,
         @Query("fuid") friendUid: String? = null,
         @Query("page") page: Int? = null,
+        @Query("perpage") perPage: Int = 20,
         @Query("mobile") mobile: String = "no"
     ): ResponseBody
 

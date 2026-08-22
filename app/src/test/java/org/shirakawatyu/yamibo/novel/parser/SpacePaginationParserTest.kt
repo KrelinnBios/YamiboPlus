@@ -8,6 +8,27 @@ import org.shirakawatyu.yamibo.novel.bean.space.SpacePageKind
 
 class SpacePaginationParserTest {
     @Test
+    fun desktopThreadRecognizesVoteIcon() {
+        val html = """
+            <html><body><div class="tl"><table><tbody>
+              <tr>
+                <td class="icn"><i class="fico-vote fic6 fc-n" alt="投票"></i></td>
+                <th><a href="thread-543354-1-1.html">关于各平台头像的选择</a></th>
+                <td><a href="forum-33-1.html">海域區</a></td>
+                <td class="num"><a>142</a><em>2074</em></td>
+                <td class="by"><em>2025-4-3 22:46</em></td>
+              </tr>
+            </tbody></table></div></body></html>
+        """.trimIndent()
+
+        val item = SpaceDesktopParser.parseListPage(SpacePageKind.USER_THREAD, html)
+            .items.single() as SpaceListItem.UserThread
+
+        assertTrue(item.isPoll)
+        assertEquals("海域區", item.forumName)
+    }
+
+    @Test
     fun desktopBlogPageTwoCanReturnToCanonicalFirstPage() {
         val html = """
             <html><body>
@@ -46,6 +67,34 @@ class SpacePaginationParserTest {
         assertEquals("2026-08-21 08:00", blog.time)
         assertEquals("仅好友可见", blog.visibilityText)
         assertEquals("争议", blog.category)
+    }
+
+    @Test
+    fun desktopFriendBlogSkipsEmptyAvatarLinkWhenReadingAuthorName() {
+        val html = """
+            <html><body>
+              <div class="xld">
+                <dl class="bbda">
+                  <dd class="m avt">
+                    <a href="space-uid-695001.html"><img src="avatar.jpg"></a>
+                  </dd>
+                  <dt><a href="blog-695001-117864.html">好友日志</a></dt>
+                  <dd>
+                    <a href="space-uid-695001.html">tmzqd</a>
+                    <span class="xg1">2026-8-13 15:32</span>
+                  </dd>
+                  <dd id="blog_article_117864">日志摘要</dd>
+                </dl>
+              </div>
+            </body></html>
+        """.trimIndent()
+
+        val blog = SpaceDesktopParser.parseListPage(SpacePageKind.BLOG, html)
+            .items.single() as SpaceListItem.Blog
+
+        assertEquals("tmzqd", blog.authorName)
+        assertEquals("695001", blog.authorUid)
+        assertTrue(blog.authorAvatarUrl.orEmpty().endsWith("avatar.jpg"))
     }
 
     @Test
@@ -117,6 +166,45 @@ class SpacePaginationParserTest {
     }
 
     @Test
+    fun desktopBlogCommentKeepsQuotedReplyAndParagraphBreaks() {
+        val html = """
+            <html><body>
+              <div class="vw">
+                <div class="h"><h1 class="ph">日志标题</h1></div>
+                <div id="blog_article"><p>正文</p></div>
+              </div>
+              <div id="pcd"><div class="hm">
+                <a href="space-uid-615797.html"><img src="owner.jpg"></a>
+                <h2><a href="space-uid-615797.html">krelinnbios</a></h2>
+              </div></div>
+              <div id="comment_ul">
+                <dl id="comment_647310_li">
+                  <dd class="m avt"><img src="commenter.jpg"></dd>
+                  <dt>
+                    <a href="space-uid-615797.html" id="author_647310">krelinnbios</a>
+                    <span class="xg1">2026-7-28 19:29</span>
+                  </dt>
+                  <dd id="comment_647310">
+                    <div class="quote"><blockquote><b>AlmeasqViolet</b>: 被回复的内容</blockquote></div>
+                    第一段<br><br>第二段
+                  </dd>
+                </dl>
+              </div>
+            </body></html>
+        """.trimIndent()
+
+        val detail = SpaceDesktopParser.parseBlogDetail(
+            html,
+            "https://bbs.yamibo.com/blog-615797-117721.html"
+        )
+        val comment = detail.comments.single()
+
+        assertEquals("AlmeasqViolet", comment.quotedAuthor)
+        assertEquals("被回复的内容", comment.quotedContent)
+        assertEquals("第一段\n\n第二段", comment.content)
+    }
+
+    @Test
     fun desktopReplyUsesCorrectColumnsAndExactPostLink() {
         val html = """
             <html><body>
@@ -145,6 +233,7 @@ class SpacePaginationParserTest {
         assertEquals("2026-8-18 02:35", item.time)
         assertEquals("我的回复内容", item.replyExcerpt)
         assertEquals("回复", item.entryType)
+        assertEquals("41607148", item.postId)
         assertTrue(item.url.contains("pid=41607148"))
     }
 

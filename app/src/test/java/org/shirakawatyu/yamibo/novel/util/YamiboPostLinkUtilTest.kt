@@ -8,6 +8,22 @@ import org.junit.Test
 
 class YamiboPostLinkUtilTest {
     @Test
+    fun extractsPostIdFromFindPostAndAnchorLinks() {
+        assertEquals(
+            "456",
+            YamiboPostLinkUtil.extractPostId(
+                "https://bbs.yamibo.com/forum.php?mod=redirect&goto=findpost&pid=456"
+            )
+        )
+        assertEquals(
+            "789",
+            YamiboPostLinkUtil.extractPostId(
+                "https://bbs.yamibo.com/forum.php?mod=viewthread&tid=123#pid789"
+            )
+        )
+    }
+
+    @Test
     fun extractsLinkFromClipboardShareText() {
         assertEquals(
             "https://bbs.yamibo.com/thread-572320-3-1.html?mobile=2",

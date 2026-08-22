@@ -41,7 +41,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -60,7 +59,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
-import kotlinx.coroutines.launch
 import org.shirakawatyu.yamibo.novel.R
 import org.shirakawatyu.yamibo.novel.bean.forum.UserProfile
 import org.shirakawatyu.yamibo.novel.ui.component.YamiboLoadError
@@ -88,7 +86,6 @@ fun NativeMinePage(
 ) {
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val loginSucceeded by navController.currentBackStackEntry
         ?.savedStateHandle
         ?.getStateFlow(NATIVE_MINE_LOGIN_RESULT_KEY, false)
@@ -222,13 +219,11 @@ fun NativeMinePage(
                             onOpenProfile = {
                                 val profileUrl =
                                     "https://bbs.yamibo.com/home.php?mod=space" +
-                                        "&uid=${profile.uid}&do=profile&mobile=2"
+                                        "&uid=${profile.uid}&do=profile&mobile=no"
                                 navController.navigate("OtherWebPage/${Uri.encode(profileUrl)}")
                             },
                             onManualSign = {
-                                scope.launch {
-                                    AutoSignManager.checkAndSignIfNeeded(context, force = true)
-                                }
+                                navController.navigate("NativeSignPage")
                             },
                             onOpenSpaceSection = { section ->
                                 when (section) {

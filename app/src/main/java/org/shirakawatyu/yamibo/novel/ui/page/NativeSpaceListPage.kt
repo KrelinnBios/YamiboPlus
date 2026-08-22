@@ -12,9 +12,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -33,6 +37,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.HowToVote
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -40,6 +45,8 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
@@ -54,6 +61,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -74,6 +82,7 @@ import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import org.shirakawatyu.yamibo.novel.bean.space.SpaceListItem
+import org.shirakawatyu.yamibo.novel.ui.component.YamiboAlertDialog as AlertDialog
 import org.shirakawatyu.yamibo.novel.bean.space.SpacePageKind
 import org.shirakawatyu.yamibo.novel.bean.space.SpaceTabSpec
 import org.shirakawatyu.yamibo.novel.ui.component.YamiboDialogSurface
@@ -83,6 +92,7 @@ import org.shirakawatyu.yamibo.novel.ui.theme.yamiboDangerColor
 import org.shirakawatyu.yamibo.novel.ui.vm.SpaceListVM
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.widget.ObserveBottomBarLazyListScroll
+import org.shirakawatyu.yamibo.novel.ui.widget.YamiboToast
 
 @Composable
 fun SpaceAvatar(
@@ -124,10 +134,14 @@ fun NativeSpaceListPage(
     val componentColors = yamiboComponentColors()
     val headerColor = componentColors.topBarContainer
     val headerContent = componentColors.topBarContent
-    var selectedTab by remember { mutableIntStateOf(initialTabIndex.coerceIn(tabs.indices)) }
-    var selectedCategoryId by remember { mutableStateOf("") }
-    var selectedFriendUid by remember { mutableStateOf("") }
+    var selectedTab by rememberSaveable {
+        mutableIntStateOf(initialTabIndex.coerceIn(tabs.indices))
+    }
+    var selectedCategoryId by rememberSaveable { mutableStateOf("") }
+    var selectedFriendUid by rememberSaveable { mutableStateOf("") }
     var blogMenuTarget by remember { mutableStateOf<SpaceListItem.Blog?>(null) }
+    var doingReplyTarget by remember { mutableStateOf<DoingActionTarget?>(null) }
+    var doingDeleteTarget by remember { mutableStateOf<DoingActionTarget?>(null) }
     val viewModel: SpaceListVM = viewModel(
         key = "SpaceList-${tabs.joinToString("-") { it.request.kind.name }}-$uid",
         factory = SpaceListVM.Factory(uid)
@@ -156,6 +170,14 @@ fun NativeSpaceListPage(
     }
     bottomNavBarVM?.let { ObserveBottomBarLazyListScroll(listState, it) }
     val refreshing = state.isLoading && state.items.isNotEmpty()
+    val systemNavigationPadding = WindowInsets.navigationBars
+        .asPaddingValues()
+        .calculateBottomPadding()
+    val bottomBarPadding = when {
+        !showBottomNavBar -> 0.dp
+        bottomNavBarVM?.bottomBarScrollSuppressed == true -> systemNavigationPadding
+        else -> systemNavigationPadding + 52.dp
+    }
 
     LaunchedEffect(currentRequest, state.page) {
         listState.scrollToItem(0)
@@ -165,6 +187,7 @@ fun NativeSpaceListPage(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
+            .padding(bottom = bottomBarPadding)
     ) {
         Surface(color = headerColor, contentColor = headerContent) {
             Row(
@@ -307,12 +330,7 @@ fun NativeSpaceListPage(
                             start = 12.dp,
                             end = 12.dp,
                             top = 8.dp,
-                            // 底栏滚动隐藏时不留底部占位，避免内容底部留一段空白色块。
-                            bottom = when {
-                                !showBottomNavBar -> 24.dp
-                                bottomNavBarVM?.bottomBarScrollSuppressed == true -> 24.dp
-                                else -> 96.dp
-                            }
+                            bottom = 24.dp
                         )
                     ) {
                         itemsIndexed(state.items, key = { index, item ->
@@ -328,6 +346,9 @@ fun NativeSpaceListPage(
                             SpaceListItemRow(
                                 item = item,
                                 onClick = { onItemClick(item) },
+                                onDoingReply = { doingReplyTarget = it },
+                                onDoingDelete = { doingDeleteTarget = it },
+                                showBlogAuthor = baseRequest.view != "me",
                                 onBlogLongClick = if (item is SpaceListItem.Blog &&
                                     (item.editUrl.isNotBlank() || item.stickUrl.isNotBlank() || item.deleteUrl.isNotBlank())
                                 ) {
@@ -381,20 +402,60 @@ fun NativeSpaceListPage(
             }
         }
     }
+
+    doingReplyTarget?.let { target ->
+        DoingReplyDialog(
+            target = target,
+            busy = viewModel.actionBusy,
+            onDismiss = { if (!viewModel.actionBusy) doingReplyTarget = null },
+            onSubmit = { message ->
+                viewModel.submitDoingAction(currentRequest, target.actionUrl, message) { result, success ->
+                    YamiboToast.show(message = result)
+                    if (success) doingReplyTarget = null
+                }
+            }
+        )
+    }
+    doingDeleteTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { if (!viewModel.actionBusy) doingDeleteTarget = null },
+            title = { Text(target.title) },
+            text = { Text("确定删除${target.label}吗？") },
+            confirmButton = {
+                TextButton(
+                    enabled = !viewModel.actionBusy,
+                    onClick = {
+                        viewModel.submitDoingAction(currentRequest, target.actionUrl) { result, success ->
+                            YamiboToast.show(message = result)
+                            if (success) doingDeleteTarget = null
+                        }
+                    }
+                ) { Text(if (viewModel.actionBusy) "删除中" else "删除", color = yamiboDangerColor()) }
+            },
+            dismissButton = {
+                TextButton(enabled = !viewModel.actionBusy, onClick = { doingDeleteTarget = null }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
 }
 
 @Composable
 private fun SpaceListItemRow(
     item: SpaceListItem,
     onClick: () -> Unit,
+    onDoingReply: (DoingActionTarget) -> Unit,
+    onDoingDelete: (DoingActionTarget) -> Unit,
+    showBlogAuthor: Boolean,
     onBlogLongClick: (() -> Unit)?
 ) {
     when (item) {
         is SpaceListItem.PrivateMessage -> PmItemRow(item, onClick)
         is SpaceListItem.Notice -> NoticeItemRow(item, onClick)
         is SpaceListItem.Friend -> FriendItemRow(item, onClick)
-        is SpaceListItem.Doing -> DoingItemRow(item)
-        is SpaceListItem.Blog -> BlogItemRow(item, onClick, onBlogLongClick)
+        is SpaceListItem.Doing -> DoingItemRow(item, onDoingReply, onDoingDelete)
+        is SpaceListItem.Blog -> BlogItemRow(item, showBlogAuthor, onClick, onBlogLongClick)
         is SpaceListItem.UserThread -> UserThreadItemRow(item, onClick)
     }
 }
@@ -535,17 +596,34 @@ private fun FriendItemRow(item: SpaceListItem.Friend, onClick: () -> Unit) {
 }
 
 @Composable
-private fun DoingItemRow(item: SpaceListItem.Doing) {
-    ItemCard {
+private fun DoingItemRow(
+    item: SpaceListItem.Doing,
+    onReply: (DoingActionTarget) -> Unit,
+    onDelete: (DoingActionTarget) -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp)
+                .padding(horizontal = 14.dp, vertical = 13.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                SpaceAvatar(item.avatarUrl, 38)
-                Spacer(Modifier.width(10.dp))
-                Column {
+                SpaceAvatar(
+                    url = item.avatarUrl,
+                    size = 36,
+                    modifier = Modifier.clip(CircleShape)
+                )
+                Spacer(Modifier.width(9.dp))
+                Column(Modifier.weight(1f)) {
                     Text(
                         text = item.name,
                         fontSize = 14.sp,
@@ -558,45 +636,115 @@ private fun DoingItemRow(item: SpaceListItem.Doing) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                     )
                 }
+                if (item.replyUrl.isNotBlank()) {
+                    DoingActionButton(
+                        label = "回复",
+                        onClick = {
+                            onReply(
+                                DoingActionTarget(
+                                    "回复 ${item.name}",
+                                    "这条记录",
+                                    item.replyUrl
+                                )
+                            )
+                        }
+                    )
+                }
+                if (item.deleteUrl.isNotBlank()) {
+                    DoingActionButton(
+                        label = "删除",
+                        danger = true,
+                        onClick = {
+                            onDelete(
+                                DoingActionTarget(
+                                    "删除记录",
+                                    "这条记录",
+                                    item.deleteUrl
+                                )
+                            )
+                        }
+                    )
+                }
             }
             Spacer(Modifier.height(8.dp))
             Text(
                 text = item.content,
                 fontSize = 14.sp,
+                lineHeight = 21.sp,
                 color = MaterialTheme.colorScheme.onSurface
             )
             if (item.comments.isNotEmpty()) {
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(10.dp))
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    border = BorderStroke(
+                        1.dp,
+                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)
+                    )
                 ) {
                     Column(
-                        modifier = Modifier.padding(10.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                     ) {
-                        item.comments.forEach { comment ->
-                            Row {
-                                Text(
-                                    text = "${comment.authorName}：",
-                                    fontSize = 13.sp,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontWeight = FontWeight.Medium
-                                )
-                                Text(
-                                    text = comment.content,
-                                    fontSize = 13.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                if (comment.time.isNotBlank()) {
+                        item.comments.forEachIndexed { index, comment ->
+                            Column(modifier = Modifier.padding(vertical = 6.dp)) {
+                                Row {
+                                    Text(
+                                        text = "${comment.authorName}：",
+                                        fontSize = 13.sp,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    Text(
+                                        text = comment.content,
+                                        fontSize = 13.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                                Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
                                         text = comment.time,
                                         fontSize = 12.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                                        modifier = Modifier.weight(1f)
                                     )
+                                    if (comment.replyUrl.isNotBlank()) {
+                                        DoingActionButton(
+                                            label = "回复",
+                                            onClick = {
+                                                onReply(
+                                                    DoingActionTarget(
+                                                        "回复 ${comment.authorName}",
+                                                        "这条评论",
+                                                        comment.replyUrl
+                                                    )
+                                                )
+                                            }
+                                        )
+                                    }
+                                    if (comment.deleteUrl.isNotBlank()) {
+                                        DoingActionButton(
+                                            label = "删除",
+                                            danger = true,
+                                            onClick = {
+                                                onDelete(
+                                                    DoingActionTarget(
+                                                        "删除评论",
+                                                        "这条评论",
+                                                        comment.deleteUrl
+                                                    )
+                                                )
+                                            }
+                                        )
+                                    }
                                 }
+                            }
+                            if (index != item.comments.lastIndex) {
+                                HorizontalDivider(
+                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f)
+                                )
                             }
                         }
                     }
@@ -606,10 +754,78 @@ private fun DoingItemRow(item: SpaceListItem.Doing) {
     }
 }
 
+@Composable
+private fun DoingActionButton(
+    label: String,
+    danger: Boolean = false,
+    onClick: () -> Unit
+) {
+    TextButton(
+        onClick = onClick,
+        modifier = Modifier.height(32.dp),
+        contentPadding = PaddingValues(horizontal = 9.dp, vertical = 0.dp)
+    ) {
+        Text(
+            text = label,
+            fontSize = 13.sp,
+            color = if (danger) {
+                yamiboDangerColor().copy(alpha = 0.82f)
+            } else {
+                MaterialTheme.colorScheme.primary
+            }
+        )
+    }
+}
+
+private data class DoingActionTarget(
+    val title: String,
+    val label: String,
+    val actionUrl: String
+)
+
+@Composable
+private fun DoingReplyDialog(
+    target: DoingActionTarget,
+    busy: Boolean,
+    onDismiss: () -> Unit,
+    onSubmit: (String) -> Unit
+) {
+    var message by remember(target) { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(target.title) },
+        text = {
+            OutlinedTextField(
+                value = message,
+                onValueChange = { message = it.take(200) },
+                placeholder = { Text("请输入回复内容") },
+                supportingText = { Text("${message.length}/200") },
+                minLines = 3,
+                maxLines = 6,
+                modifier = Modifier.fillMaxWidth().widthIn(min = 240.dp).imePadding(),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = MaterialTheme.colorScheme.surface,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surface
+                )
+            )
+        },
+        confirmButton = {
+            TextButton(
+                enabled = message.isNotBlank() && !busy,
+                onClick = { onSubmit(message.trim()) }
+            ) { Text(if (busy) "提交中" else "发表") }
+        },
+        dismissButton = {
+            TextButton(enabled = !busy, onClick = onDismiss) { Text("取消") }
+        }
+    )
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun BlogItemRow(
     item: SpaceListItem.Blog,
+    showAuthor: Boolean,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)?
 ) {
@@ -639,93 +855,74 @@ private fun BlogItemRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(13.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(7.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                SpaceAvatar(
-                    url = item.authorAvatarUrl,
-                    size = 36,
-                    modifier = Modifier.clip(CircleShape)
-                )
-                Spacer(Modifier.width(9.dp))
+            if (showAuthor) {
                 Row(
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = item.authorName.ifBlank { "未知好友" },
-                        modifier = Modifier.weight(1f, fill = false),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.labelMedium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                    SpaceAvatar(
+                        url = item.authorAvatarUrl,
+                        size = 36,
+                        modifier = Modifier.clip(CircleShape)
                     )
-                    if (item.time.isNotBlank()) {
+                    Spacer(Modifier.width(9.dp))
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Text(
-                            text = " · " + item.time,
+                            text = item.authorName.ifBlank { "未知好友" },
+                            modifier = Modifier.weight(1f, fill = false),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.labelSmall,
+                            style = MaterialTheme.typography.labelMedium,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
+                        if (item.time.isNotBlank()) {
+                            Text(
+                                text = " · " + item.time,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
-                }
-                if (item.visibilityText.isNotBlank() || item.category.isNotBlank()) {
-                    Spacer(Modifier.width(8.dp))
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(5.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        item.visibilityText.takeIf(String::isNotBlank)?.let { visibility ->
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = MaterialTheme.colorScheme.tertiaryContainer
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.Lock,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onTertiaryContainer,
-                                        modifier = Modifier.size(12.dp)
-                                    )
-                                    Spacer(Modifier.width(3.dp))
-                                    Text(
-                                        text = visibility,
-                                        color = MaterialTheme.colorScheme.onTertiaryContainer,
-                                        style = MaterialTheme.typography.labelSmall
-                                    )
-                                }
-                            }
-                        }
-                        item.category.takeIf(String::isNotBlank)?.let { category ->
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = MaterialTheme.colorScheme.secondaryContainer
-                            ) {
-                                Text(
-                                    text = category,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp)
-                                )
-                            }
-                        }
+                    if (item.visibilityText.isNotBlank() || item.category.isNotBlank()) {
+                        Spacer(Modifier.width(8.dp))
+                        BlogMetadataBadges(item)
                     }
                 }
             }
-            Text(
-                text = item.title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
+            if (!showAuthor &&
+                (item.visibilityText.isNotBlank() || item.category.isNotBlank())
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    BlogMetadataBadges(item)
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = item.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            } else {
+                Text(
+                    text = item.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
             if (item.summary.isNotBlank()) {
                 Text(
                     text = item.summary,
@@ -733,6 +930,61 @@ private fun BlogItemRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
+                )
+            }
+            if (!showAuthor && item.time.isNotBlank()) {
+                Text(
+                    text = item.time,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun BlogMetadataBadges(item: SpaceListItem.Blog) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        item.visibilityText.takeIf(String::isNotBlank)?.let { visibility ->
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.tertiaryContainer
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Lock,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                        modifier = Modifier.size(12.dp)
+                    )
+                    Spacer(Modifier.width(3.dp))
+                    Text(
+                        text = visibility,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
+            }
+        }
+        item.category.takeIf(String::isNotBlank)?.let { category ->
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.secondaryContainer
+            ) {
+                Text(
+                    text = category,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                 )
             }
         }
@@ -872,12 +1124,32 @@ private fun UserThreadItemRow(item: SpaceListItem.UserThread, onClick: () -> Uni
                 .padding(horizontal = 14.dp, vertical = 12.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                if (item.forumName.isNotBlank()) {
+                    UserThreadBadge(text = item.forumName)
+                    Spacer(Modifier.width(6.dp))
+                }
+                if (item.entryType.isNotBlank()) {
+                    UserThreadBadge(
+                        text = item.entryType,
+                        primary = true
+                    )
+                    Spacer(Modifier.width(6.dp))
+                }
                 if (item.isClosed) {
                     Icon(
                         imageVector = Icons.Filled.Lock,
                         contentDescription = "已关闭",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(14.dp)
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                }
+                if (item.isPoll) {
+                    Icon(
+                        imageVector = Icons.Filled.HowToVote,
+                        contentDescription = "投票",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp)
                     )
                     Spacer(Modifier.width(6.dp))
                 }
@@ -904,34 +1176,6 @@ private fun UserThreadItemRow(item: SpaceListItem.UserThread, onClick: () -> Uni
             }
             Spacer(Modifier.height(6.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                if (item.entryType.isNotBlank()) {
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer
-                    ) {
-                        Text(
-                            text = item.entryType,
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
-                    }
-                    Spacer(Modifier.width(8.dp))
-                }
-                if (item.forumName.isNotBlank()) {
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = MaterialTheme.colorScheme.secondaryContainer
-                    ) {
-                        Text(
-                            text = item.forumName,
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
-                    }
-                    Spacer(Modifier.width(8.dp))
-                }
                 Text(
                     text = item.time,
                     fontSize = 12.sp,
@@ -955,5 +1199,29 @@ private fun UserThreadItemRow(item: SpaceListItem.UserThread, onClick: () -> Uni
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun UserThreadBadge(text: String, primary: Boolean = false) {
+    Surface(
+        shape = RoundedCornerShape(6.dp),
+        color = if (primary) {
+            MaterialTheme.colorScheme.primaryContainer
+        } else {
+            MaterialTheme.colorScheme.secondaryContainer
+        }
+    ) {
+        Text(
+            text = text,
+            fontSize = 11.sp,
+            color = if (primary) {
+                MaterialTheme.colorScheme.onPrimaryContainer
+            } else {
+                MaterialTheme.colorScheme.onSecondaryContainer
+            },
+            maxLines = 1,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+        )
     }
 }

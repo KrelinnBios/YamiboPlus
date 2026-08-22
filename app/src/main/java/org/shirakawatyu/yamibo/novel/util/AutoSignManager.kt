@@ -22,7 +22,6 @@ import org.shirakawatyu.yamibo.novel.parser.ProfileApiParser
 import org.shirakawatyu.yamibo.novel.ui.widget.YamiboToast
 import retrofit2.HttpException
 import retrofit2.http.GET
-import retrofit2.http.Header
 import retrofit2.http.Url
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -31,10 +30,7 @@ import java.util.TimeZone
 
 private interface SignApi {
     @GET
-    suspend fun fetchHtml(
-        @Url url: String,
-        @Header("Referer") referer: String? = null
-    ): ResponseBody
+    suspend fun fetchHtml(@Url url: String): ResponseBody
 }
 
 enum class SignTrigger {
@@ -123,9 +119,6 @@ private fun looksLikeChallengePage(body: String): Boolean {
  */
 object AutoSignManager {
     private const val BASE_URL = "https://bbs.yamibo.com/"
-    private const val SIGN_PAGE_URL = "${BASE_URL}plugin.php?id=zqlj_sign&mobile=2"
-    private const val SIGN_REFERER_URL =
-        "${BASE_URL}home.php?mod=space&do=profile&mycenter=1&mobile=2"
     private const val MAX_DAILY_RETRIES = 2
     private val signMutex = Mutex()
     private val _todaySignStatus = MutableStateFlow<TodaySignStatus?>(null)
@@ -352,7 +345,7 @@ object AutoSignManager {
                     if (wafBlocked) {
                         if (!force) suspendAutomaticRetriesForToday(accountHash, today)
                         AppErrorLog.record("签到被 WAF 拦截：请在签到页完成验证后重试")
-                        if (force) YamiboGlobalEvents.notifySignBlocked()
+                        if (force) showToast(context, "签到请求被论坛拦截，请稍后重试")
                         return@withContext ManualSignResult.WAF_BLOCKED
                     }
                     refundQuota()
@@ -363,7 +356,7 @@ object AutoSignManager {
                 val signUrl = resolveSignActionUrl(formHash)
                 val actionResponseHtml = YamiboRetrofit.getInstance()
                     .create(SignApi::class.java)
-                    .fetchHtml(signUrl, referer = SIGN_REFERER_URL)
+                    .fetchHtml(signUrl)
                     .string()
 
                 when {
@@ -383,15 +376,16 @@ object AutoSignManager {
                     looksLikeChallengePage(actionResponseHtml) -> {
                         if (!force) suspendAutomaticRetriesForToday(accountHash, today)
                         AppErrorLog.record("签到被 WAF 拦截：请在签到页完成验证后重试")
-                        if (force) YamiboGlobalEvents.notifySignBlocked()
+                        if (force) showToast(context, "签到请求被论坛拦截，请稍后重试")
                         ManualSignResult.WAF_BLOCKED
                     }
 
                     else -> {
-                        refundQuota()
-                        AppErrorLog.record("签到结果未知：${actionResponseHtml.take(120)}")
-                        if (force) showToast(context, "签到未完成，请重新登录后重试")
-                        ManualSignResult.FAILED
+                        // 与 YamiboReaderLite 保持一致：请求已经送达论坛时，不把未识别的
+                        // 返回页面误判成“安全验证未完成”。原生页随后会重新加载真实状态。
+                        AppErrorLog.record("签到请求已发送，响应未包含明确结果")
+                        if (force) showToast(context, "打卡请求已发送")
+                        ManualSignResult.SUCCESS
                     }
                 }
             } catch (error: HttpException) {
@@ -399,7 +393,7 @@ object AutoSignManager {
                 if (code == 403 || code == 405) {
                     if (!force) suspendAutomaticRetriesForToday(accountHash, today)
                     AppErrorLog.record("签到被 WAF 拦截($code)：请在签到页完成验证后重试")
-                    if (force) YamiboGlobalEvents.notifySignBlocked()
+                    if (force) showToast(context, "签到请求被论坛拦截，请稍后重试")
                     ManualSignResult.WAF_BLOCKED
                 } else {
                     refundQuota()
@@ -417,22 +411,11 @@ object AutoSignManager {
         }
     }
 
-    /** 优先使用可见签到页捕获的动作地址（服务器针对当前会话生成），失败时回退到 formhash 拼接。 */
-    private fun resolveSignActionUrl(formHash: String): String {
-        val captured = capturedSignAction
-        if (
-            captured != null &&
-            captured.accountHash == getCurrentAccountHash() &&
-            captured.date == getServerToday()
-        ) {
-            return if (captured.url.startsWith("http")) {
-                captured.url
-            } else {
-                BASE_URL + captured.url.trimStart('/')
-            }
-        }
-        return "$SIGN_PAGE_URL&sign=$formHash"
-    }
+    /** 使用 Lite 版长期采用的签到动作地址，避免 mobile/referer 改变插件响应。 */
+    private fun resolveSignActionUrl(formHash: String): String = buildSignActionUrl(formHash)
+
+    internal fun buildSignActionUrl(formHash: String): String =
+        "${BASE_URL}plugin.php?id=zqlj_sign&sign=$formHash"
 
     internal fun extractSignFormHash(html: String): String? =
         Jsoup.parse(html)

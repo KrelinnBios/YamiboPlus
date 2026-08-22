@@ -50,12 +50,13 @@ class WebForumDataSource(
             .addQueryParameter("mod", "viewthread")
             .addQueryParameter("tid", threadId)
             .addQueryParameter("page", page.toString())
+            .addQueryParameter("ppp", "20")
             .apply {
                 authorId?.takeIf(String::isNotBlank)?.let {
                     addQueryParameter("authorid", it)
                 }
             }
-            .addQueryParameter("mobile", "2")
+            .addQueryParameter("mobile", "no")
             .build()
             .toString()
 }

@@ -6,6 +6,14 @@ import org.junit.Test
 
 class AutoSignManagerTest {
     @Test
+    fun signActionUsesLiteCompatibleUrl() {
+        assertEquals(
+            "https://bbs.yamibo.com/plugin.php?id=zqlj_sign&sign=abc123",
+            AutoSignManager.buildSignActionUrl("abc123")
+        )
+    }
+
+    @Test
     fun signedPageIsParsedAsSigned() {
         val html = """
             <html><body>

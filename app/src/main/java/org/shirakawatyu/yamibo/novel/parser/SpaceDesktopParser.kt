@@ -49,11 +49,16 @@ object SpaceDesktopParser {
             val link = item.selectFirst("dt a[href*='blog-']") ?: return@mapNotNull null
             val id = Regex("blog-\\d+-(\\d+)").find(link.attr("href"))?.groupValues?.get(1)
                 ?: return@mapNotNull null
-            val authorLink = item.selectFirst(
+            val authorLinks = item.select(
                 "dd a[href*='space-uid-'], " +
                     "dd a[href*='mod=space'][href*='uid=']:not([href*='do=blog'])"
             )
-            val authorUid = extractUid(authorLink?.attr("href").orEmpty()).orEmpty()
+            // 电脑版好友日志的第一个空间链接位于 dd.m 头像内，没有文本；
+            // 作者名要取后面正文 dd 中的非空链接，uid 则允许从头像链接兜底。
+            val authorLink = authorLinks.firstOrNull { it.text().trim().isNotBlank() }
+            val authorUid = extractUid(authorLink?.attr("href").orEmpty())
+                ?: authorLinks.firstNotNullOfOrNull { extractUid(it.attr("href")) }
+                ?: ""
             val metadataTexts = item.select("dd .xg1, dt .xg1")
                 .map { it.text().trim() }
             SpaceListItem.Blog(
@@ -99,7 +104,13 @@ object SpaceDesktopParser {
                         .trim()
                 }
             val comments = item.select("dd.cmt > ul > li").mapNotNull(::parseDoingComment)
+            val commentBox = item.selectFirst("dd.cmt[id]")
+            val doId = commentBox?.id()?.substringAfterLast('_').orEmpty().ifBlank {
+                Regex("dl(\\d+)$").find(item.id())?.groupValues?.getOrNull(1).orEmpty()
+            }
+            val replyLink = item.selectFirst("dd.ptn.xg1 a[onclick*='docomment_form']")
             SpaceListItem.Doing(
+                doId = doId,
                 uid = uid,
                 name = user.text().trim(),
                 avatarUrl = item.selectFirst("dd.m.avt img, .avatar img, .mimg img")
@@ -111,7 +122,11 @@ object SpaceDesktopParser {
                     .orEmpty(),
                 content = content,
                 comments = comments,
-                spaceUrl = user.absUrl("href")
+                spaceUrl = user.absUrl("href"),
+                replyUrl = doingReplyUrl(replyLink),
+                deleteUrl = item.selectFirst(
+                    "dd.ptn.xg1 a[href*='ac=doing'][href*='op=delete']"
+                )?.absUrl("href").orEmpty()
             )
         }
 
@@ -125,11 +140,30 @@ object SpaceDesktopParser {
                 "a[href*='ac=doing'][href*='op=delete'], div[id*='_form_']")
                 .remove()
         }).removePrefix(":").removePrefix("：").trim()
+        val replyLink = item.selectFirst("a[onclick*='docomment_form']")
         return DoingComment(
+            id = doingReplyArguments(replyLink)?.second.orEmpty(),
             authorName = author.text().trim(),
             time = item.selectFirst(".xg1")?.text()?.trim()?.removeSurrounding("(", ")").orEmpty(),
-            content = content
+            content = content,
+            replyUrl = doingReplyUrl(replyLink),
+            deleteUrl = item.selectFirst(
+                "a[href*='ac=doing'][href*='op=delete']"
+            )?.absUrl("href").orEmpty()
         )
+    }
+
+    private fun doingReplyUrl(link: Element?): String {
+        val (doId, commentId, key) = doingReplyArguments(link) ?: return ""
+        return "$ORIGIN/home.php?mod=spacecp&ac=doing&op=docomment" +
+            "&handlekey=msg_$commentId&doid=$doId&id=$commentId&key=$key&mobile=no"
+    }
+
+    private fun doingReplyArguments(link: Element?): Triple<String, String, String>? {
+        val match = Regex(
+            "docomment_form\\(\\s*(\\d+)\\s*,\\s*(\\d+)\\s*,\\s*['\"]([^'\"]+)['\"]"
+        ).find(link?.attr("onclick").orEmpty()) ?: return null
+        return Triple(match.groupValues[1], match.groupValues[2], match.groupValues[3])
     }
 
     /** 论坛表情是无 alt 的图片；原生纯文本列表至少保留一个可见占位，避免语义被静默吞掉。 */
@@ -210,10 +244,16 @@ object SpaceDesktopParser {
                 replyCount = row.selectFirst("td.num a")?.text()?.trim().orEmpty(),
                 isClosed = row.selectFirst(".fico-lock, .lock, img[src*='lock']") != null ||
                     row.selectFirst("th .xg1")?.text()?.contains("已关闭") == true,
+                isPoll = row.selectFirst(
+                    ".fico-vote, [alt='投票'], [title='投票'], img[src*='poll']"
+                ) != null,
                 url = destinationUrl,
                 replyExcerpt = detailLink?.text()?.trim()
                     ?: detailCell?.text()?.trim().orEmpty(),
-                entryType = entryType
+                entryType = entryType,
+                postId = detailLink?.attr("href")
+                    ?.let { Regex("[?&]pid=(\\d+)").find(it)?.groupValues?.getOrNull(1) }
+                    .orEmpty()
             )
         }
     }
@@ -401,11 +441,20 @@ object SpaceDesktopParser {
             val contentElement = item.children().firstOrNull { child ->
                 child.tagName() == "dd" && child.id().startsWith("comment_")
             }
+            val quoteElement = contentElement?.selectFirst(".quote blockquote")
+            val quotedAuthor = quoteElement?.selectFirst("b")?.text()?.trim().orEmpty()
+            val quotedContent = quoteElement
+                ?.clone()
+                ?.apply { select("b").remove() }
+                ?.let(::formattedTextWithImages)
+                ?.removePrefix(":")
+                ?.removePrefix("：")
+                ?.trim()
+                .orEmpty()
             val content = contentElement
                 ?.clone()
                 ?.apply { select(".quote").remove() }
-                ?.text()
-                ?.trim()
+                ?.let(::formattedTextWithImages)
                 .orEmpty()
             val actions = item.select("dt span.y a")
             BlogComment(
@@ -415,6 +464,8 @@ object SpaceDesktopParser {
                 avatarUrl = item.selectFirst("dd.avt img")?.let { avatarUrl(it) },
                 time = item.selectFirst("dt span.xg1")?.text()?.trim().orEmpty(),
                 content = content,
+                quotedAuthor = quotedAuthor,
+                quotedContent = quotedContent,
                 replyUrl = actions.firstOrNull { it.text().trim() == "回复" }
                     ?.absUrl("href")
                     .orEmpty(),
@@ -426,6 +477,32 @@ object SpaceDesktopParser {
                     .orEmpty()
             )
         }
+
+    /** 保留评论中的 br/段落边界，同时给无 alt 的论坛表情留下可见占位。 */
+    private fun formattedTextWithImages(element: Element): String {
+        val copy = element.clone()
+        copy.select("img").forEach { image ->
+            val label = image.attr("alt").trim()
+                .ifBlank { image.attr("title").trim() }
+                .ifBlank { "[表情]" }
+            image.after(" $label ")
+            image.remove()
+        }
+        copy.select("br").forEach { lineBreak ->
+            lineBreak.after("\n")
+            lineBreak.remove()
+        }
+        copy.select("p, li").forEach { block ->
+            block.before("\n")
+            block.after("\n")
+        }
+        return copy.wholeText()
+            .replace("\r\n", "\n")
+            .replace(Regex("[\\t\\u000B\\f ]+"), " ")
+            .replace(Regex(" *\\n *"), "\n")
+            .replace(Regex("\\n{3,}"), "\n\n")
+            .trim()
+    }
 
     private fun parseBlogBlocks(message: Element): List<BlogContentBlock> {
         val blocks = mutableListOf<BlogContentBlock>()

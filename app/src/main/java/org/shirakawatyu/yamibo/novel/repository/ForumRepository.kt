@@ -7,14 +7,12 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumBanner
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumBoard
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumCategory
-import org.shirakawatyu.yamibo.novel.bean.forum.ForumComment
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumIndex
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumPoll
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumPost
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumPostActionForm
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumPostPage
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumPostRating
-import org.shirakawatyu.yamibo.novel.bean.forum.ForumPostRatingSummary
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumRateOption
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumRatePopout
 import org.shirakawatyu.yamibo.novel.bean.forum.ForumThreadPage
@@ -24,21 +22,11 @@ import org.shirakawatyu.yamibo.novel.network.ForumApi
 import org.shirakawatyu.yamibo.novel.network.ProfileApi
 import org.shirakawatyu.yamibo.novel.parser.ForumApiParser
 import org.shirakawatyu.yamibo.novel.parser.ForumPageMetadata
-import org.shirakawatyu.yamibo.novel.parser.ForumReplyResult
 import org.shirakawatyu.yamibo.novel.parser.ProfileApiParser
 import org.shirakawatyu.yamibo.novel.util.AppErrorLog
 import org.shirakawatyu.yamibo.novel.util.YamiboPostLinkUtil
-import org.shirakawatyu.yamibo.novel.util.browser.ForumVerificationRequiredException
+import org.shirakawatyu.yamibo.novel.util.YamiboSession
 import okhttp3.Request
-
-private data class ForumThreadHtmlExtras(
-    val ratingSummaries: Map<String, ForumPostRatingSummary> = emptyMap(),
-    val comments: Map<String, List<ForumComment>> = emptyMap(),
-    val actionForms: Map<String, Pair<ForumPostActionForm?, ForumPostActionForm?>> = emptyMap(),
-    val editedTimes: Map<String, String> = emptyMap(),
-    val poll: ForumPoll? = null,
-    val html: String = ""
-)
 
 class ForumRepository(
     private val api: ForumApi = YamiboRetrofit.getInstance().create(ForumApi::class.java),
@@ -52,11 +40,6 @@ class ForumRepository(
     private val browserDataSource: WebForumDataSource? by lazy {
         GlobalData.applicationContext?.let { WebForumDataSource(it) }
     }
-
-    /** 判断拉取到的 HTML 是否是真正的主题页（而非 WAF 挑战页或空响应）。 */
-    private fun looksLikeThreadPage(html: String): Boolean =
-        html.contains("postmessage_") || html.contains("ratelog_") ||
-            html.contains("postlist") || html.contains("mod=viewthread")
 
     suspend fun getForumIndex(): ForumIndex = coroutineScope {
         val indexDeferred = async {
@@ -112,37 +95,28 @@ class ForumRepository(
         orderBy: String? = null,
         filter: String? = null,
         typeId: String? = null
-    ): ForumThreadPage = coroutineScope {
-        val threadPageDeferred = async {
-            ForumApiParser.parseThreadPage(
-                api.getForumThreads(
-                    forumId,
-                    page,
-                    orderBy = orderBy,
-                    filter = filter,
-                    typeId = typeId
-                ).string()
+    ): ForumThreadPage {
+        val html = api.getForumDisplayPage(
+            forumId = forumId,
+            page = page,
+            pageSize = 20,
+            orderBy = orderBy,
+            filter = filter,
+            typeId = typeId
+        ).string()
+        val threadPage = ForumApiParser.parseDesktopThreadPage(html, forumId, page)
+        val metadata = ForumApiParser.parseForumPageMetadata(html)
+        metadata.headImageUrl?.let { imageUrl ->
+            synchronized(cachedHeadImages) { cachedHeadImages[forumId] = imageUrl }
+        }
+        return threadPage.copy(
+            forum = threadPage.forum.copy(
+                headImageUrl = metadata.headImageUrl ?: threadPage.forum.headImageUrl,
+                todayPostCount = metadata.todayPostCount ?: threadPage.forum.todayPostCount,
+                threadCount = metadata.threadCount ?: threadPage.forum.threadCount,
+                rank = metadata.rank ?: threadPage.forum.rank
             )
-        }
-        val metadataDeferred = if (page == 1) {
-            async { getForumPageMetadata(forumId) }
-        } else {
-            null
-        }
-        val threadPage = threadPageDeferred.await()
-        val metadata = metadataDeferred?.await()
-        if (metadata == null) {
-            threadPage
-        } else {
-            threadPage.copy(
-                forum = threadPage.forum.copy(
-                    headImageUrl = metadata.headImageUrl ?: threadPage.forum.headImageUrl,
-                    todayPostCount = metadata.todayPostCount ?: threadPage.forum.todayPostCount,
-                    threadCount = metadata.threadCount ?: threadPage.forum.threadCount,
-                    rank = metadata.rank ?: threadPage.forum.rank
-                )
-            )
-        }
+        )
     }
 
     private suspend fun getForumPageMetadata(forumId: String): ForumPageMetadata? {
@@ -162,99 +136,10 @@ class ForumRepository(
     }
 
     suspend fun getPosts(threadId: String, page: Int, authorId: String? = null): ForumPostPage {
-        val apiResult = try {
-            getPostsFromApi(threadId, page, authorId)
-        } catch (error: CancellationException) {
-            throw error
-        } catch (apiError: Exception) {
-            AppErrorLog.record("帖子 API 数据源失败，回退浏览器：${apiError.message}")
-            null
-        }
-
-        // API 与网页补充数据（评分/点评/投票/编辑时间）都拉取成功时直接返回；
-        // 网页补充缺失（如被 WAF 拦截导致 HTML 拉取失败）时也走浏览器数据源补齐。
-        if (apiResult != null && looksLikeThreadPage(apiResult.html)) return apiResult
-
         val dataSource = webPageDataSource ?: browserDataSource
-        if (dataSource == null) {
-            apiResult?.let { return it }
-            throw IllegalStateException("论坛数据源不可用，请稍后重试")
-        }
-        return try {
-            dataSource.getPosts(threadId, page, authorId)
-        } catch (error: CancellationException) {
-            throw error
-        } catch (browserError: Exception) {
-            if (browserError is ForumVerificationRequiredException) throw browserError
-            // 浏览器兜底也失败：API 已拿到正文时退回仅有正文的结果，避免整页报错。
-            apiResult?.let { return it }
-            throw browserError
-        }
+            ?: throw IllegalStateException("电脑版帖子解析器不可用，请稍后重试")
+        return dataSource.getPosts(threadId, page, authorId)
     }
-
-    private suspend fun getPostsFromApi(
-        threadId: String,
-        page: Int,
-        authorId: String?
-    ): ForumPostPage = coroutineScope {
-            val postPageDeferred = async {
-                ForumApiParser.parsePostPage(
-                    api.getThreadPosts(threadId, page, authorId).string(),
-                    page
-                )
-            }
-            val htmlExtrasDeferred = async {
-                withTimeoutOrNull(THREAD_HTML_FETCH_TIMEOUT_MILLIS) {
-                    runCatching {
-                        val threadHtml = api.getThreadPage(
-                            threadId = threadId,
-                            page = page
-                        ).string()
-                        ForumThreadHtmlExtras(
-                            ratingSummaries = ForumApiParser.parseForumPostRatingSummaries(threadHtml),
-                            comments = ForumApiParser.parseForumPostComments(threadHtml),
-                            actionForms = ForumApiParser.parseAllPostActionForms(threadHtml),
-                            editedTimes = ForumApiParser.parseForumPostEditedTimes(threadHtml),
-                            poll = ForumApiParser.parseForumPoll(threadHtml),
-                            html = threadHtml
-                        )
-                    }.getOrDefault(ForumThreadHtmlExtras())
-                } ?: ForumThreadHtmlExtras()
-            }
-            val postPage = postPageDeferred.await()
-            val htmlExtras = htmlExtrasDeferred.await()
-            val hasHtmlExtras = htmlExtras.ratingSummaries.isNotEmpty() ||
-                htmlExtras.comments.isNotEmpty() ||
-                htmlExtras.actionForms.isNotEmpty() ||
-                htmlExtras.editedTimes.isNotEmpty() ||
-                htmlExtras.poll != null
-            val mergedPage = if (!hasHtmlExtras) {
-                postPage.copy(html = htmlExtras.html)
-            } else {
-                postPage.copy(
-                    posts = postPage.posts.map { post ->
-                        val (rateForm, commentForm) = htmlExtras.actionForms[post.id]
-                            ?: (null to null)
-                        post.copy(
-                            ratingSummary = htmlExtras.ratingSummaries[post.id]
-                                ?: post.ratingSummary,
-                            poll = htmlExtras.poll.takeIf { post.isOriginalPost }
-                                ?: post.poll,
-                            comments = htmlExtras.comments[post.id]
-                                ?.takeIf(List<ForumComment>::isNotEmpty)
-                                ?: post.comments,
-                            rateForm = rateForm ?: post.rateForm,
-                            commentForm = commentForm ?: post.commentForm,
-                            editedAt = post.editedAt ?: htmlExtras.editedTimes[post.id]
-                        )
-                    },
-                    html = htmlExtras.html
-                )
-            }
-            // 评分完整列表在用户打开“查看全部评分”时按需加载，避免首屏为每个楼层
-            // 额外请求 viewratings，尤其是长主题会明显拖慢评分/点评入口。
-            mergedPage
-        }
 
     /**
      * 拉取楼层完整评分列表（`viewratings` 弹窗），用于“查看全部评分”。
@@ -378,13 +263,7 @@ suspend fun votePoll(poll: ForumPoll, optionIds: List<String>) {
         }
     }
 
-    /**
-     * 回复主题。quotePost 非空时以引用该楼的形式回复。
-     * 优先走移动 API `module=sendreply`（返回 JSON，成功/失败判定可靠）；
-     * 引用楼层的 `repquote` 仅网页表单支持，因此引用时先把标准引用 BBCode
-     * 拼进正文再用移动 API 提交。移动 API 失败时回退网页表单（带 repquote）。
-     * `forumId`（fid）是两端提交的必填字段，缺失会导致服务端误报成功但未写入楼层。
-     */
+    /** 回复主题；只提交电脑版网页表单，引用回复直接使用 repquote。 */
     suspend fun replyThread(
         threadId: String,
         forumId: String,
@@ -396,45 +275,6 @@ suspend fun votePoll(poll: ForumPoll, optionIds: List<String>) {
             ?: throw IllegalStateException("回复校验已失效，请刷新页面")
         val formHash = resolveFormHash(threadId)
 
-        // 1) 移动 API 优先
-        try {
-            val quotedMessage = if (quotePost == null) message
-            else ForumApiParser.buildReplyMessageWithQuote(quotePost, message)
-            val response = api.sendReplyMobile(
-                forumId = fid,
-                threadId = threadId,
-                formHash = formHash,
-                message = quotedMessage,
-                referer = threadReferer(threadId)
-            ).string()
-            return when (val result = ForumApiParser.parseSendReplyResponse(response)) {
-                is ForumReplyResult.Posted -> {
-                    AppErrorLog.record("回复移动API结果：已发表")
-                    "回复已发表"
-                }
-                is ForumReplyResult.PendingModeration -> {
-                    AppErrorLog.record("回复移动API结果：等待审核：${result.message}")
-                    result.message
-                }
-                is ForumReplyResult.Failed -> {
-                    AppErrorLog.record("回复移动API结果：失败：${result.message}")
-                    throw IllegalStateException(result.message)
-                }
-            }
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Exception) {
-            // 内容过短是明确的服务端规则，直接给出友好提示，回退网页表单也会被同样拒绝。
-            if (error.message?.contains("post_message_tooshort") == true ||
-                error.message?.contains("小于") == true ||
-                error.message?.contains("太短") == true
-            ) {
-                throw IllegalStateException(minLengthError(error.message, message))
-            }
-            AppErrorLog.record("回复移动 API 失败，回退网页表单：${error.message}")
-        }
-
-        // 2) 网页表单兜底（服务端 repquote）
         val response = api.submitReply(
             threadId = threadId,
             forumIdQuery = fid,
@@ -448,14 +288,14 @@ suspend fun votePoll(poll: ForumPoll, optionIds: List<String>) {
         if (!response.contains("succeedhandle") && !response.contains("reload=\"1\"")) {
             if (response.contains("小于") || response.contains("minpostsize")) {
                 val detail = minLengthError(response, message)
-                AppErrorLog.record("回复网页表单结果：失败：$detail")
+                AppErrorLog.record("回复电脑版表单结果：失败：$detail")
                 throw IllegalStateException(detail)
             }
             val detail = result ?: "回复失败，请稍后重试"
-            AppErrorLog.record("回复网页表单结果：失败：$detail")
+            AppErrorLog.record("回复电脑版表单结果：失败：$detail")
             throw IllegalStateException(detail)
         }
-        AppErrorLog.record("回复网页表单结果：已发表")
+        AppErrorLog.record("回复电脑版表单结果：已发表")
         return if (result == null) "回复已发表" else result
     }
 
@@ -471,7 +311,7 @@ suspend fun votePoll(poll: ForumPoll, optionIds: List<String>) {
     }
 
     private fun threadReferer(threadId: String): String =
-        "https://bbs.yamibo.com/forum.php?mod=viewthread&tid=$threadId&mobile=2"
+        "https://bbs.yamibo.com/forum.php?mod=viewthread&tid=$threadId&mobile=no"
 
     /**
      * 解析当前登录会话的 CSRF formhash，供原生提交（回复/点评/评分）使用。
@@ -520,9 +360,37 @@ suspend fun votePoll(poll: ForumPoll, optionIds: List<String>) {
         }
     }
 
+    /** 通过电脑版 findpost 重定向解析目标楼层所在页，不展示任何 WebView。 */
+    suspend fun resolvePostPage(threadId: String, postId: String): Int {
+        if (threadId.isBlank() || postId.isBlank()) return 1
+        val url = "https://bbs.yamibo.com/forum.php?mod=redirect&goto=findpost" +
+            "&ptid=$threadId&pid=$postId&mobile=no"
+        val request = Request.Builder()
+            .url(url)
+            .header("User-Agent", DESKTOP_USER_AGENT)
+            .header("Cookie", YamiboSession.desktopCookie(YamiboSession.cookieFor(url)))
+            .get()
+            .build()
+        return YamiboRetrofit.okHttpClient.newCall(request).execute().use { response ->
+            extractPostPage(response.request.url.toString())
+                ?: response.header("Location")?.let(::extractPostPage)
+                ?: 1
+        }
+    }
+
     private companion object {
+        const val DESKTOP_USER_AGENT =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+                "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
         const val BANNER_CACHE_MILLIS = 30L * 60L * 1000L
-        const val THREAD_HTML_FETCH_TIMEOUT_MILLIS = 8_000L
         const val RATE_POPOUT_TIMEOUT_MILLIS = 2_500L
     }
 }
+
+internal fun extractPostPage(url: String): Int? =
+    Regex("[?&]page=(\\d+)").find(url)?.groupValues?.getOrNull(1)?.toIntOrNull()
+        ?: Regex("(?:^|/)thread-\\d+-(\\d+)(?:-|\\.html)")
+            .find(url)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toIntOrNull()

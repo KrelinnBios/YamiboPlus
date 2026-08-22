@@ -817,6 +817,32 @@ class ForumApiParserTest {
     }
 
     @Test
+    fun parseForumBanners_readsClassicSlideshowBackgroundImages() {
+        val result = ForumApiParser.parseForumBanners(
+            """
+            <div id="imgbox"><div class="slidebox">
+              <ul class="slideshow">
+                <li style="background-image: url(&quot;data/attachment/block/one.jpg&quot;)"
+                    onclick="window.open('https://bbs.yamibo.com/thread-574537-1-1.html');">
+                  <span>2026春</span>
+                </li>
+                <li style="background-image: url(data/attachment/block/two.jpg)"
+                    onclick="window.open('thread-570889-1-1.html');"></li>
+              </ul>
+            </div></div>
+            """.trimIndent()
+        )
+
+        assertEquals(2, result.size)
+        assertEquals(
+            "https://bbs.yamibo.com/data/attachment/block/one.jpg",
+            result[0].imageUrl
+        )
+        assertEquals("574537", result[0].threadId)
+        assertEquals("570889", result[1].threadId)
+    }
+
+    @Test
     fun parseForumHeadImage_readsForumHeadImage() {
         val result = ForumApiParser.parseForumHeadImage(
             """
@@ -829,6 +855,24 @@ class ForumApiParserTest {
         )
 
         assertEquals("https://cdn.example.com/forum-head.webp", result)
+    }
+
+    @Test
+    fun parseForumHeadImage_readsClassicForumRulesImage() {
+        val result = ForumApiParser.parseForumHeadImage(
+            """
+            <div id="forum_rules_49">
+              <div class="ptn xg2">
+                <img class="zoom" src="data/attachment/forum/literature-head.jpg">
+              </div>
+            </div>
+            """.trimIndent()
+        )
+
+        assertEquals(
+            "https://bbs.yamibo.com/data/attachment/forum/literature-head.jpg",
+            result
+        )
     }
 
     @Test

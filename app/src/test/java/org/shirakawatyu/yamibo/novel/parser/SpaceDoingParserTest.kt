@@ -21,7 +21,7 @@ class SpaceDoingParserTest {
                     <span>七夕好耶<img src="static/image/smiley/2.gif">幸福幸福幸福！</span>
                   </dd>
                   <dd class="cmt brm" id="eb622b1O_166677" style="display:none;"></dd>
-                  <dd class="ptn xg1"><span class="y">2026-8-19 12:29</span><a href="javascript:;">回复</a></dd>
+                  <dd class="ptn xg1"><span class="y">2026-8-19 12:29</span><a href="javascript:;" onclick="docomment_form(166677, 0, 'eb622b1O');">回复</a></dd>
                 </dl>
               </div>
               <div class="pgs"><div class="pg">
@@ -34,11 +34,16 @@ class SpaceDoingParserTest {
         val page = SpaceDesktopParser.parseListPage(SpacePageKind.DOING, html)
         val item = page.items.single() as SpaceListItem.Doing
 
+        assertEquals("166677", item.doId)
         assertEquals("632524", item.uid)
         assertEquals("seccyzwvvk", item.name)
         assertEquals("七夕好耶 [表情] 幸福幸福幸福！", item.content)
         assertEquals("2026-8-19 12:29", item.time)
         assertEquals("https://bbs.yamibo.com/space-uid-632524.html", item.spaceUrl)
+        assertEquals(
+            "https://bbs.yamibo.com/home.php?mod=spacecp&ac=doing&op=docomment&handlekey=msg_0&doid=166677&id=0&key=eb622b1O&mobile=no",
+            item.replyUrl
+        )
         assertEquals("https://bbs.yamibo.com/home.php?mod=space&do=doing&view=we&page=2", page.nextUrl)
         assertNull(page.previousUrl)
     }
@@ -78,9 +83,14 @@ class SpaceDoingParserTest {
 
         assertEquals("2026-8-10 20:40", item.time)
         assertEquals(2, item.comments.size)
+        assertEquals("283583", item.comments[0].id)
         assertEquals("krelinnbios", item.comments[0].authorName)
         assertEquals("什么样的", item.comments[0].content)
         assertEquals("8-11 01:12", item.comments[0].time)
+        assertEquals(
+            "https://bbs.yamibo.com/home.php?mod=spacecp&ac=doing&op=delete&doid=166637&id=283583",
+            item.comments[0].deleteUrl
+        )
         assertEquals("正在施工，目前有播放功能", item.comments[1].content)
     }
 }

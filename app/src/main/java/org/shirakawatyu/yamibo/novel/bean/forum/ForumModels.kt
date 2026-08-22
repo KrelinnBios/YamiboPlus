@@ -43,7 +43,7 @@ data class ForumThread(
         }
 
     val url: String
-        get() = "https://bbs.yamibo.com/forum.php?mod=viewthread&tid=$id&mobile=2"
+        get() = "https://bbs.yamibo.com/forum.php?mod=viewthread&tid=$id&mobile=no"
 }
 
 data class ForumBanner(

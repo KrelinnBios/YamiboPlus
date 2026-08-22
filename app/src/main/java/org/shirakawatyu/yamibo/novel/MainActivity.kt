@@ -92,6 +92,7 @@ import org.shirakawatyu.yamibo.novel.ui.page.MangaWebPage
 import org.shirakawatyu.yamibo.novel.ui.page.MangaHomePage
 import org.shirakawatyu.yamibo.novel.ui.page.MinePage
 import org.shirakawatyu.yamibo.novel.ui.page.NativeMinePage
+import org.shirakawatyu.yamibo.novel.ui.page.NativeSignPage
 import org.shirakawatyu.yamibo.novel.ui.page.NativeSettingsPage
 import org.shirakawatyu.yamibo.novel.ui.page.NativeThemePage
 import org.shirakawatyu.yamibo.novel.ui.page.NativeUpdatePage
@@ -126,7 +127,6 @@ import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.ui.widget.BottomNavBar
 import org.shirakawatyu.yamibo.novel.ui.widget.OnboardingOverlay
 import org.shirakawatyu.yamibo.novel.ui.widget.OnboardingStep
-import org.shirakawatyu.yamibo.novel.ui.widget.SignBlockedDialogHost
 import org.shirakawatyu.yamibo.novel.ui.widget.YamiboToastHost
 import org.shirakawatyu.yamibo.novel.util.AccountSyncManager
 import org.shirakawatyu.yamibo.novel.util.AppUpdateInfo
@@ -283,14 +283,20 @@ suspend fun openNativeForumPost(
     navController: NavController,
     url: String
 ): Boolean {
+    val postId = YamiboPostLinkUtil.extractPostId(url).orEmpty()
     val threadId = withContext(Dispatchers.IO) {
         ForumRepository().resolveThreadId(url)
     } ?: return false
-    navController.navigate("NativeThreadPage/" + threadId) {
+    navController.navigate(nativeThreadRoute(threadId, postId)) {
         launchSingleTop = true
     }
     return true
 }
+
+private fun nativeThreadRoute(threadId: String, postId: String = ""): String =
+    "NativeThreadPage/$threadId" + postId.takeIf(String::isNotBlank)
+        ?.let { "?postId=$it" }
+        .orEmpty()
 @Composable
 private fun ClipboardLinkHint(
     url: String,
@@ -905,9 +911,13 @@ fun App(webChromeClient: WebChromeClient) {
                                     }
                                 }
                                 composable(
-                                    route = "NativeThreadPage/{threadId}",
+                                    route = "NativeThreadPage/{threadId}?postId={postId}",
                                     arguments = listOf(
-                                        navArgument("threadId") { type = NavType.StringType }
+                                        navArgument("threadId") { type = NavType.StringType },
+                                        navArgument("postId") {
+                                            type = NavType.StringType
+                                            defaultValue = ""
+                                        }
                                     ),
                                     enterTransition = {
                                          fadeIn(tween(150))
@@ -923,6 +933,7 @@ fun App(webChromeClient: WebChromeClient) {
                                     }
                                 ) { entry ->
                                     val threadId = entry.arguments?.getString("threadId").orEmpty()
+                                    val targetPostId = entry.arguments?.getString("postId").orEmpty()
                                     val bbsEntry = remember(navController) {
                                         runCatching { navController.getBackStackEntry("BBSPage") }.getOrNull()
                                     }
@@ -934,6 +945,7 @@ fun App(webChromeClient: WebChromeClient) {
                                     Box(modifier = Modifier.fillMaxSize()) {
                                         NativeThreadPageV2(
                                             threadId = threadId,
+                                            targetPostId = targetPostId,
                                             forumName = forumVM.uiState.value.selectedForum?.name,
                                             onBack = navController::popBackStack,
                                             onGoHome = {
@@ -953,12 +965,22 @@ fun App(webChromeClient: WebChromeClient) {
                                                     YamiboPostLinkUtil.extractThreadId(url)
                                                 if (linkedThreadId != null) {
                                                     navController.navigate(
-                                                        "NativeThreadPage/" + linkedThreadId
+                                                        nativeThreadRoute(
+                                                            linkedThreadId,
+                                                            YamiboPostLinkUtil.extractPostId(url).orEmpty()
+                                                        )
                                                     )
                                                 } else if (Uri.parse(url).host?.endsWith("yamibo.com") == true) {
-                                                    navController.navigate(
-                                                        "OtherWebPage/" + Uri.encode(url)
-                                                    )
+                                                    coroutineScope.launch {
+                                                        if (!openNativeForumPost(navController, url)) {
+                                                            val desktopUrl = YamiboPostLinkUtil
+                                                                .normalizePostUrlForTemplate(url, desktopTemplate = true)
+                                                                ?: url
+                                                            navController.navigate(
+                                                                "OtherWebPage/" + Uri.encode(desktopUrl)
+                                                            )
+                                                        }
+                                                    }
                                                 } else {
                                                     runCatching {
                                                         context.startActivity(
@@ -979,7 +1001,7 @@ fun App(webChromeClient: WebChromeClient) {
                                             },
                                             onOpenManga = { tid ->
                                                 val mangaUrl = URLEncoder.encode(
-                                                    "https://bbs.yamibo.com/forum.php?mod=viewthread&tid=$tid&mobile=2",
+                                                    "https://bbs.yamibo.com/forum.php?mod=viewthread&tid=$tid&mobile=no",
                                                     "utf-8"
                                                 )
                                                 navController.navigate("NativeMangaPage?url=$mangaUrl")
@@ -1240,6 +1262,30 @@ fun App(webChromeClient: WebChromeClient) {
                                     )
                                 }
                                 composable(
+                                    "NativeSignPage",
+                                    enterTransition = { fadeIn(tween(150)) },
+                                    popExitTransition = { fadeOut(tween(150)) }
+                                ) {
+                                    Box(modifier = Modifier.fillMaxSize()) {
+                                        NativeSignPage(
+                                            navController = navController,
+                                            bottomBarPadding = lockedNavHeight + 52.dp
+                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .align(Alignment.BottomCenter)
+                                                .padding(bottom = lockedNavHeight)
+                                        ) {
+                                            BottomNavBar(
+                                                navController = navController,
+                                                currentRoute = "NativeSignPage",
+                                                selectedRoute = "MinePage",
+                                                navBarVM = bottomNavBarVM
+                                            )
+                                        }
+                                    }
+                                }
+                                composable(
                                     "NativeFriendPage",
                                     enterTransition = {
                                          fadeIn(tween(150))
@@ -1289,7 +1335,12 @@ fun App(webChromeClient: WebChromeClient) {
                                     Box(modifier = Modifier.fillMaxSize()) {
                                         NativeDoingPage(
                                             navController = navController,
-                                            uid = GlobalData.currentUid
+                                            uid = GlobalData.currentUid,
+                                            onCreateDoing = { url ->
+                                                navController.navigate(
+                                                    "OtherWebPage/" + Uri.encode(url)
+                                                )
+                                            }
                                         )
                                         Box(
                                             modifier = Modifier
@@ -1391,15 +1442,9 @@ fun App(webChromeClient: WebChromeClient) {
                                             uid = GlobalData.currentUid,
                                             initialTab = entry.arguments?.getString("tab") ?: "thread",
                                             onOpenThread = { item ->
-                                                if (item.entryType.isNotBlank() && item.url.isNotBlank()) {
-                                                    navController.navigate(
-                                                        "OtherWebPage/" + Uri.encode(item.url)
-                                                    )
-                                                } else {
-                                                    navController.navigate(
-                                                        "NativeThreadPage/" + item.tid
-                                                    )
-                                                }
+                                                navController.navigate(
+                                                    nativeThreadRoute(item.tid, item.postId)
+                                                )
                                             }
                                         )
                                         Box(
@@ -1501,7 +1546,7 @@ fun App(webChromeClient: WebChromeClient) {
                                     "ForumLoginPage"
                                 ) {
                                     OtherWebPage(
-                                        url = "https://bbs.yamibo.com/member.php?mod=logging&action=login&mobile=2",
+                                        url = "https://bbs.yamibo.com/member.php?mod=logging&action=login&mobile=no",
                                         navController = navController,
                                         webChromeClient = webChromeClient,
                                         returnToNativeMineAfterLogin = true
@@ -1705,7 +1750,6 @@ fun App(webChromeClient: WebChromeClient) {
                                     }
                                 }
                             )
-                            SignBlockedDialogHost(navController = navController)
                         }
                     }
                 } else {

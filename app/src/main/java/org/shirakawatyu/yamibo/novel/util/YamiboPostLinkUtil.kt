@@ -45,6 +45,17 @@ object YamiboPostLinkUtil {
             ?: parsed.queryParameter("ptid")
                 ?.takeIf { it.matches(Regex("""[1-9]\d*""")) }
     }
+
+    fun extractPostId(url: String?): String? {
+        val normalized = normalizePostUrl(url) ?: return null
+        val parsed = normalized.toHttpUrlOrNull() ?: return null
+        return parsed.queryParameter("pid")
+            ?.takeIf { it.matches(Regex("""[1-9]\d*""")) }
+            ?: parsed.fragment
+                ?.let { Regex("^pid([1-9]\\d*)$", RegexOption.IGNORE_CASE).find(it) }
+                ?.groupValues
+                ?.getOrNull(1)
+    }
     fun normalizePostUrl(url: String?): String? {
         return extractPostUrl(url)
     }

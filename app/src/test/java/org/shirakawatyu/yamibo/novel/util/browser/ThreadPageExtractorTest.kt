@@ -16,6 +16,9 @@ class ThreadPageExtractorTest {
         assertTrue(script.contains(".txtlist .mtit em"))
         assertTrue(script.contains(".page option"))
         assertTrue(script.contains("[id^=\"ratelog_\"], form#poll"))
+        assertTrue(script.contains("breadcrumbForumLinks"))
+        assertTrue(script.contains("(?:typeid|filter)"))
+        assertTrue(script.contains("forum-(\\d+)"))
         assertFalse(script.contains("document.documentElement.outerHTML"))
     }
 

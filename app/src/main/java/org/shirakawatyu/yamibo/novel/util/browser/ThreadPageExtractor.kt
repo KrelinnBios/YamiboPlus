@@ -72,15 +72,30 @@ object ThreadPageExtractor {
                 Array.from(subjectClone.querySelectorAll('em')).forEach(function(node) { node.remove(); });
             }
             var subject = text(subjectClone);
-            var forumLink = first(document, [
-                '#pt a[href*="mod=forumdisplay"][href*="fid="]',
-                '.z a[href*="mod=forumdisplay"][href*="fid="]',
-                'a[href*="mod=forumdisplay"][href*="fid="]'
-            ]);
-            var forumId = forumLink ? paramFrom(forumLink.href, 'fid') : '';
+            function forumIdFrom(anchor) {
+                if (!anchor) return '';
+                var href = anchor.getAttribute('href') || anchor.href || '';
+                return paramFrom(href, 'fid') || ((href.match(/forum-(\d+)(?:-|\.|$)/i) || [])[1] || '');
+            }
+            function isBoardLink(anchor) {
+                if (!forumIdFrom(anchor)) return false;
+                var href = anchor.getAttribute('href') || '';
+                return !/[?&](?:typeid|filter)=/i.test(href);
+            }
+            // 电脑版面包屑最后一个版块链接才是帖子所属大区。主题分类链接同样包含
+            // mod=forumdisplay&fid，但还带 typeid/filter，不能拿来当顶部标题。
+            var breadcrumbForumLinks = Array.from(document.querySelectorAll('#pt a[href]'))
+                .filter(isBoardLink);
+            var forumLink = breadcrumbForumLinks.length
+                ? breadcrumbForumLinks[breadcrumbForumLinks.length - 1]
+                : Array.from(document.querySelectorAll(
+                    '.z a[href*="mod=forumdisplay"][href*="fid="], ' +
+                    'a[href*="mod=forumdisplay"][href*="fid="]'
+                )).filter(isBoardLink)[0];
+            var forumId = forumIdFrom(forumLink);
             var forumName = text(forumLink);
 
-            var posts = postContainers.map(function(container, index) {
+            var posts = postContainers.slice(0, 20).map(function(container, index) {
                 var message = first(container, ['[id^="postmessage_"]', '.message']);
                 var pid = String(container.id || '').replace(/^pid|^post_/, '') ||
                     String(message.id || '').replace('postmessage_', '');

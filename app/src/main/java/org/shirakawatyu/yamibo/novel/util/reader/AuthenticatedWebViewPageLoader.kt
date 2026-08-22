@@ -35,7 +35,8 @@ object AuthenticatedWebViewPageLoader {
     suspend fun fetch(
         context: Context,
         url: String,
-        timeoutMs: Long = DEFAULT_TIMEOUT_MS
+        timeoutMs: Long = DEFAULT_TIMEOUT_MS,
+        readyPredicate: ((String) -> Boolean)? = null
     ): AuthenticatedWebViewPage? = withContext(Dispatchers.Main.immediate) {
         val webView = WebViewPool.acquire(context)
         val rendererGone = AtomicBoolean(false)
@@ -99,7 +100,7 @@ object AuthenticatedWebViewPageLoader {
                 }.orEmpty()
                 if (html.isNotBlank()) {
                     latestHtml = html
-                    if (isSettledForumPage(html)) {
+                    if (readyPredicate?.invoke(html) ?: isSettledForumPage(html)) {
                         return@withContext AuthenticatedWebViewPage(
                             html = html,
                             url = finalUrl,

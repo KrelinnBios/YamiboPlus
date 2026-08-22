@@ -1,11 +1,19 @@
 package org.shirakawatyu.yamibo.novel.repository
 
+import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import okhttp3.FormBody
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import org.jsoup.Jsoup
 import org.jsoup.nodes.FormElement
 import org.shirakawatyu.yamibo.novel.bean.space.SpaceListPage
+import org.shirakawatyu.yamibo.novel.bean.space.SpaceListItem
 import org.shirakawatyu.yamibo.novel.bean.space.SpaceListRequest
 import org.shirakawatyu.yamibo.novel.bean.space.SpacePageKind
 import org.shirakawatyu.yamibo.novel.bean.space.BlogDetail
@@ -21,6 +29,8 @@ import org.shirakawatyu.yamibo.novel.util.AppErrorLog
 class SpaceRepository(
     private val api: SpaceApi = YamiboRetrofit.getInstance().create(SpaceApi::class.java)
 ) {
+    private val blogCategoryCache = ConcurrentHashMap<String, String>()
+
     private companion object {
         private const val DESKTOP_UA =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
@@ -117,16 +127,83 @@ class SpaceRepository(
         return result
     }
 
+    /** 使用电脑版 doing 弹窗表单执行回复或删除，并重新加载当前页。 */
+    suspend fun submitDoingAction(
+        request: SpaceListRequest,
+        page: Int,
+        actionUrl: String,
+        message: String? = null
+    ): SpaceListPage {
+        require(request.kind == SpacePageKind.DOING) { "仅记录页面支持此操作" }
+        if (actionUrl.isBlank()) throw IllegalStateException("记录操作入口不可用，请刷新后重试")
+        val text = message?.trim()
+        if (message != null && text.isNullOrBlank()) throw IllegalArgumentException("请输入回复内容")
+
+        val referer = doingReferer(request, page)
+        val actionPageUrl = desktopUrl(actionUrl)
+        val form = parseForm(executeDesktopGet(actionPageUrl, referer), actionPageUrl)
+        val fields = form.fields.toMutableMap()
+        val formHash = fields["formhash"].orEmpty().ifBlank { GlobalData.currentFormHash }
+        if (formHash.isNotBlank()) fields["formhash"] = formHash
+        if (text != null) fields["message"] = text
+
+        val lowerUrl = actionUrl.lowercase()
+        when {
+            "op=delete" in lowerUrl -> fields.putIfAbsent("deletesubmit", "true")
+            "op=docomment" in lowerUrl -> fields.putIfAbsent("commentsubmit", "true")
+        }
+        verifyActionResponse(executeDesktopPost(form.action, fields, referer))
+        return getList(request, page.coerceAtLeast(1))
+    }
+
+    private fun doingReferer(request: SpaceListRequest, page: Int): String = buildString {
+        append("https://bbs.yamibo.com/home.php?mod=space&do=doing")
+        request.uid.takeIf(String::isNotBlank)?.let { append("&uid=").append(it) }
+        request.view.takeIf(String::isNotBlank)?.let { append("&view=").append(it) }
+        append("&page=").append(page.coerceAtLeast(1))
+        append("&mobile=no")
+    }
+
     suspend fun getBlogDetail(url: String): BlogDetail {
         val desktopUrl = desktopUrl(url)
-        return try {
-            val html = executeDesktopGet(desktopUrl, url)
-            SpaceDesktopParser.parseBlogDetail(html, desktopUrl)
-        } catch (desktopError: Exception) {
-            AppErrorLog.record("电脑版日志解析失败，回退手机版：${desktopError.message}")
-            val html = api.getPageByUrl(url).string()
-            SpaceMobileParser.parseBlogDetail(html, url)
-        }
+        val html = executeDesktopGet(desktopUrl, url)
+        return SpaceDesktopParser.parseBlogDetail(html, desktopUrl)
+    }
+
+    /**
+     * 好友日志列表模板不输出个人分类，只能从详情页补齐。
+     * 在列表先显示后于后台调用；限制并发并缓存空结果，避免刷新或切页重复打论坛。
+     */
+    suspend fun getMissingBlogCategories(
+        items: List<SpaceListItem.Blog>
+    ): Map<String, String> = coroutineScope {
+        val candidates = items
+            .filter { it.category.isBlank() && it.blogId.isNotBlank() && it.url.isNotBlank() }
+            .distinctBy { it.blogId }
+        val semaphore = Semaphore(3)
+        candidates.map { blog ->
+            async {
+                val cached = blogCategoryCache[blog.blogId]
+                if (cached != null) {
+                    blog.blogId to cached
+                } else {
+                    val category = semaphore.withPermit {
+                        try {
+                            getBlogDetail(blog.url).category
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            AppErrorLog.record(
+                                "好友日志分类补全失败 blogId=${blog.blogId}：${e.message}"
+                            )
+                            ""
+                        }
+                    }
+                    blogCategoryCache.putIfAbsent(blog.blogId, category)
+                    blog.blogId to category
+                }
+            }
+        }.awaitAll().toMap()
     }
 
     suspend fun submitBlogComment(
@@ -192,8 +269,12 @@ class SpaceRepository(
             .build()
         return YamiboRetrofit.okHttpClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
-                throw IllegalStateException("电脑版日志请求失败：HTTP ${response.code}")
+                throw IllegalStateException("电脑版空间页面请求失败：HTTP ${response.code}")
             }
+            YamiboSession.storeSetCookies(
+                response.request.url.toString(),
+                response.headers("Set-Cookie")
+            )
             response.body?.string().orEmpty()
         }
     }
@@ -218,8 +299,12 @@ class SpaceRepository(
             .build()
         return YamiboRetrofit.okHttpClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
-                throw IllegalStateException("日志操作失败：HTTP ${response.code}")
+                throw IllegalStateException("空间操作失败：HTTP ${response.code}")
             }
+            YamiboSession.storeSetCookies(
+                response.request.url.toString(),
+                response.headers("Set-Cookie")
+            )
             response.body?.string().orEmpty()
         }
     }
@@ -250,7 +335,10 @@ class SpaceRepository(
             throw IllegalStateException("请先登录后再操作")
         }
         val text = Jsoup.parse(body).text()
-        val failure = listOf("权限不足", "无权操作", "操作失败", "提交失败", "验证码错误")
+        val failure = listOf(
+            "权限不足", "无权操作", "操作失败", "提交失败", "验证码错误",
+            "请先登录", "尚未登录"
+        )
             .firstOrNull(text::contains)
         if (failure != null) throw IllegalStateException(failure)
     }

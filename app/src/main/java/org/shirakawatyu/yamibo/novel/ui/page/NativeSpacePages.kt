@@ -83,7 +83,8 @@ fun NativeFriendPage(
 @Composable
 fun NativeDoingPage(
     navController: NavController,
-    uid: String = ""
+    uid: String = "",
+    onCreateDoing: (String) -> Unit = {}
 ) {
     NativeSpaceListPage(
         title = "记录",
@@ -96,6 +97,11 @@ fun NativeDoingPage(
         uid = uid,
         initialTabIndex = 1,
         showBottomNavBar = true,
+        onTopBarAction = {
+            onCreateDoing(
+                "https://bbs.yamibo.com/home.php?mod=spacecp&ac=doing&mobile=no"
+            )
+        },
         onItemClick = {}
     )
 }
@@ -124,7 +130,7 @@ fun NativeBlogPage(
         showCategories = true,
         onTopBarAction = {
             onOpenBlogAction(
-                "https://bbs.yamibo.com/home.php?mod=spacecp&ac=blog&mobile=2"
+                "https://bbs.yamibo.com/home.php?mod=spacecp&ac=blog&mobile=no"
             )
         },
         onActionClick = onOpenBlogAction,

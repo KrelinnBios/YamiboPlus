@@ -282,6 +282,7 @@ private fun translateDiscuzError(raw: String): String {
 }
 class ForumThreadVM(
     private val threadId: String,
+    private val initialPostId: String = "",
     private val repository: ForumRepository = ForumRepository()
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(ForumThreadState())
@@ -289,7 +290,49 @@ class ForumThreadVM(
     private var requestVersion = 0L
 
     init {
-        refresh()
+        if (initialPostId.isBlank()) refresh() else refreshToPost(initialPostId)
+    }
+
+    private fun refreshToPost(postId: String) {
+        val version = ++requestVersion
+        _uiState.update {
+            it.copy(
+                isLoading = true,
+                isLoadingMore = false,
+                error = null,
+                verificationUrl = null
+            )
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val page = repository.resolvePostPage(threadId, postId)
+                repository.getPosts(threadId, page)
+            }.onSuccess { result ->
+                if (version != requestVersion) return@onSuccess
+                _uiState.update {
+                    it.copy(
+                        thread = result.thread,
+                        posts = result.posts.distinctBy { post -> post.id },
+                        page = result.page,
+                        totalPages = result.totalPages,
+                        hasMore = result.hasMore,
+                        isLoading = false,
+                        verificationUrl = null,
+                        threadHtml = result.html
+                    )
+                }
+            }.onFailure { error ->
+                if (error is CancellationException) throw error
+                if (version != requestVersion) return@onFailure
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        error = threadError(error),
+                        verificationUrl = verificationUrl(error)
+                    )
+                }
+            }
+        }
     }
 
     fun refresh() {
@@ -616,12 +659,13 @@ class ForumThreadVM(
         /** Discuz 回复最短字数（与论坛 minpostsize 默认一致，服务端仍会兜底校验）。 */
         private const val MIN_REPLY_CHARS = 21
 
-        fun factory(threadId: String): ViewModelProvider.Factory =
+        fun factory(threadId: String, initialPostId: String = ""): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T =
                     ForumThreadVM(
                         threadId = threadId,
+                        initialPostId = initialPostId,
                         repository = ForumRepository()
                     ) as T
             }

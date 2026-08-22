@@ -1,6 +1,9 @@
 package org.shirakawatyu.yamibo.novel.ui.vm
 
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -11,6 +14,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.shirakawatyu.yamibo.novel.bean.space.SpaceListItem
 import org.shirakawatyu.yamibo.novel.bean.space.SpaceListRequest
+import org.shirakawatyu.yamibo.novel.bean.space.SpacePageKind
 import org.shirakawatyu.yamibo.novel.bean.space.SpaceCategory
 import org.shirakawatyu.yamibo.novel.bean.space.SpaceFriendFilter
 import org.shirakawatyu.yamibo.novel.repository.SpaceRepository
@@ -34,8 +38,11 @@ class SpaceListVM(
     )
 
     val states = mutableStateMapOf<SpaceListRequest, TabState>()
+    var actionBusy by mutableStateOf(false)
+        private set
     private val jobs = HashMap<SpaceListRequest, Job>()
     private val loadMoreJobs = HashMap<SpaceListRequest, Job>()
+    private val blogCategoryJobs = HashMap<SpaceListRequest, Job>()
 
     fun stateFor(request: SpaceListRequest): TabState {
         return states[requestWithUid(request)] ?: TabState()
@@ -73,6 +80,7 @@ class SpaceListVM(
                     categories = result.categories
                     , friendFilters = result.friendFilters
                 )
+                enrichFriendBlogCategories(baseRequest, result.items)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -115,6 +123,7 @@ class SpaceListVM(
                     categories = result.categories
                     , friendFilters = result.friendFilters
                 )
+                enrichFriendBlogCategories(baseRequest, result.items)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -157,6 +166,7 @@ class SpaceListVM(
                     categories = result.categories
                     , friendFilters = result.friendFilters
                 )
+                enrichFriendBlogCategories(baseRequest, result.items)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -166,6 +176,76 @@ class SpaceListVM(
                     error = e.message ?: "加载失败"
                 )
             }
+        }
+    }
+
+    fun submitDoingAction(
+        request: SpaceListRequest,
+        actionUrl: String,
+        message: String? = null,
+        onResult: (String, Boolean) -> Unit
+    ) {
+        val baseRequest = requestWithUid(request)
+        val current = states[baseRequest] ?: return
+        if (actionBusy || actionUrl.isBlank()) return
+        actionBusy = true
+        viewModelScope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    repository.submitDoingAction(
+                        request = baseRequest,
+                        page = current.page,
+                        actionUrl = actionUrl,
+                        message = message
+                    )
+                }
+                val latest = states[baseRequest] ?: current
+                states[baseRequest] = latest.copy(
+                    items = result.items,
+                    error = null,
+                    hasMore = result.nextUrl != null,
+                    previousUrl = result.previousUrl,
+                    nextUrl = result.nextUrl
+                )
+                onResult(if (message == null) "已删除" else "回复已发表", true)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                onResult(e.message ?: "记录操作失败，请稍后重试", false)
+            } finally {
+                actionBusy = false
+            }
+        }
+    }
+
+    private fun enrichFriendBlogCategories(
+        request: SpaceListRequest,
+        items: List<SpaceListItem>
+    ) {
+        if (request.kind != SpacePageKind.BLOG || request.view != "we") return
+        val blogs = items.filterIsInstance<SpaceListItem.Blog>()
+            .filter { it.category.isBlank() }
+        if (blogs.isEmpty()) return
+
+        blogCategoryJobs[request]?.cancel()
+        blogCategoryJobs[request] = viewModelScope.launch {
+            val categories = withContext(Dispatchers.IO) {
+                repository.getMissingBlogCategories(blogs)
+            }
+            if (categories.values.none(String::isNotBlank)) return@launch
+            val current = states[request] ?: return@launch
+            states[request] = current.copy(
+                items = current.items.map { item ->
+                    if (item is SpaceListItem.Blog && item.category.isBlank()) {
+                        categories[item.blogId]
+                            ?.takeIf(String::isNotBlank)
+                            ?.let { item.copy(category = it) }
+                            ?: item
+                    } else {
+                        item
+                    }
+                }
+            )
         }
     }
 

@@ -115,19 +115,28 @@ object ForumApiParser {
             ".slide .swiper-slide",
             ".yami-swiper .swiper-slide",
             ".swiper-wrapper .swiper-slide",
-            ".swiper-slide"
+            ".swiper-slide",
+            ".slidebox ul.slideshow > li",
+            "#imgbox ul.slideshow > li",
+            "ul.slideshow > li"
         )
         val slides = slideSelectors.asSequence()
             .map { document.select(it) }
             .firstOrNull { it.isNotEmpty() }
             ?: return emptyList()
         return slides.mapNotNull { slide ->
-            val image = slide.selectFirst("img[src]") ?: return@mapNotNull null
-            val imageUrl = image.absUrl("src").ifBlank {
+            val image = slide.selectFirst("img[src]")
+            val backgroundImage = Regex(
+                """background-image\s*:\s*url\(\s*['\"]?([^'\")]+)['\"]?\s*\)""",
+                RegexOption.IGNORE_CASE
+            ).find(slide.attr("style"))?.groupValues?.getOrNull(1)
+            val imageUrl = image?.absUrl("src")?.ifBlank {
                 absoluteUrl(image.attr("src")).orEmpty()
-            }
+            } ?: absoluteUrl(backgroundImage).orEmpty()
             if (imageUrl.isBlank()) return@mapNotNull null
-            val link = slide.selectFirst("a[href]")?.attr("href").orEmpty()
+            val link = slide.selectFirst("a[href]")?.attr("href")
+                ?.takeIf(String::isNotBlank)
+                ?: slide.attr("onclick")
             ForumBanner(
                 imageUrl = imageUrl,
                 threadId = extractThreadId(link)
@@ -138,7 +147,10 @@ object ForumApiParser {
     fun parseForumPageMetadata(rawHtml: String): ForumPageMetadata {
         val document = Jsoup.parse(rawHtml, "$FORUM_ORIGIN/")
         val image = document.selectFirst(
-            "#forum > div.forum-headimg img[src], .forum-headimg img[src]"
+            "#forum > div.forum-headimg img[src], .forum-headimg img[src], " +
+                "[id^=forum_rules_] .ptn img.zoom[src], " +
+                "[id^=forum_rules_] .ptn img[src], " +
+                "[id^=forum_rules_] img.zoom[src]"
         )
         val headImageUrl = image?.let {
             it.absUrl("src").ifBlank {
@@ -215,6 +227,126 @@ object ForumApiParser {
             page = page,
             totalPages = totalPages,
             hasMore = hasMore,
+            availableTypes = typeNames
+        )
+    }
+
+    /**
+     * 解析电脑版 forumdisplay。原生版块页只消费这里产出的结构化数据，
+     * 不再依赖 Discuz 移动 API，也不会把电脑版页面直接展示给用户。
+     */
+    fun parseDesktopThreadPage(
+        rawHtml: String,
+        forumId: String,
+        requestedPage: Int
+    ): ForumThreadPage {
+        val document = Jsoup.parse(rawHtml, "$FORUM_ORIGIN/")
+        val resolvedPage = document.selectFirst("#fd_page_top .pg strong, .pg strong")
+            ?.text()
+            ?.trim()
+            ?.toIntOrNull()
+            ?: requestedPage.coerceAtLeast(1)
+        val totalPages = buildList {
+            add(resolvedPage)
+            document.select(".pg a[href], .pg label span").forEach { element ->
+                Regex("(?:page=|forum-\\d+-)(\\d+)")
+                    .find(element.attr("href"))
+                    ?.groupValues
+                    ?.getOrNull(1)
+                    ?.toIntOrNull()
+                    ?.let(::add)
+                Regex("(?:共|/)\\s*(\\d+)\\s*页")
+                    .find(element.attr("title") + " " + element.text())
+                    ?.groupValues
+                    ?.getOrNull(1)
+                    ?.toIntOrNull()
+                    ?.let(::add)
+            }
+        }.maxOrNull()?.coerceAtLeast(resolvedPage) ?: resolvedPage
+
+        val heading = document.selectFirst(".bm_h h1")
+        val forumName = heading?.selectFirst("a")?.text()?.trim()
+            ?.takeIf(String::isNotBlank)
+            ?: document.select("#pt a").lastOrNull()?.text()?.trim().orEmpty()
+        val headingText = heading?.text().orEmpty().replace(",", "")
+        fun headingCount(label: String): Int = Regex("$label\\s*[:：]\\s*(\\d+)")
+            .find(headingText)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toIntOrNull()
+            ?: 0
+
+        val typeNames = linkedMapOf<String, String>()
+        document.select("#thread_types a[href*='typeid=']").forEach { link ->
+            val typeId = Regex("[?&]typeid=(\\d+)")
+                .find(link.attr("href"))
+                ?.groupValues
+                ?.getOrNull(1)
+                ?: return@forEach
+            val nameNode = link.clone()
+            nameNode.select("span").remove()
+            cleanText(nameNode.text()).takeIf(String::isNotBlank)?.let { typeNames[typeId] = it }
+        }
+
+        val threads = document
+            .select("tbody[id^=stickthread_], tbody[id^=normalthread_]")
+            .mapNotNull { row ->
+                val id = row.id().substringAfter('_', "").takeIf(String::isNotBlank)
+                    ?: return@mapNotNull null
+                val subjectLink = row.selectFirst("th a.xst[href]") ?: return@mapNotNull null
+                val authorCells = row.select("td.by")
+                val authorLink = authorCells.getOrNull(0)?.selectFirst("cite a[href]")
+                val lastPostCell = authorCells.getOrNull(1)
+                val typeLink = row.selectFirst("th em a[href*='typeid=']")
+                val typeId = typeLink?.attr("href")?.let { href ->
+                    Regex("[?&]typeid=(\\d+)").find(href)?.groupValues?.getOrNull(1)
+                }
+                val authorId = authorLink?.attr("href")?.let { href ->
+                    Regex("(?:[?&]uid=|space-uid-)(\\d+)")
+                        .find(href)
+                        ?.groupValues
+                        ?.getOrNull(1)
+                }
+                ForumThread(
+                    id = id,
+                    subject = cleanText(subjectLink.text()),
+                    authorId = authorId,
+                    authorName = cleanText(authorLink?.text()).ifBlank { "匿名" },
+                    createdAt = cleanText(authorCells.getOrNull(0)?.selectFirst("em")?.text()),
+                    lastPostAt = cleanText(lastPostCell?.selectFirst("em")?.text()),
+                    lastPoster = cleanText(lastPostCell?.selectFirst("cite a")?.text()),
+                    replyCount = row.selectFirst("td.num a")?.text()?.replace(",", "")
+                        ?.toIntOrNull() ?: 0,
+                    viewCount = row.selectFirst("td.num em")?.text()?.replace(",", "")
+                        ?.toIntOrNull() ?: 0,
+                    displayOrder = if (row.id().startsWith("stickthread_")) 1 else 0,
+                    typeId = typeId,
+                    typeName = typeId?.let(typeNames::get)
+                        ?: cleanText(typeLink?.text()).takeIf(String::isNotBlank)
+                )
+            }
+            .take(20)
+
+        if (threads.isEmpty()) {
+            val message = document.selectFirst("#messagetext, .showmessage, .alert_error")
+                ?.text()
+                ?.trim()
+            throw IllegalStateException(message?.takeIf(String::isNotBlank) ?: "电脑版版块页未返回主题列表")
+        }
+
+        return ForumThreadPage(
+            forum = ForumBoard(
+                id = forumId,
+                name = forumName,
+                description = document.selectFirst("#forum_rules_$forumId")?.text()?.trim().orEmpty(),
+                threadCount = headingCount("主题"),
+                todayPostCount = headingCount("今日"),
+                rank = headingCount("排名").takeIf { it > 0 }
+            ),
+            threads = threads,
+            page = resolvedPage,
+            totalPages = totalPages,
+            hasMore = resolvedPage < totalPages,
             availableTypes = typeNames
         )
     }
@@ -551,7 +683,7 @@ object ForumApiParser {
         val postArray = variables.getJSONArray("postlist")
             ?: throw IllegalStateException("论坛未返回楼层数据")
         val thread = parseThreadDetail(threadObject, variables.getJSONObject("forum")?.stringValue("name"))
-        val pageSize = variables.intValue("ppp", 10).coerceAtLeast(1)
+        val pageSize = variables.intValue("ppp", 20).coerceAtLeast(1)
         val totalPages = ceil((thread.replyCount + 1).toDouble() / pageSize).toInt().coerceAtLeast(1)
         return postPage(thread, postArray, requestedPage, totalPages)
     }
