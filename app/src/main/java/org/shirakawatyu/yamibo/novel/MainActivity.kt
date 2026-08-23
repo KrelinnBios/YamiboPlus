@@ -284,9 +284,13 @@ suspend fun openNativeForumPost(
     url: String
 ): Boolean {
     val postId = YamiboPostLinkUtil.extractPostId(url).orEmpty()
-    val threadId = withContext(Dispatchers.IO) {
-        ForumRepository().resolveThreadId(url)
-    } ?: return false
+    // 常规帖子链接本身已经带 tid，直接进入原生页，避免历史记录等入口因为
+    // 二次网络解析失败而回退到手机版 WebView。只有只带 pid 的链接才请求解析。
+    val threadId = YamiboPostLinkUtil.extractThreadId(url)
+        ?: withContext(Dispatchers.IO) {
+            ForumRepository().resolveThreadId(url)
+        }
+        ?: return false
     navController.navigate(nativeThreadRoute(threadId, postId)) {
         launchSingleTop = true
     }

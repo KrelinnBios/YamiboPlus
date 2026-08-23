@@ -261,4 +261,30 @@ class SpacePaginationParserTest {
         assertEquals("点评", item.entryType)
         assertTrue(item.url.contains("pid=41609509"))
     }
+
+    @Test
+    fun postCommentTimeIsRecoveredFromExactPostPage() {
+        val html = """
+            <html><body>
+              <div id="post_41609509">
+                <div class="authi"><em id="authorposton41609509">发表于 2026-8-20 12:34</em></div>
+                <div id="comment_41609509">
+                  <div class="pstl">
+                    <div class="psta"><a class="xw1">tester</a></div>
+                    <div class="psti">不清楚 <span class="xg1">发表于 2026-8-21 09:08</span></div>
+                  </div>
+                </div>
+              </div>
+            </body></html>
+        """.trimIndent()
+
+        assertEquals(
+            "2026-8-21 09:08",
+            SpaceDesktopParser.parseUserThreadTargetTime(
+                html,
+                postId = "41609509",
+                excerpt = "不清楚"
+            )
+        )
+    }
 }

@@ -232,7 +232,9 @@ object AutoSignManager {
                 ?.takeIf(String::isNotBlank)
                 ?.let { CapturedSignAction(it, accountHash, today) }
             // 用户刚通过验证、页面显示未签到：解除 WAF 熔断并顺手自动签一次。
-            if (captured.status == TodaySignStatus.NOT_SIGNED) {
+            if (captured.status == TodaySignStatus.NOT_SIGNED &&
+                GlobalData.isAutoSignInEnabled.value
+            ) {
                 resetQuota(accountHash)
                 GlobalData.applicationContext?.let { context ->
                     checkAndSignIfNeeded(context, SignTrigger.RESUME, force = false)
@@ -353,7 +355,7 @@ object AutoSignManager {
                     return@withContext ManualSignResult.FAILED
                 }
 
-                val signUrl = resolveSignActionUrl(formHash)
+                val signUrl = resolveSignActionUrl(formHash, accountHash, today)
                 val actionResponseHtml = YamiboRetrofit.getInstance()
                     .create(SignApi::class.java)
                     .fetchHtml(signUrl)
@@ -381,11 +383,12 @@ object AutoSignManager {
                     }
 
                     else -> {
-                        // 与 YamiboReaderLite 保持一致：请求已经送达论坛时，不把未识别的
-                        // 返回页面误判成“安全验证未完成”。原生页随后会重新加载真实状态。
-                        AppErrorLog.record("签到请求已发送，响应未包含明确结果")
-                        if (force) showToast(context, "打卡请求已发送")
-                        ManualSignResult.SUCCESS
+                        // 未出现成功/重复打卡标记就不能当作成功，否则会消耗当天配额，
+                        // 但日历仍保持未打卡。允许后续启动或回前台继续重试。
+                        refundQuota()
+                        AppErrorLog.record("签到失败：响应未包含成功标记")
+                        if (force) showToast(context, "签到失败，请稍后重试")
+                        ManualSignResult.FAILED
                     }
                 }
             } catch (error: HttpException) {
@@ -412,7 +415,26 @@ object AutoSignManager {
     }
 
     /** 使用 Lite 版长期采用的签到动作地址，避免 mobile/referer 改变插件响应。 */
-    private fun resolveSignActionUrl(formHash: String): String = buildSignActionUrl(formHash)
+    private fun resolveSignActionUrl(
+        formHash: String,
+        accountHash: Int,
+        today: String
+    ): String {
+        val captured = capturedSignAction
+            ?.takeIf { it.accountHash == accountHash && it.date == today }
+            ?.url
+            ?.takeIf(String::isNotBlank)
+        return captured?.let(::absoluteSignActionUrl) ?: buildSignActionUrl(formHash)
+    }
+
+    internal fun absoluteSignActionUrl(url: String): String =
+        if (url.startsWith("http://", ignoreCase = true) ||
+            url.startsWith("https://", ignoreCase = true)
+        ) {
+            url
+        } else {
+            BASE_URL + url.trimStart('/')
+        }
 
     internal fun buildSignActionUrl(formHash: String): String =
         "${BASE_URL}plugin.php?id=zqlj_sign&sign=$formHash"

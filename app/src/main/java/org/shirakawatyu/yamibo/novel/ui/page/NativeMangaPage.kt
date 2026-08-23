@@ -346,30 +346,16 @@ fun NativeMangaPage(
 
         val currentPostUrl = currentPostUrlForOriginal.takeIf { it.isNotBlank() } ?: url
         val currentTidForOriginal = MangaTitleCleaner.extractTidFromUrl(currentPostUrl)
-        val routeTid = MangaTitleCleaner.extractTidFromUrl(url)
-        val originalTid = MangaTitleCleaner.extractTidFromUrl(originalUrl)
-        val canReusePreviousPostPage = currentTidForOriginal != null &&
-                routeTid != null &&
-                currentTidForOriginal == routeTid &&
-                (originalTid == null || originalTid == routeTid)
-        val originalPostUrl = if (canReusePreviousPostPage) originalUrl else currentPostUrl
-
-        if (canReusePreviousPostPage &&
-            (previousRoute?.startsWith("MangaWebPage") == true || previousRoute == "BBSPage" || previousRoute == "MinePage" || previousRoute?.startsWith("MineHistoryPostPage") == true)
-        ) {
+        if (previousRoute?.startsWith("NativeThreadPage") == true) {
             navController.navigateUp()
-        } else {
-            val encodedChapterUrl =
-                URLEncoder.encode(ReaderReturnBridge.forceMobileTemplate(currentPostUrl), "utf-8")
-            val encodedOriginalUrl =
-                URLEncoder.encode(ReaderReturnBridge.forceMobileTemplate(originalPostUrl), "utf-8")
-            navController.navigate("MangaWebPage/$encodedChapterUrl/$encodedOriginalUrl?fastForward=true&initialPage=0") {
+        } else if (currentTidForOriginal != null) {
+            navController.navigate("NativeThreadPage/$currentTidForOriginal") {
                 navController.currentDestination?.id?.let { currentId ->
-                    popUpTo(currentId) {
-                        inclusive = true
-                    }
+                    popUpTo(currentId) { inclusive = true }
                 }
             }
+        } else {
+            YamiboToast.show(message = "无法识别原帖链接")
         }
         Unit
     }

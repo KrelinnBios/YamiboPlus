@@ -26,10 +26,35 @@ import org.shirakawatyu.yamibo.novel.parser.SpaceMobileParser
 import org.shirakawatyu.yamibo.novel.util.YamiboSession
 import org.shirakawatyu.yamibo.novel.util.AppErrorLog
 
+private const val SPACE_PAGE_SIZE = 20
+
+internal fun mergeUserReplyItems(
+    replies: List<SpaceListItem>,
+    comments: List<SpaceListItem>
+): List<SpaceListItem> =
+    (replies + comments)
+        .distinctBy { item ->
+            val thread = item as? SpaceListItem.UserThread
+            if (thread == null) item.toString()
+            else "${thread.entryType}:${thread.postId}:${thread.url}"
+        }
+        .sortedByDescending { item ->
+            val time = (item as? SpaceListItem.UserThread)?.time.orEmpty()
+            Regex("(\\d{4})[-/](\\d{1,2})[-/](\\d{1,2})\\s+(\\d{1,2}):(\\d{2})")
+                .find(time)
+                ?.groupValues
+                ?.drop(1)
+                ?.mapNotNull(String::toLongOrNull)
+                ?.fold(0L) { value, part -> value * 100L + part }
+                ?: Long.MIN_VALUE
+        }
+        .take(SPACE_PAGE_SIZE)
+
 class SpaceRepository(
     private val api: SpaceApi = YamiboRetrofit.getInstance().create(SpaceApi::class.java)
 ) {
     private val blogCategoryCache = ConcurrentHashMap<String, String>()
+    private val userThreadTimeCache = ConcurrentHashMap<String, String>()
 
     private companion object {
         private const val DESKTOP_UA =
@@ -108,11 +133,69 @@ class SpaceRepository(
         val comments = runCatching { load("postcomment") }
             .onFailure { AppErrorLog.record("点评列表加载失败：${it.message}") }
             .getOrNull()
+        val mergedItems = enrichMissingUserThreadTimes(
+            replies.items + comments?.items.orEmpty()
+        )
         return SpaceListPage(
-            items = replies.items + comments?.items.orEmpty(),
+            items = mergeUserReplyItems(
+                mergedItems.filter {
+                    (it as? SpaceListItem.UserThread)?.entryType != "点评"
+                },
+                mergedItems.filter {
+                    (it as? SpaceListItem.UserThread)?.entryType == "点评"
+                }
+            ),
             previousUrl = replies.previousUrl ?: comments?.previousUrl,
             nextUrl = replies.nextUrl ?: comments?.nextUrl
         )
+    }
+
+    private suspend fun enrichMissingUserThreadTimes(
+        items: List<SpaceListItem>
+    ): List<SpaceListItem> = coroutineScope {
+        val threads = items.filterIsInstance<SpaceListItem.UserThread>()
+        val unresolvedGroups = threads
+            .filter { thread ->
+                thread.time.isBlank() && thread.postId.isNotBlank() &&
+                    thread.url.isNotBlank() &&
+                    userThreadTimeCache["${thread.postId}:${thread.replyExcerpt}"] == null
+            }
+            .groupBy { thread -> "${thread.tid}:${thread.postId}" }
+        val semaphore = Semaphore(2)
+        val resolvedTimes = unresolvedGroups.values.map { group ->
+            async {
+                val target = group.first()
+                val html = semaphore.withPermit {
+                    runCatching {
+                        api.getPageByUrl(
+                            target.url,
+                            "https://bbs.yamibo.com/home.php?mod=space&do=thread&view=me&mobile=no"
+                        ).string()
+                    }.onFailure {
+                        AppErrorLog.record(
+                            "我的回复发布时间补全失败 pid=${target.postId}：${it.message}"
+                        )
+                    }.getOrDefault("")
+                }
+                group.associate { thread ->
+                    val cacheKey = "${thread.postId}:${thread.replyExcerpt}"
+                    val time = SpaceDesktopParser.parseUserThreadTargetTime(
+                        html = html,
+                        postId = thread.postId,
+                        excerpt = thread.replyExcerpt
+                    )
+                    if (time.isNotBlank()) userThreadTimeCache.putIfAbsent(cacheKey, time)
+                    cacheKey to time
+                }
+            }
+        }.awaitAll().flatMap { it.entries }.associate { it.toPair() }
+
+        items.map { item ->
+            val thread = item as? SpaceListItem.UserThread ?: return@map item
+            if (thread.time.isNotBlank()) return@map thread
+            val cacheKey = "${thread.postId}:${thread.replyExcerpt}"
+            thread.copy(time = userThreadTimeCache[cacheKey] ?: resolvedTimes[cacheKey].orEmpty())
+        }
     }
 
     suspend fun getListByUrl(request: SpaceListRequest, url: String): SpaceListPage {

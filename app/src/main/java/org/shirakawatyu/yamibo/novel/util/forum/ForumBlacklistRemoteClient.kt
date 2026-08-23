@@ -18,7 +18,7 @@ internal data class ForumBlacklistSnapshot(
 internal object ForumBlacklistRemoteClient {
     private const val FORUM_ROOT = "https://bbs.yamibo.com/"
 
-    private val blacklistUrl = "$FORUM_ROOT/home.php"
+    private val blacklistUrl = "${FORUM_ROOT}home.php"
         .toHttpUrl()
         .newBuilder()
         .addQueryParameter("mod", "space")
@@ -29,7 +29,7 @@ internal object ForumBlacklistRemoteClient {
         .addQueryParameter("mobile", "no")
         .build()
 
-    private val blacklistActionUrl = "$FORUM_ROOT/home.php"
+    private val blacklistActionUrl = "${FORUM_ROOT}home.php"
         .toHttpUrl()
         .newBuilder()
         .addQueryParameter("mod", "spacecp")

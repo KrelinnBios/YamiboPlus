@@ -77,7 +77,6 @@ import org.shirakawatyu.yamibo.novel.ui.widget.OnboardingOverlay
 import org.shirakawatyu.yamibo.novel.ui.widget.OnboardingStep
 import org.shirakawatyu.yamibo.novel.util.OnboardingUtil
 import org.shirakawatyu.yamibo.novel.util.history.HistoryUtil
-import java.net.URLEncoder
 import java.util.Calendar
 
 // 自定义日历图标，用于日期筛选器
@@ -898,13 +897,7 @@ fun HistoryPage(navController: NavController) {
                                             }
                                         } else {
                                             scope.launch {
-                                                if (!openNativeForumPost(navController, entry.url)) {
-                                                    val encodedUrl =
-                                                        URLEncoder.encode(entry.url, "utf-8")
-                                                    navController.navigate(
-                                                        "MineHistoryPostPage?url=$encodedUrl"
-                                                    )
-                                                }
+                                                openNativeForumPost(navController, entry.url)
                                             }
                                         }
                                     }

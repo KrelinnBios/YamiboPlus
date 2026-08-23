@@ -44,6 +44,35 @@ object SpaceDesktopParser {
         )
     }
 
+    /**
+     * 点评列表本身没有时间列；从精确楼层页优先匹配点评正文取得发布时间，
+     * 找不到点评节点时退回该楼层的发布时间，避免列表长期显示空时间。
+     */
+    fun parseUserThreadTargetTime(
+        html: String,
+        postId: String,
+        excerpt: String
+    ): String {
+        if (postId.isBlank() || html.isBlank()) return ""
+        val normalizedExcerpt = excerpt.trim().replace(Regex("\\s+"), " ")
+        val commentTime = ForumApiParser.parseComments(html, postId)
+            .firstOrNull { comment ->
+                val message = comment.message.trim().replace(Regex("\\s+"), " ")
+                normalizedExcerpt.isNotBlank() &&
+                    (message.contains(normalizedExcerpt) || normalizedExcerpt.contains(message))
+            }
+            ?.createdAt
+            .orEmpty()
+        datePattern.find(commentTime)?.value?.let { return it }
+
+        val document = Jsoup.parse(html, ORIGIN)
+        val publishedText = document.selectFirst(
+            "#authorposton$postId, #authorposton_$postId, " +
+                "#post_$postId .authi em, table#pid$postId .authi em"
+        )?.text().orEmpty()
+        return datePattern.find(publishedText)?.value.orEmpty()
+    }
+
     private fun parseBlogList(document: Document): List<SpaceListItem> =
         document.select(".xld > dl.bbda").mapNotNull { item ->
             val link = item.selectFirst("dt a[href*='blog-']") ?: return@mapNotNull null

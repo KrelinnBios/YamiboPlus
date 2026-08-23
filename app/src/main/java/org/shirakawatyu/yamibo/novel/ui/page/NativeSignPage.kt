@@ -23,7 +23,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -103,9 +102,6 @@ fun NativeSignPage(
                     fontWeight = FontWeight.Medium,
                     modifier = Modifier.weight(1f)
                 )
-                IconButton(onClick = { viewModel.load(context) }, enabled = !state.loading) {
-                    Icon(Icons.Filled.Refresh, contentDescription = "刷新", tint = colors.topBarContent)
-                }
             }
         }
 

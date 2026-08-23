@@ -5,6 +5,7 @@ import okhttp3.ResponseBody
 import org.shirakawatyu.yamibo.novel.bean.SignPageData
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.parser.SignPageParser
+import org.shirakawatyu.yamibo.novel.util.AutoSignManager
 import org.shirakawatyu.yamibo.novel.util.reader.AuthenticatedWebViewPageLoader
 import retrofit2.http.GET
 import retrofit2.http.Header
@@ -27,7 +28,11 @@ class SignRepository {
         month: Int? = null
     ): SignPageData {
         val directUrl = buildUrl(year, month, mobile = false)
-        runCatching { SignPageParser.parse(api.fetch(directUrl).string()) }
+        runCatching {
+            val html = api.fetch(directUrl).string()
+            AutoSignManager.captureSignPageHtml(html)
+            SignPageParser.parse(html)
+        }
             .getOrNull()
             ?.let { return it }
 
@@ -41,6 +46,7 @@ class SignRepository {
             }
         ) ?: throw IllegalStateException("论坛拒绝了签到页数据请求，请刷新重试")
 
+        AutoSignManager.captureSignPageHtml(page.html)
         return runCatching { SignPageParser.parse(page.html) }
             .getOrElse {
                 throw IllegalStateException("签到页面尚未通过论坛验证，请刷新重试", it)

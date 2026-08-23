@@ -492,34 +492,21 @@ fun ReaderPage(
                     )
                     val previousRoute = navController.previousBackStackEntry?.destination?.route
                     val navigateAction = {
-                        if (previousRoute == "BBSPage" || previousRoute == "MinePage") {
+                        // 原帖入口已经原生化：只复用已有原生帖子页，其余来源都新开原生帖子页。
+                        val originalUrl = returnContext.originalPostUrl
+                        val threadId = ReaderReturnBridge.extractTid(originalUrl)
+                            ?: YamiboPostLinkUtil.extractThreadId(originalUrl)
+                        readerVM.scheduleDiskCacheRefresh()
+                        if (previousRoute?.startsWith("NativeThreadPage") == true) {
                             navController.navigateUp()
-                        } else {
-                            // 优先原生帖子页：无论从哪进入阅读器，返回原帖都展示原生界面。
-                            val originalUrl = returnContext.originalPostUrl
-                            val threadId = ReaderReturnBridge.extractTid(originalUrl)
-                                ?: YamiboPostLinkUtil.extractThreadId(originalUrl)
-                            readerVM.scheduleDiskCacheRefresh()
-                            if (threadId != null) {
-                                navController.navigate("NativeThreadPage/$threadId") {
-                                    navController.currentDestination?.id?.let { currentId ->
-                                        popUpTo(currentId) { inclusive = true }
-                                    }
-                                }
-                            } else if (previousRoute?.startsWith("ReaderWebPage") == true) {
-                                // ReaderWebPage 可能已经停在别的页/取消了只看楼主。
-                                // 先发一次校正请求，再露出已有 WebView，这样"原贴"看到的是阅读器当前网页页码。
-                                ReaderReturnBridge.requestOriginalPost(originalUrl)
-                                navController.navigateUp()
-                            } else {
-                                navController.navigate(
-                                    "ReaderWebPage/${ReaderReturnBridge.encodeRouteArg(originalUrl)}"
-                                ) {
-                                    navController.currentDestination?.id?.let { currentId ->
-                                        popUpTo(currentId) { inclusive = true }
-                                    }
+                        } else if (threadId != null) {
+                            navController.navigate("NativeThreadPage/$threadId") {
+                                navController.currentDestination?.id?.let { currentId ->
+                                    popUpTo(currentId) { inclusive = true }
                                 }
                             }
+                        } else {
+                            YamiboToast.show(message = "无法识别原帖链接")
                         }
                     }
                     if (view != null) {

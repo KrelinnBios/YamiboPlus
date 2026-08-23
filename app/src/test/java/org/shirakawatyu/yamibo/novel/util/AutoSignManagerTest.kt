@@ -14,6 +14,16 @@ class AutoSignManagerTest {
     }
 
     @Test
+    fun capturedRelativeSignActionBecomesAbsolute() {
+        assertEquals(
+            "https://bbs.yamibo.com/plugin.php?id=zqlj_sign&sign=real-key",
+            AutoSignManager.absoluteSignActionUrl(
+                "plugin.php?id=zqlj_sign&sign=real-key"
+            )
+        )
+    }
+
+    @Test
     fun signedPageIsParsedAsSigned() {
         val html = """
             <html><body>
