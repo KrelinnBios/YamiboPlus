@@ -69,8 +69,16 @@ jobs:
             range="$previous_tag..$GITHUB_SHA"
           fi
 
-          git log --format='%s' "$range" | \
-            awk 'NF && !seen[$0]++ { print "- " $0 }' > release-notes.md
+          git rev-list "$range" | while IFS= read -r commit; do
+            mapfile -t changed_files < <(
+              git diff-tree --root --no-commit-id --name-only -r "$commit"
+            )
+            if [[ ${#changed_files[@]} -eq 1 && \
+                  "${changed_files[0]}" == ".github/release-version" ]]; then
+              continue
+            fi
+            git show -s --format='%s' "$commit"
+          done | awk 'NF && !seen[$0]++ { print "- " $0 }' > release-notes.md
           if [[ ! -s release-notes.md ]]; then
             printf '%s\n' "- $version" > release-notes.md
           fi
