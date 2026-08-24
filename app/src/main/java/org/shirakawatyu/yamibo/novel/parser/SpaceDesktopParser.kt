@@ -7,6 +7,9 @@ import org.shirakawatyu.yamibo.novel.bean.space.BlogComment
 import org.shirakawatyu.yamibo.novel.bean.space.BlogContentBlock
 import org.shirakawatyu.yamibo.novel.bean.space.BlogDetail
 import org.shirakawatyu.yamibo.novel.bean.space.DoingComment
+import org.shirakawatyu.yamibo.novel.bean.space.ForumInlineImage
+import org.shirakawatyu.yamibo.novel.bean.space.PrivateMessageBubble
+import org.shirakawatyu.yamibo.novel.bean.space.PrivateMessageConversation
 import org.shirakawatyu.yamibo.novel.bean.space.SpaceCategory
 import org.shirakawatyu.yamibo.novel.bean.space.SpaceFriendFilter
 import org.shirakawatyu.yamibo.novel.bean.space.SpaceListItem
@@ -90,6 +93,12 @@ object SpaceDesktopParser {
                 ?: ""
             val metadataTexts = item.select("dd .xg1, dt .xg1")
                 .map { it.text().trim() }
+            val managementLinks = item.select(
+                "dd.xg1 a[href*='spacecp'][href*='ac=blog']"
+            )
+            val stickLink = managementLinks.firstOrNull {
+                it.id().startsWith("blog_stick_") || it.attr("href").contains("op=stick")
+            }
             SpaceListItem.Blog(
                 blogId = id,
                 title = link.text().trim(),
@@ -106,7 +115,17 @@ object SpaceDesktopParser {
                 )?.let(::avatarUrl)
                     ?: authorUid.takeIf(String::isNotBlank)
                         ?.let { "$ORIGIN/uc_server/avatar.php?uid=$it&size=small" },
-                visibilityText = extractBlogVisibilityText(metadataTexts)
+                visibilityText = extractBlogVisibilityText(metadataTexts),
+                editUrl = managementLinks.firstOrNull {
+                    it.attr("href").contains("op=edit")
+                }?.absUrl("href").orEmpty(),
+                deleteUrl = managementLinks.firstOrNull {
+                    it.id().startsWith("blog_delete_") || it.attr("href").contains("op=delete")
+                }?.absUrl("href").orEmpty(),
+                stickUrl = stickLink?.absUrl("href").orEmpty(),
+                isPinned = item.select("dt > span.xi1")
+                    .any { it.text().trim() == "置顶" } ||
+                    stickLink?.text()?.trim() == "取消置顶"
             )
         }
 
@@ -120,18 +139,14 @@ object SpaceDesktopParser {
             } ?: return@mapNotNull null
             val uid = extractUid(user.attr("href")) ?: return@mapNotNull null
             val content = contentCell.children().firstOrNull { it.tagName() == "span" }
-                ?.let(::plainTextWithImages)
-                .orEmpty()
-                .ifBlank {
-                    plainTextWithImages(contentCell.clone().apply {
+                ?.let(::forumTextWithImages)
+                ?.takeIf { it.text.isNotBlank() }
+                ?: forumTextWithImages(contentCell.clone().apply {
                         children().firstOrNull { child ->
                             child.tagName() == "a" && extractUid(child.attr("href")) != null
                         }?.remove()
                     })
-                        .removePrefix(":")
-                        .removePrefix("：")
-                        .trim()
-                }
+            val normalizedContent = content.withoutDoingPrefix()
             val comments = item.select("dd.cmt > ul > li").mapNotNull(::parseDoingComment)
             val commentBox = item.selectFirst("dd.cmt[id]")
             val doId = commentBox?.id()?.substringAfterLast('_').orEmpty().ifBlank {
@@ -149,7 +164,8 @@ object SpaceDesktopParser {
                     ?.text()
                     ?.trim()
                     .orEmpty(),
-                content = content,
+                content = normalizedContent.text,
+                contentImages = normalizedContent.images,
                 comments = comments,
                 spaceUrl = user.absUrl("href"),
                 replyUrl = doingReplyUrl(replyLink),
@@ -164,17 +180,18 @@ object SpaceDesktopParser {
             "a.lit[href*='space-uid-'], a.lit[href*='uid='], " +
                 "a[href*='space-uid-'], a[href*='mod=space'][href*='uid=']"
         ) ?: return null
-        val content = plainTextWithImages(item.clone().apply {
+        val content = forumTextWithImages(item.clone().apply {
             select("a.lit, .xg1, a[onclick*='docomment_form'], " +
                 "a[href*='ac=doing'][href*='op=delete'], div[id*='_form_']")
                 .remove()
-        }).removePrefix(":").removePrefix("：").trim()
+        }).withoutDoingPrefix()
         val replyLink = item.selectFirst("a[onclick*='docomment_form']")
         return DoingComment(
             id = doingReplyArguments(replyLink)?.second.orEmpty(),
             authorName = author.text().trim(),
             time = item.selectFirst(".xg1")?.text()?.trim()?.removeSurrounding("(", ")").orEmpty(),
-            content = content,
+            content = content.text.removePrefix(":").removePrefix("：").trim(),
+            contentImages = content.images,
             replyUrl = doingReplyUrl(replyLink),
             deleteUrl = item.selectFirst(
                 "a[href*='ac=doing'][href*='op=delete']"
@@ -195,45 +212,182 @@ object SpaceDesktopParser {
         return Triple(match.groupValues[1], match.groupValues[2], match.groupValues[3])
     }
 
-    /** 论坛表情是无 alt 的图片；原生纯文本列表至少保留一个可见占位，避免语义被静默吞掉。 */
-    private fun plainTextWithImages(element: Element): String {
+    /** 保留记录正文中表情的位置和真实 URL；加载失败时仍显示可读占位。 */
+    private fun forumTextWithImages(element: Element): ParsedForumText {
         val copy = element.clone()
-        copy.select("img").forEach { image ->
+        val sourceImages = copy.select("img").mapIndexed { index, image ->
+            val url = image.absUrl("src")
             val label = image.attr("alt").trim()
                 .ifBlank { image.attr("title").trim() }
                 .ifBlank { "[表情]" }
-            image.after(" $label ")
+            val marker = "\uE000${index}\uE001"
+            image.after(" $marker ")
             image.remove()
+            Triple(marker, url, label)
         }
-        return copy.text().trim()
+        var text = copy.text().trim()
+        val images = mutableListOf<ForumInlineImage>()
+        sourceImages.forEach { (marker, url, label) ->
+            val markerIndex = text.indexOf(marker)
+            if (markerIndex >= 0) {
+                text = text.replaceRange(markerIndex, markerIndex + marker.length, label)
+                if (url.isNotBlank()) {
+                    images += ForumInlineImage(markerIndex, url, label)
+                }
+            }
+        }
+        return ParsedForumText(text, images)
+    }
+
+    private data class ParsedForumText(
+        val text: String,
+        val images: List<ForumInlineImage>
+    ) {
+        fun withoutDoingPrefix(): ParsedForumText {
+            val withoutSeparator = text.removePrefix(":").removePrefix("：")
+            val normalized = withoutSeparator.trim()
+            val start = text.indexOf(normalized).coerceAtLeast(0)
+            return copy(
+                text = normalized,
+                images = images.mapNotNull { image ->
+                    val newOffset = image.offset - start
+                    image.takeIf { newOffset in normalized.indices }
+                        ?.copy(offset = newOffset)
+                }
+            )
+        }
     }
 
     private fun parseMessageList(document: Document): List<SpaceListItem> =
-        document.select("#pmlist li, .xld dl, .imglist li").mapNotNull { item ->
+        document.select(".pml > dl[id^=pmlist_], #pmlist li, .imglist li").mapNotNull { item ->
             val link = item.selectFirst("a[href*='subop=view'], a[href*='touid=']") ?: return@mapNotNull null
             val uid = Regex("[?&]touid=(\\d+)").find(link.attr("href"))?.groupValues?.get(1)
                 ?: return@mapNotNull null
+            val content = item.selectFirst("dd.pm_c, .pm_c")
+            val peerLink = content?.selectFirst(
+                "a[href*='space-uid-'], a[href*='mod=space'][href*='uid=']"
+            )
+            val time = content?.select(".xg1")
+                ?.map { it.text().trim() }
+                ?.firstNotNullOfOrNull { datePattern.find(it)?.value }
+                ?: datePattern.find(content?.text().orEmpty())?.value.orEmpty()
             SpaceListItem.PrivateMessage(
                 touid = uid,
-                name = item.selectFirst(".xw1, .mtit, dt a")?.text()?.trim().orEmpty(),
-                time = item.selectFirst(".xg1, .mtime")?.text()?.trim().orEmpty(),
-                summary = item.selectFirst(".xg1 + *, .mtxt, dd")?.text()?.trim().orEmpty(),
+                name = peerLink?.text()?.trim().orEmpty().ifBlank {
+                    item.selectFirst(".mtit")?.ownText()?.trim().orEmpty()
+                },
+                time = time,
+                summary = content?.let(::privateMessageSummary).orEmpty(),
                 avatarUrl = item.selectFirst("img")?.let { avatarUrl(it) },
-                url = link.absUrl("href")
+                url = link.absUrl("href"),
+                messageCount = item.selectFirst(".pm_o .xg1")?.text()
+                    ?.let { Regex("\\d+").find(it)?.value }
+                    .orEmpty(),
+                isUnread = item.selectFirst(".newpm_avt") != null
             )
         }
 
+    private fun privateMessageSummary(content: Element): String {
+        val cleaned = content.clone().apply {
+            select(".o, .pm_o, input, .xg1").remove()
+        }
+        val lines = Regex("(?i)<br\\s*/?>")
+            .split(cleaned.html())
+            .map { Jsoup.parseBodyFragment(it, ORIGIN).text().trim() }
+            .filter(String::isNotBlank)
+        return lines.drop(1).firstOrNull().orEmpty().ifBlank {
+            cleaned.selectFirst(".mtxt")?.text()?.trim().orEmpty()
+        }
+    }
+
     private fun parseNoticeList(document: Document): List<SpaceListItem> =
-        document.select(".nts dl, .xld dl, .imglist li").mapNotNull { item ->
-            val link = item.selectFirst("a[href]") ?: return@mapNotNull null
+        document.select(".nts dl, .imglist li").mapNotNull { item ->
+            val body = item.selectFirst(".ntc_body, .mtxt") ?: return@mapNotNull null
+            val actor = body.selectFirst(
+                "a[href*='space-uid-'], a[href*='mod=space'][href*='uid=']"
+            )
+            val destination = body.select("a[href]").lastOrNull { candidate ->
+                val href = candidate.attr("href")
+                !href.contains("space-uid-") &&
+                    !(href.contains("mod=space") && href.contains("uid=") &&
+                        !href.contains("do=blog") && !href.contains("do=doing"))
+            } ?: actor ?: return@mapNotNull null
+            val bodyText = body.text().trim().removeSuffix("查看").trim()
+            val actorName = actor?.text()?.trim().orEmpty()
+            val summary = if (actorName.isNotBlank() && bodyText.startsWith(actorName)) {
+                bodyText.removePrefix(actorName).trim()
+            } else {
+                bodyText
+            }
             SpaceListItem.Notice(
-                title = item.selectFirst(".xw1, .mtit, dt a")?.text()?.trim().orEmpty(),
-                time = item.selectFirst(".xg1, .mtime")?.text()?.trim().orEmpty(),
-                summary = item.selectFirst(".ntc_body, .mtxt, dd")?.text()?.trim().orEmpty(),
+                title = actorName.ifBlank { bodyText.take(24) },
+                time = item.select("dt .xg1, .mtime")
+                    .map { it.text().trim() }
+                    .firstNotNullOfOrNull { datePattern.find(it)?.value }
+                    .orEmpty(),
+                summary = summary,
                 avatarUrl = item.selectFirst("img")?.let { avatarUrl(it) },
-                url = link.absUrl("href")
+                url = destination.absUrl("href")
             )
         }
+
+    /** 解析电脑版私信会话。列表页直接进入的是 desktop 模板，不能套用手机版气泡选择器。 */
+    fun parsePrivateMessageConversation(html: String, url: String): PrivateMessageConversation {
+        val document = Jsoup.parse(html, ORIGIN)
+        val form = document.selectFirst("#pmform")
+        val messages = document.select("#pm_ul > dl[id^=pmlist_]").mapNotNull { item ->
+            val content = item.selectFirst("dd.ptm") ?: return@mapNotNull null
+            val authorLink = content.selectFirst(
+                "a.xw1[href*='space-uid-'], a.xw1[href*='uid=']"
+            )
+            val authorText = content.selectFirst(".xw1")?.text()?.trim().orEmpty()
+            val isSelf = authorLink == null && authorText == "您"
+            val message = privateMessageConversationContent(content)
+            if (message.isBlank()) return@mapNotNull null
+            PrivateMessageBubble(
+                isSelf = isSelf,
+                authorName = if (isSelf) "您" else authorLink?.text()?.trim().orEmpty(),
+                avatarUrl = item.selectFirst("dd.avt img")?.let { avatarUrl(it) },
+                content = message,
+                time = datePattern.find(content.text())?.value.orEmpty()
+            )
+        }
+        val touid = form?.selectFirst("input[name=topmuid], input[name=touid]")
+            ?.attr("value")
+            ?.trim()
+            .orEmpty()
+            .ifBlank {
+                Regex("[?&]touid=(\\d+)").find(url)?.groupValues?.getOrNull(1).orEmpty()
+            }
+        val peerName = document.selectFirst(
+            ".tbmu .xw1 a[href*='space-uid-'], .tbmu .xw1 a[href*='uid=']"
+        )?.text()?.trim().orEmpty()
+        return PrivateMessageConversation(
+            touid = touid,
+            title = peerName.ifBlank { "私信" },
+            pmid = Regex("[?&]pmid=(\\d+)")
+                .find(form?.attr("action").orEmpty())
+                ?.groupValues
+                ?.getOrNull(1)
+                .orEmpty(),
+            formHash = form?.selectFirst("input[name=formhash]")?.attr("value").orEmpty(),
+            messages = messages,
+            previousUrl = pageUrl(document, previous = true),
+            nextUrl = pageUrl(document, previous = false)
+        )
+    }
+
+    private fun privateMessageConversationContent(content: Element): String {
+        val cleaned = content.clone().apply {
+            select(".xw1, .xg1").remove()
+        }
+        return Regex("(?i)<br\\s*/?>")
+            .split(cleaned.html())
+            .map { Jsoup.parseBodyFragment(it, ORIGIN).text() }
+            .map { it.replace("\u00a0", " ").trim() }
+            .filter(String::isNotBlank)
+            .joinToString("\n")
+    }
 
     private fun parseFriendList(document: Document): List<SpaceListItem> =
         document.select("#friend_ul li, .buddy li, .xld dl, .imglist li").mapNotNull { item ->

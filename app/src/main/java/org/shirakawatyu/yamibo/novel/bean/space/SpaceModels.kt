@@ -2,7 +2,7 @@ package org.shirakawatyu.yamibo.novel.bean.space
 
 /**
  * 原生「我的空间」列表页条目。
- * 覆盖消息中心（私信/提醒）、好友、记录、日志、我的主题/回复。
+ * 覆盖消息（私信/提醒）、好友、记录、日志、我的主题/回复。
  */
 sealed interface SpaceListItem {
     /** 私信会话条目 */
@@ -12,7 +12,9 @@ sealed interface SpaceListItem {
         val time: String,
         val summary: String,
         val avatarUrl: String?,
-        val url: String
+        val url: String,
+        val messageCount: String = "",
+        val isUnread: Boolean = false
     ) : SpaceListItem
 
     /** 提醒条目 */
@@ -42,6 +44,7 @@ sealed interface SpaceListItem {
         val avatarUrl: String?,
         val time: String,
         val content: String,
+        val contentImages: List<ForumInlineImage> = emptyList(),
         val comments: List<DoingComment>,
         val spaceUrl: String,
         val replyUrl: String = "",
@@ -63,6 +66,7 @@ sealed interface SpaceListItem {
         val editUrl: String = "",
         val deleteUrl: String = "",
         val stickUrl: String = "",
+        val isPinned: Boolean = false,
         val tags: List<String> = emptyList()
     ) : SpaceListItem
 
@@ -88,8 +92,16 @@ data class DoingComment(
     val authorName: String,
     val time: String,
     val content: String,
+    val contentImages: List<ForumInlineImage> = emptyList(),
     val replyUrl: String = "",
     val deleteUrl: String = ""
+)
+
+/** 论坛正文中需要在原位置显示的图片（记录页目前主要是 comcom 表情）。 */
+data class ForumInlineImage(
+    val offset: Int,
+    val url: String,
+    val alternateText: String = "[表情]"
 )
 
 enum class SpacePageKind {
@@ -131,6 +143,19 @@ data class SpaceCategory(
 data class SpaceFriendFilter(
     val uid: String,
     val name: String
+)
+
+enum class BlogBatchOperation(val visibilityValue: String?) {
+    PUBLIC("0"),
+    FRIENDS("1"),
+    PRIVATE("3"),
+    PIN(null),
+    DELETE(null)
+}
+
+data class BlogBatchActionResult(
+    val succeeded: Int,
+    val failed: Int
 )
 
 sealed interface BlogContentBlock {

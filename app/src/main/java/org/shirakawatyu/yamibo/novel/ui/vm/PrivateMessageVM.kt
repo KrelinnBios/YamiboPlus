@@ -43,7 +43,7 @@ internal class PrivateMessageVM(
         load(pageUrl)
     }
 
-    fun send(message: String) {
+    fun send(message: String, onSent: () -> Unit = {}) {
         val current = conversation.value ?: return
         val text = message.trim()
         if (text.isEmpty() || isSending.value) return
@@ -54,6 +54,7 @@ internal class PrivateMessageVM(
                     repository.sendPrivateMessage(current, text)
                 }
                 error.value = null
+                onSent()
             } catch (e: Exception) {
                 error.value = e.message ?: "发送失败，请重试"
             } finally {

@@ -8,7 +8,7 @@ import org.shirakawatyu.yamibo.novel.bean.space.SpacePageKind
 import org.shirakawatyu.yamibo.novel.bean.space.SpaceTabSpec
 
 /**
- * 消息中心：私信 / 提醒。
+ * 消息：私信 / 提醒。
  */
 @Composable
 fun NativeMessageCenterPage(
@@ -18,7 +18,7 @@ fun NativeMessageCenterPage(
     onOpenNotice: (SpaceListItem.Notice) -> Unit
 ) {
     NativeSpaceListPage(
-        title = "消息中心",
+        title = "消息",
         tabs = listOf(
             SpaceTabSpec("私信", SpaceListRequest(SpacePageKind.PRIVATE_MESSAGE)),
             SpaceTabSpec("提醒", SpaceListRequest(SpacePageKind.NOTICE))
@@ -154,7 +154,7 @@ fun NativeUserThreadsPage(
     onOpenThread: (SpaceListItem.UserThread) -> Unit
 ) {
     NativeSpaceListPage(
-        title = "我的主题",
+        title = if (initialTab == "reply") "回复" else "主题",
         tabs = listOf(
             SpaceTabSpec("主题", SpaceListRequest(SpacePageKind.USER_THREAD)),
             SpaceTabSpec(
@@ -166,6 +166,7 @@ fun NativeUserThreadsPage(
         uid = uid,
         showBottomNavBar = true,
         initialTabIndex = if (initialTab == "reply") 1 else 0,
+        useSelectedTabAsTitle = true,
         onItemClick = { item ->
             when (item) {
                 is SpaceListItem.UserThread -> onOpenThread(item)

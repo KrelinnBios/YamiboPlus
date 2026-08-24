@@ -8,6 +8,131 @@ import org.shirakawatyu.yamibo.novel.bean.space.SpacePageKind
 
 class SpacePaginationParserTest {
     @Test
+    fun desktopPrivateMessageUsesPeerSummaryUnreadAndCount() {
+        val html = """
+            <html><body>
+              <div class="xld xlda pml">
+                <dl id="pmlist_134016">
+                  <dd class="m avt">
+                    <div class="newpm_avt" title="有未读消息"></div>
+                    <a href="space-uid-8.html"><img src="peer.jpg"></a>
+                  </dd>
+                  <dd class="ptm pm_c">
+                    <span class="xi2 xw1">您</span> 对
+                    <a href="space-uid-8.html">筱林透</a> 说 :<br>
+                    好的，辛苦了！<br>
+                    <span class="xg1">2026-8-10 21:47</span>
+                    <span class="pm_o">
+                      <span class="xg1 z">共 11 条</span>
+                      <a href="home.php?mod=space&amp;do=pm&amp;subop=view&amp;touid=8#last">回复</a>
+                    </span>
+                  </dd>
+                </dl>
+              </div>
+            </body></html>
+        """.trimIndent()
+
+        val item = SpaceDesktopParser.parseListPage(SpacePageKind.PRIVATE_MESSAGE, html)
+            .items.single() as SpaceListItem.PrivateMessage
+
+        assertEquals("8", item.touid)
+        assertEquals("筱林透", item.name)
+        assertEquals("好的，辛苦了！", item.summary)
+        assertEquals("2026-8-10 21:47", item.time)
+        assertEquals("11", item.messageCount)
+        assertTrue(item.isUnread)
+        assertTrue(item.url.contains("touid=8"))
+    }
+
+    @Test
+    fun desktopNoticeIgnoresBlockActionAndOpensNoticeTarget() {
+        val html = """
+            <html><body><div class="nts">
+              <dl id="notice_1">
+                <dd class="m avt"><a href="space-uid-186275.html"><img src="actor.jpg"></a></dd>
+                <dt>
+                  <a class="d b" href="home.php?mod=spacecp&amp;op=ignore" title="屏蔽">屏蔽</a>
+                  <span class="xg1 xw0">2026-8-24 04:34</span>
+                </dt>
+                <dd class="ntc_body">
+                  <a href="space-uid-186275.html">无限循环</a>
+                  回复了您的帖子
+                  <a href="forum.php?mod=redirect&amp;goto=findpost&amp;ptid=575493&amp;pid=41612236">
+                    测试主题
+                  </a>
+                  <a class="lit" href="forum.php?mod=redirect&amp;goto=findpost&amp;pid=41612236&amp;ptid=575493">
+                    查看
+                  </a>
+                </dd>
+              </dl>
+            </div></body></html>
+        """.trimIndent()
+
+        val item = SpaceDesktopParser.parseListPage(SpacePageKind.NOTICE, html)
+            .items.single() as SpaceListItem.Notice
+
+        assertEquals("无限循环", item.title)
+        assertEquals("回复了您的帖子 测试主题", item.summary)
+        assertEquals("2026-8-24 04:34", item.time)
+        assertTrue(item.avatarUrl.orEmpty().endsWith("actor.jpg"))
+        assertTrue(item.url.contains("pid=41612236"))
+        assertEquals(false, item.url.contains("op=ignore"))
+    }
+
+    @Test
+    fun desktopPrivateMessageConversationKeepsBubblesAndReplyForm() {
+        val html = """
+            <html><body>
+              <div class="tbmu"><div class="xw1">
+                共有 2 条与 <a href="space-uid-8.html">筱林透</a> 的交谈记录
+              </div></div>
+              <div id="pm_ul">
+                <dl id="pmlist_1">
+                  <dd class="m avt"><img src="self.jpg"></dd>
+                  <dd class="ptm">
+                    <span class="xi2 xw1">您</span><br>
+                    我不是专家，我随便弄的<br>
+                    <span class="xg1">2026-8-10 17:13</span>
+                  </dd>
+                </dl>
+                <dl id="pmlist_2">
+                  <dd class="m avt"><img src="peer.jpg"></dd>
+                  <dd class="ptm">
+                    <a href="space-uid-8.html" class="xw1">筱林透</a><br>
+                    好吧，我再看看<br>
+                    <span class="xg1">2026-8-10 17:26</span>
+                  </dd>
+                </dl>
+              </div>
+              <div class="pg"><a href="home.php?mod=space&amp;do=pm&amp;touid=8&amp;page=1">上一页</a></div>
+              <form id="pmform"
+                    action="home.php?mod=spacecp&amp;ac=pm&amp;op=send&amp;pmid=752956">
+                <input name="formhash" value="abc123">
+                <input name="topmuid" value="8">
+              </form>
+            </body></html>
+        """.trimIndent()
+
+        val conversation = SpaceDesktopParser.parsePrivateMessageConversation(
+            html,
+            "https://bbs.yamibo.com/home.php?mod=space&do=pm&subop=view&touid=8"
+        )
+
+        assertEquals("筱林透", conversation.title)
+        assertEquals("8", conversation.touid)
+        assertEquals("752956", conversation.pmid)
+        assertEquals("abc123", conversation.formHash)
+        assertEquals(2, conversation.messages.size)
+        assertEquals(true, conversation.messages[0].isSelf)
+        assertEquals("我不是专家，我随便弄的", conversation.messages[0].content)
+        assertEquals(false, conversation.messages[1].isSelf)
+        assertEquals("筱林透", conversation.messages[1].authorName)
+        assertEquals("好吧，我再看看", conversation.messages[1].content)
+        assertEquals("2026-8-10 17:26", conversation.messages[1].time)
+        assertTrue(conversation.previousUrl.orEmpty().contains("page=1"))
+    }
+
+    @Test
     fun desktopThreadRecognizesVoteIcon() {
         val html = """
             <html><body><div class="tl"><table><tbody>
@@ -67,6 +192,52 @@ class SpacePaginationParserTest {
         assertEquals("2026-08-21 08:00", blog.time)
         assertEquals("仅好友可见", blog.visibilityText)
         assertEquals("争议", blog.category)
+    }
+
+    @Test
+    fun desktopOwnBlogKeepsManagementLinksAndPinnedState() {
+        val html = """
+            <html><body>
+              <div class="xld xlda">
+                <dl class="bbda">
+                  <dt class="xs2">
+                    <span class="xi1">置顶</span> ·
+                    <a href="blog-615797-117721.html">
+                      当文化成为身份资本
+                    </a>
+                  </dt>
+                  <dd>
+                    <a href="home.php?mod=space&amp;uid=615797">krelinnbios</a>
+                    <span class="xg1">2026-8-24 04:00</span>
+                  </dd>
+                  <dd id="blog_article_117721">日志摘要</dd>
+                  <dd class="xg1">
+                    个人分类:
+                    <a href="home.php?mod=space&amp;uid=615797&amp;do=blog&amp;classid=4549&amp;view=me">争议</a>
+                    <span class="pipe">|</span>
+                    <a href="home.php?mod=spacecp&amp;ac=blog&amp;blogid=117721&amp;op=edit">编辑</a>
+                    <span class="pipe">|</span>
+                    <a id="blog_delete_117721"
+                       href="home.php?mod=spacecp&amp;ac=blog&amp;blogid=117721&amp;op=delete">删除</a>
+                    <span class="pipe">|</span>
+                    <a id="blog_stick_117721"
+                       href="home.php?mod=spacecp&amp;ac=blog&amp;blogid=117721&amp;op=stick&amp;stickflag=0">
+                      取消置顶
+                    </a>
+                  </dd>
+                </dl>
+              </div>
+            </body></html>
+        """.trimIndent()
+
+        val blog = SpaceDesktopParser.parseListPage(SpacePageKind.BLOG, html)
+            .items.single() as SpaceListItem.Blog
+
+        assertTrue(blog.isPinned)
+        assertTrue(blog.editUrl.contains("op=edit"))
+        assertTrue(blog.deleteUrl.contains("op=delete"))
+        assertTrue(blog.stickUrl.contains("op=stick"))
+        assertTrue(blog.stickUrl.contains("stickflag=0"))
     }
 
     @Test

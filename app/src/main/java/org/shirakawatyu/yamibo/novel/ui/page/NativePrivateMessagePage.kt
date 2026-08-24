@@ -1,6 +1,8 @@
 package org.shirakawatyu.yamibo.novel.ui.page
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,19 +12,26 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -30,7 +39,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -39,7 +47,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -56,7 +64,7 @@ fun NativePrivateMessagePage(
     url: String
 ) {
     val vm: PrivateMessageVM = viewModel(
-        key = "PrivateMessage-$url",
+        key = "PrivateMessage-" + url,
         factory = PrivateMessageVM.Factory(url)
     )
     val conversation by vm.conversation
@@ -66,6 +74,9 @@ fun NativePrivateMessagePage(
     val colors = yamiboComponentColors()
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
+    val peerAvatar = conversation?.messages
+        ?.firstOrNull { !it.isSelf && !it.avatarUrl.isNullOrBlank() }
+        ?.avatarUrl
 
     LaunchedEffect(conversation?.messages) {
         val count = conversation?.messages?.size ?: 0
@@ -82,20 +93,39 @@ fun NativePrivateMessagePage(
                 modifier = Modifier
                     .fillMaxWidth()
                     .statusBarsPadding()
-                    .height(56.dp),
+                    .padding(horizontal = 4.dp, vertical = 6.dp)
+                    .height(40.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = { navController.popBackStack() }) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = colors.topBarContent)
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "返回",
+                        tint = colors.topBarContent
+                    )
                 }
-                Text(
-                    text = conversation?.title?.ifBlank { "私信" } ?: "私信",
-                    color = colors.topBarContent,
-                    fontSize = 17.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
+                if (!peerAvatar.isNullOrBlank()) {
+                    SpaceAvatar(peerAvatar, 32)
+                    Spacer(Modifier.width(9.dp))
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = conversation?.title?.ifBlank { "私信" } ?: "私信",
+                        color = colors.topBarContent,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (conversation != null) {
+                        Text(
+                            text = "私信",
+                            color = colors.topBarContent.copy(alpha = 0.68f),
+                            fontSize = 10.sp,
+                            maxLines = 1
+                        )
+                    }
+                }
             }
         }
 
@@ -106,94 +136,197 @@ fun NativePrivateMessagePage(
                 }
             }
             conversation == null -> {
-                YamiboLoadError(title = error ?: "私信无法打开", onRetry = { vm.load() })
+                YamiboLoadError(
+                    title = error ?: "私信无法打开",
+                    onRetry = { vm.load() }
+                )
             }
             else -> {
                 val current = conversation ?: return@Column
                 LazyColumn(
                     state = listState,
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    contentPadding = PaddingValues(
+                        start = 12.dp,
+                        end = 12.dp,
+                        top = 14.dp,
+                        bottom = 18.dp
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     current.previousUrl?.let { previous ->
                         item(key = "previous") {
-                            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                TextButton(onClick = { vm.loadPage(previous) }) {
-                                    Text("查看更早的消息")
-                                }
+                            ConversationPageButton(
+                                label = "查看更早的消息",
+                                enabled = !isLoading,
+                                onClick = { vm.loadPage(previous) }
+                            )
+                        }
+                    }
+                    if (isLoading) {
+                        item(key = "page-loading") {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 6.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(22.dp),
+                                    strokeWidth = 2.dp
+                                )
                             }
                         }
                     }
-                    items(
+                    if (current.messages.isEmpty() && !isLoading) {
+                        item(key = "empty") {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 48.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "暂无私信记录",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 14.sp
+                                )
+                            }
+                        }
+                    }
+                    itemsIndexed(
                         items = current.messages,
-                        key = { message -> "pm-${current.messages.indexOf(message)}-${message.time}-${message.content.hashCode()}" }
-                    ) { bubble ->
+                        key = { index, message ->
+                            "pm-" + index + "-" + message.time + "-" + message.content.hashCode()
+                        }
+                    ) { _, bubble ->
                         MessageBubble(bubble)
                     }
                     current.nextUrl?.let { next ->
                         item(key = "next") {
-                            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                TextButton(onClick = { vm.loadPage(next) }) {
-                                    Text("查看更晚的消息")
+                            ConversationPageButton(
+                                label = "查看更晚的消息",
+                                enabled = !isLoading,
+                                onClick = { vm.loadPage(next) }
+                            )
+                        }
+                    }
+                }
+
+                error?.let { message ->
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = message,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            fontSize = 12.sp,
+                            lineHeight = 18.sp,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                        )
+                    }
+                }
+
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    tonalElevation = 3.dp,
+                    shadowElevation = 6.dp
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .navigationBarsPadding()
+                            .imePadding()
+                    ) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 10.dp, vertical = 9.dp),
+                            verticalAlignment = Alignment.Bottom
+                        ) {
+                            OutlinedTextField(
+                                value = input,
+                                onValueChange = { input = it },
+                                enabled = !isSending,
+                                placeholder = { Text("发送私信") },
+                                minLines = 1,
+                                maxLines = 5,
+                                shape = RoundedCornerShape(22.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedContainerColor =
+                                        MaterialTheme.colorScheme.surfaceContainerHighest,
+                                    unfocusedContainerColor =
+                                        MaterialTheme.colorScheme.surfaceContainerHighest,
+                                    disabledContainerColor =
+                                        MaterialTheme.colorScheme.surfaceContainerHighest,
+                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
+                                ),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .heightIn(min = 48.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            val canSend = input.isNotBlank() && !isSending
+                            FilledIconButton(
+                                enabled = canSend || isSending,
+                                onClick = {
+                                    if (!isSending) {
+                                        val draft = input
+                                        vm.send(draft) {
+                                            if (input == draft) input = ""
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.size(48.dp)
+                            ) {
+                                if (isSending) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(20.dp),
+                                        color = MaterialTheme.colorScheme.onPrimary,
+                                        strokeWidth = 2.dp
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.Send,
+                                        contentDescription = "发送"
+                                    )
                                 }
                             }
                         }
                     }
                 }
-                error?.let { message ->
-                    Text(
-                        message,
-                        color = MaterialTheme.colorScheme.error,
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 2.dp)
-                    )
-                }
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .imePadding()
-                        .padding(horizontal = 10.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.Bottom
-                ) {
-                    OutlinedTextField(
-                        value = input,
-                        onValueChange = { input = it },
-                        placeholder = { Text("请输入内容...") },
-                        maxLines = 4,
-                        shape = RoundedCornerShape(18.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = MaterialTheme.colorScheme.surface,
-                            unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                            focusedBorderColor = MaterialTheme.colorScheme.primary,
-                            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
-                        ),
-                        modifier = Modifier.weight(1f)
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier
-                            .height(48.dp)
-                            .clip(RoundedCornerShape(16.dp))
-                    ) {
-                        TextButton(
-                            enabled = input.isNotBlank() && !isSending,
-                            onClick = {
-                                val text = input
-                                input = ""
-                                vm.send(text)
-                            }
-                        ) {
-                            Text(
-                                if (isSending) "发送中" else "发送",
-                                color = MaterialTheme.colorScheme.onPrimary
-                            )
-                        }
-                    }
-                }
             }
+        }
+    }
+}
+
+@Composable
+private fun ConversationPageButton(
+    label: String,
+    enabled: Boolean,
+    onClick: () -> Unit
+) {
+    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        Surface(
+            shape = RoundedCornerShape(18.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            modifier = Modifier.clickable(enabled = enabled, onClick = onClick)
+        ) {
+            Text(
+                text = label,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = if (enabled) 1f else 0.5f),
+                fontSize = 13.sp,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 7.dp)
+            )
         }
     }
 }
@@ -206,48 +339,63 @@ private fun MessageBubble(bubble: PrivateMessageBubble) {
         verticalAlignment = Alignment.Top
     ) {
         if (!bubble.isSelf) {
-            SpaceAvatar(bubble.avatarUrl, 34)
+            SpaceAvatar(bubble.avatarUrl, 36)
             Spacer(Modifier.width(8.dp))
         }
         Column(
-            modifier = Modifier.widthIn(max = 280.dp),
+            modifier = Modifier.widthIn(max = 300.dp),
             horizontalAlignment = if (bubble.isSelf) Alignment.End else Alignment.Start
         ) {
-            Surface(
-                shape = RoundedCornerShape(
-                    topStart = if (bubble.isSelf) 14.dp else 4.dp,
-                    topEnd = if (bubble.isSelf) 4.dp else 14.dp,
-                    bottomStart = 14.dp,
-                    bottomEnd = 14.dp
-                ),
-                color = if (bubble.isSelf) {
-                    MaterialTheme.colorScheme.primaryContainer
-                } else {
-                    MaterialTheme.colorScheme.surfaceContainerHigh
-                }
-            ) {
+            if (!bubble.isSelf && bubble.authorName.isNotBlank()) {
                 Text(
-                    bubble.content,
-                    color = if (bubble.isSelf) {
-                        MaterialTheme.colorScheme.onPrimaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.onSurface
-                    },
-                    fontSize = 14.sp,
-                    lineHeight = 22.sp,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)
+                    text = bubble.authorName,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(start = 4.dp, bottom = 3.dp)
                 )
             }
-            Spacer(Modifier.height(3.dp))
-            Text(
-                bubble.time,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 11.sp
-            )
-        }
-        if (bubble.isSelf) {
-            Spacer(Modifier.width(8.dp))
-            SpaceAvatar(bubble.avatarUrl, 34)
+            Surface(
+                shape = RoundedCornerShape(
+                    topStart = if (bubble.isSelf) 18.dp else 5.dp,
+                    topEnd = if (bubble.isSelf) 5.dp else 18.dp,
+                    bottomStart = 18.dp,
+                    bottomEnd = 18.dp
+                ),
+                color = if (bubble.isSelf) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.surfaceContainerHigh
+                },
+                border = if (bubble.isSelf) {
+                    null
+                } else {
+                    BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                }
+            ) {
+                SelectionContainer {
+                    Text(
+                        text = bubble.content,
+                        color = if (bubble.isSelf) {
+                            MaterialTheme.colorScheme.onPrimary
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        },
+                        fontSize = 14.sp,
+                        lineHeight = 21.sp,
+                        modifier = Modifier.padding(horizontal = 13.dp, vertical = 9.dp)
+                    )
+                }
+            }
+            if (bubble.time.isNotBlank()) {
+                Text(
+                    text = bubble.time,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+                    fontSize = 10.sp,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 3.dp)
+                )
+            }
         }
     }
 }

@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -26,13 +25,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import org.shirakawatyu.yamibo.novel.ui.component.YamiboAlertDialog as AlertDialog
 import androidx.compose.material3.Button
@@ -40,8 +40,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -54,6 +52,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -71,6 +70,7 @@ import org.shirakawatyu.yamibo.novel.bean.space.BlogContentBlock
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.ui.component.YamiboLoadError
 import org.shirakawatyu.yamibo.novel.ui.component.YamiboDialogSurface
+import org.shirakawatyu.yamibo.novel.ui.component.YamiboTextEditorDialog
 import org.shirakawatyu.yamibo.novel.ui.theme.yamiboComponentColors
 import org.shirakawatyu.yamibo.novel.ui.theme.yamiboDangerColor
 import org.shirakawatyu.yamibo.novel.ui.vm.BlogDetailVM
@@ -461,7 +461,7 @@ private fun BlogDetailActionMenu(
                     )
                 }
                 HorizontalDivider(modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
-                BlogDetailMenuAction("置顶", Icons.Filled.KeyboardArrowUp, detail.stickUrl, onAction)
+                BlogDetailMenuAction("置顶", Icons.Filled.PushPin, detail.stickUrl, onAction)
                 BlogDetailMenuAction("编辑", Icons.Filled.EditNote, detail.editUrl, onAction)
                 BlogDetailMenuAction("删除", Icons.Filled.Delete, detail.deleteUrl, onAction, danger = true)
             }
@@ -662,43 +662,26 @@ private fun BlogCommentEditorDialog(
     onDismiss: () -> Unit,
     onSubmit: (String) -> Unit
 ) {
-    var message by remember(request) {
-        mutableStateOf(request.comment?.content.orEmpty())
-    }
     val title = when {
         request.comment == null -> "发表评论"
         request.edit -> "编辑评论"
         else -> "回复评论"
     }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = {
-            OutlinedTextField(
-                value = message,
-                onValueChange = { message = it },
-                placeholder = { Text("请输入内容") },
-                minLines = 4,
-                maxLines = 8,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .widthIn(min = 240.dp)
-                    .imePadding(),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = MaterialTheme.colorScheme.surface,
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surface
-                )
-            )
+    YamiboTextEditorDialog(
+        title = title,
+        subtitle = when {
+            request.comment == null -> "评论会显示在这篇日志下方"
+            request.edit -> "修改后将更新原评论内容"
+            else -> "回复 " + request.comment.authorName
         },
-        confirmButton = {
-            TextButton(
-                enabled = message.isNotBlank() && !busy,
-                onClick = { onSubmit(message.trim()) }
-            ) { Text(if (busy) "提交中" else "发表") }
-        },
-        dismissButton = {
-            TextButton(enabled = !busy, onClick = onDismiss) { Text("取消") }
-        }
+        placeholder = if (request.edit) "请输入修改后的评论" else "请输入评论内容",
+        confirmLabel = if (request.edit) "保存修改" else "发表",
+        initialText = request.comment?.content.orEmpty(),
+        busy = busy,
+        minLines = 4,
+        maxLines = 8,
+        onDismiss = onDismiss,
+        onConfirm = onSubmit
     )
 }
 
@@ -715,47 +698,58 @@ private fun BlogCommentCard(
     ) {
         Column(Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                SpaceAvatar(comment.avatarUrl, 32)
-                Spacer(Modifier.width(8.dp))
-                Column(Modifier.weight(1f)) {
+                SpaceAvatar(
+                    url = comment.avatarUrl,
+                    size = 36,
+                    modifier = Modifier.clip(CircleShape)
+                )
+                Spacer(Modifier.width(9.dp))
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Text(
-                        comment.authorName,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontSize = 13.sp,
+                        text = comment.authorName,
+                        modifier = Modifier.weight(1f, fill = false),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    Text(
-                        comment.time,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 12.sp
-                    )
+                    if (comment.time.isNotBlank()) {
+                        Text(
+                            text = " · " + comment.time,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
-                Column(horizontalAlignment = Alignment.End) {
-                    Row {
-                        onReply?.let {
-                            TextButton(
-                                onClick = it,
-                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
-                            ) { Text("回复", fontSize = 12.sp) }
-                        }
-                        onEdit?.let {
-                            TextButton(
-                                onClick = it,
-                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
-                            ) { Text("编辑", fontSize = 12.sp) }
-                        }
-                        onDelete?.let {
-                            TextButton(
-                                onClick = it,
-                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
-                            ) {
-                                Text(
-                                    "删除",
-                                    color = yamiboDangerColor(),
-                                    fontSize = 12.sp
-                                )
-                            }
+                Row {
+                    onReply?.let {
+                        TextButton(
+                            onClick = it,
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                        ) { Text("回复", fontSize = 12.sp) }
+                    }
+                    onEdit?.let {
+                        TextButton(
+                            onClick = it,
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                        ) { Text("编辑", fontSize = 12.sp) }
+                    }
+                    onDelete?.let {
+                        TextButton(
+                            onClick = it,
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                        ) {
+                            Text(
+                                "删除",
+                                color = yamiboDangerColor(),
+                                fontSize = 12.sp
+                            )
                         }
                     }
                 }

@@ -145,6 +145,7 @@ import org.shirakawatyu.yamibo.novel.bean.forum.ForumThreadDetail
 import org.shirakawatyu.yamibo.novel.constant.RequestConfig
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.ui.component.YamiboDialogSurface
+import org.shirakawatyu.yamibo.novel.ui.component.YamiboTextEditorDialog
 import org.shirakawatyu.yamibo.novel.ui.component.YamiboLoadError
 import org.shirakawatyu.yamibo.novel.ui.state.ForumSort
 import org.shirakawatyu.yamibo.novel.ui.state.ForumState
@@ -2530,54 +2531,20 @@ private fun ForumCommentDialog(
     onDismiss: () -> Unit,
     onSubmit: (String) -> Unit
 ) {
-    var message by remember { mutableStateOf("") }
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        YamiboDialogSurface(
-            modifier = Modifier
-                .widthIn(max = 380.dp)
-                .fillMaxWidth(0.82f)
-        ) {
-            Column(
-                modifier = Modifier.padding(24.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Text(
-                    text = "点评 #${post.floor} 楼",
-                    modifier = Modifier.fillMaxWidth(),
-                    textAlign = TextAlign.Center,
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
-                )
-                TextField(
-                    value = message,
-                    onValueChange = { message = it },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 120.dp, max = 240.dp),
-                    placeholder = { Text("请输入点评内容") },
-                    minLines = 3,
-                    maxLines = 8
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    TextButton(onClick = onDismiss) { Text("取消") }
-                    Spacer(Modifier.width(8.dp))
-                    TextButton(
-                        onClick = {
-                            onSubmit(message)
-                            onDismiss()
-                        },
-                        enabled = message.isNotBlank()
-                    ) { Text("发表点评") }
-                }
-            }
+    YamiboTextEditorDialog(
+        title = "点评 #" + post.floor + " 楼",
+        subtitle = "点评内容会显示在该楼层下方",
+        placeholder = "请输入点评内容",
+        confirmLabel = "发表点评",
+        minLines = 4,
+        maxLines = 8,
+        showForumSmilies = true,
+        onDismiss = onDismiss,
+        onConfirm = { message ->
+            onSubmit(message)
+            onDismiss()
         }
-    }
+    )
 }
 
 /** 漫画相关板块 ID：30=中文百合漫画区，37=百合漫画图源区 */
@@ -2727,72 +2694,29 @@ private fun ForumReplyDialog(
     onDismiss: () -> Unit,
     onSubmit: (String) -> Unit
 ) {
-    var message by remember { mutableStateOf("") }
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        YamiboDialogSurface(
-            modifier = Modifier
-                .widthIn(max = 520.dp)
-                .fillMaxWidth(0.92f)
-        ) {
-            Column(
-                modifier = Modifier.padding(24.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Text(
-                    text = if (quotePost == null) "回复主题" else "回复 #${quotePost.floor} 楼",
-                    modifier = Modifier.fillMaxWidth(),
-                    textAlign = TextAlign.Center,
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
-                )
-                if (quotePost != null) {
-                    Text(
-                        text = "将以引用该楼层的形式发表回复",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                TextField(
-                    value = message,
-                    onValueChange = { message = it },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 160.dp, max = 320.dp),
-                    placeholder = { Text("请输入回复内容") },
-                    minLines = 5,
-                    maxLines = 12
-                )
-                Text(
-                    text = "${message.trim().length} / $MIN_REPLY_CHARS 字符",
-                    modifier = Modifier.fillMaxWidth(),
-                    textAlign = TextAlign.End,
-                    fontSize = 11.sp,
-                    color = if (message.trim().length >= MIN_REPLY_CHARS) {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    } else {
-                        MaterialTheme.colorScheme.error
-                    }
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    TextButton(onClick = onDismiss) { Text("取消") }
-                    Spacer(Modifier.width(8.dp))
-                    TextButton(
-                        onClick = {
-                            onSubmit(message)
-                            onDismiss()
-                        },
-                        enabled = message.isNotBlank()
-                    ) { Text("发表回复") }
-                }
-            }
+    YamiboTextEditorDialog(
+        title = if (quotePost == null) {
+            "回复主题"
+        } else {
+            "回复 #" + quotePost.floor + " 楼"
+        },
+        subtitle = if (quotePost == null) {
+            null
+        } else {
+            "将以引用该楼层的形式发表回复"
+        },
+        placeholder = "请输入回复内容",
+        confirmLabel = "发表回复",
+        minimumLength = MIN_REPLY_CHARS,
+        minLines = 5,
+        maxLines = 12,
+        showForumSmilies = true,
+        onDismiss = onDismiss,
+        onConfirm = { message ->
+            onSubmit(message)
+            onDismiss()
         }
-    }
+    )
 }
 
 @Composable

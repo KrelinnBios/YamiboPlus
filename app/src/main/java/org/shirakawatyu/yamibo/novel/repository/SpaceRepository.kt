@@ -16,6 +16,8 @@ import org.shirakawatyu.yamibo.novel.bean.space.SpaceListPage
 import org.shirakawatyu.yamibo.novel.bean.space.SpaceListItem
 import org.shirakawatyu.yamibo.novel.bean.space.SpaceListRequest
 import org.shirakawatyu.yamibo.novel.bean.space.SpacePageKind
+import org.shirakawatyu.yamibo.novel.bean.space.BlogBatchActionResult
+import org.shirakawatyu.yamibo.novel.bean.space.BlogBatchOperation
 import org.shirakawatyu.yamibo.novel.bean.space.BlogDetail
 import org.shirakawatyu.yamibo.novel.bean.space.PrivateMessageConversation
 import org.shirakawatyu.yamibo.novel.global.GlobalData
@@ -223,20 +225,37 @@ class SpaceRepository(
         if (message != null && text.isNullOrBlank()) throw IllegalArgumentException("请输入回复内容")
 
         val referer = doingReferer(request, page)
-        val actionPageUrl = desktopUrl(actionUrl)
-        val form = parseForm(executeDesktopGet(actionPageUrl, referer), actionPageUrl)
+        val lowerUrl = actionUrl.lowercase()
+        // Discuz 的 docomment 入口由 ajaxget 加载；不带 inajax 时可能返回整张空间页，
+        // 此时直接取第一个 form 会误拿到搜索/发布记录表单。
+        val actionPageUrl = desktopAjaxUrl(actionUrl)
+        val formSelector = if ("op=delete" in lowerUrl) {
+            "form[action*='ac=doing'][action*='op=delete']"
+        } else {
+            "form[action*='ac=doing'][action*='op=comment']"
+        }
+        val form = parseForm(
+            executeDesktopGet(actionPageUrl, referer),
+            actionPageUrl,
+            formSelector
+        )
         val fields = form.fields.toMutableMap()
         val formHash = fields["formhash"].orEmpty().ifBlank { GlobalData.currentFormHash }
         if (formHash.isNotBlank()) fields["formhash"] = formHash
         if (text != null) fields["message"] = text
 
-        val lowerUrl = actionUrl.lowercase()
         when {
             "op=delete" in lowerUrl -> fields.putIfAbsent("deletesubmit", "true")
             "op=docomment" in lowerUrl -> fields.putIfAbsent("commentsubmit", "true")
         }
-        verifyActionResponse(executeDesktopPost(form.action, fields, referer))
-        return getList(request, page.coerceAtLeast(1))
+        verifyActionResponse(executeDesktopPost(desktopAjaxUrl(form.action), fields, referer))
+
+        // 提交后必须绕过 Retrofit/HTTP 缓存重新抓取当前电脑版页面，否则 UI 会继续显示旧评论。
+        val refreshedHtml = executeDesktopGet(referer, referer)
+        if (SpaceMobileParser.isLoginRequired(refreshedHtml)) {
+            throw IllegalStateException("请先登录后再操作")
+        }
+        return SpaceDesktopParser.parseListPage(SpacePageKind.DOING, refreshedHtml)
     }
 
     private fun doingReferer(request: SpaceListRequest, page: Int): String = buildString {
@@ -244,6 +263,7 @@ class SpaceRepository(
         request.uid.takeIf(String::isNotBlank)?.let { append("&uid=").append(it) }
         request.view.takeIf(String::isNotBlank)?.let { append("&view=").append(it) }
         append("&page=").append(page.coerceAtLeast(1))
+        append("&perpage=").append(SPACE_PAGE_SIZE)
         append("&mobile=no")
     }
 
@@ -251,6 +271,86 @@ class SpaceRepository(
         val desktopUrl = desktopUrl(url)
         val html = executeDesktopGet(desktopUrl, url)
         return SpaceDesktopParser.parseBlogDetail(html, desktopUrl)
+    }
+
+    suspend fun performBlogBatchAction(
+        items: List<SpaceListItem.Blog>,
+        operation: BlogBatchOperation
+    ): BlogBatchActionResult = coroutineScope {
+        val semaphore = Semaphore(2)
+        val results = items.distinctBy(SpaceListItem.Blog::blogId).map { item ->
+            async {
+                semaphore.withPermit {
+                    try {
+                        when (operation) {
+                            BlogBatchOperation.PIN ->
+                                submitBlogManagementAction(item.stickUrl, item.url)
+                            BlogBatchOperation.DELETE ->
+                                submitBlogManagementAction(item.deleteUrl, item.url)
+                            else -> updateBlogVisibility(
+                                item = item,
+                                visibilityValue = requireNotNull(operation.visibilityValue)
+                            )
+                        }
+                        true
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        AppErrorLog.record(
+                            "日志批量操作失败 operation=$operation blogId=${item.blogId}：${e.message}"
+                        )
+                        false
+                    }
+                }
+            }
+        }.awaitAll()
+        BlogBatchActionResult(
+            succeeded = results.count { it },
+            failed = results.count { !it }
+        )
+    }
+
+    suspend fun submitBlogManagementAction(actionUrl: String, referer: String) {
+        if (actionUrl.isBlank()) throw IllegalStateException("日志操作入口不可用，请刷新后重试")
+        val lowerUrl = actionUrl.lowercase()
+        val actionPageUrl = desktopAjaxUrl(actionUrl)
+        val selector = when {
+            "op=stick" in lowerUrl -> "form[action*='ac=blog'][action*='op=stick']"
+            "op=delete" in lowerUrl -> "form[action*='ac=blog'][action*='op=delete']"
+            else -> "form[action*='ac=blog']"
+        }
+        val form = parseForm(
+            executeDesktopGet(actionPageUrl, referer),
+            actionPageUrl,
+            selector
+        )
+        val fields = form.fields.toMutableMap()
+        val formHash = fields["formhash"].orEmpty().ifBlank { GlobalData.currentFormHash }
+        if (formHash.isNotBlank()) fields["formhash"] = formHash
+        verifyActionResponse(
+            executeDesktopPost(desktopAjaxUrl(form.action), fields, referer)
+        )
+    }
+
+    private fun updateBlogVisibility(
+        item: SpaceListItem.Blog,
+        visibilityValue: String
+    ) {
+        val editUrl = item.editUrl.takeIf(String::isNotBlank)
+            ?: throw IllegalStateException("日志编辑入口不可用，请刷新后重试")
+        val pageUrl = desktopUrl(editUrl)
+        val form = parseForm(
+            executeDesktopGet(pageUrl, item.url),
+            pageUrl,
+            "form#ttHtmlEditor[action*='ac=blog']"
+        )
+        val fields = form.fields.toMutableMap()
+        fields["friend"] = visibilityValue
+        fields["blogsubmit"] = "true"
+        fields.remove("makefeed")
+        val formHash = fields["formhash"].orEmpty().ifBlank { GlobalData.currentFormHash }
+        if (formHash.isNotBlank()) fields["formhash"] = formHash
+        verifyActionResponse(executeDesktopPost(form.action, fields, item.url))
     }
 
     /**
@@ -392,10 +492,22 @@ class SpaceRepository(
         }
     }
 
-    private fun parseForm(html: String, pageUrl: String): DesktopForm {
-        val document = Jsoup.parse(html, pageUrl)
-        val form = document.selectFirst("form") as? FormElement
-            ?: throw IllegalStateException("操作表单加载失败，请刷新后重试")
+    private fun parseForm(
+        html: String,
+        pageUrl: String,
+        selector: String = "form"
+    ): DesktopForm {
+        val payloads = buildList {
+            add(html)
+            Regex("<!\\[CDATA\\[(.*)]]>", setOf(RegexOption.DOT_MATCHES_ALL))
+                .find(html)
+                ?.groupValues
+                ?.getOrNull(1)
+                ?.let(::add)
+        }
+        val form = payloads.firstNotNullOfOrNull { payload ->
+            Jsoup.parse(payload, pageUrl).selectFirst(selector) as? FormElement
+        } ?: throw IllegalStateException("操作表单加载失败，请刷新后重试")
         val fields = linkedMapOf<String, String>()
         form.select("input[name]").forEach { input ->
             val type = input.attr("type").lowercase()
@@ -405,6 +517,13 @@ class SpaceRepository(
         }
         form.select("textarea[name]").forEach { textarea ->
             fields[textarea.attr("name")] = textarea.text()
+        }
+        form.select("select[name]").forEach { select ->
+            val selected = select.selectFirst("option[selected]")
+                ?: select.selectFirst("option")
+            if (selected != null) {
+                fields[select.attr("name")] = selected.attr("value")
+            }
         }
         form.select("button[name], input[type=submit][name]").firstOrNull()?.let { submit ->
             fields[submit.attr("name")] = submit.attr("value")
@@ -434,6 +553,15 @@ class SpaceRepository(
             ?.toString()
             ?: url
 
+    private fun desktopAjaxUrl(url: String): String =
+        url.toHttpUrlOrNull()
+            ?.newBuilder()
+            ?.setQueryParameter("mobile", "no")
+            ?.setQueryParameter("inajax", "1")
+            ?.build()
+            ?.toString()
+            ?: url
+
     private data class DesktopForm(
         val action: String,
         val fields: Map<String, String>
@@ -444,7 +572,11 @@ class SpaceRepository(
         if (SpaceMobileParser.isLoginRequired(html)) {
             throw IllegalStateException("需要登录后才能查看私信")
         }
-        return SpaceMobileParser.parsePrivateMessageConversation(html, url)
+        return if (html.contains("id=\"pm_ul\"") || html.contains("id='pm_ul'")) {
+            SpaceDesktopParser.parsePrivateMessageConversation(html, url)
+        } else {
+            SpaceMobileParser.parsePrivateMessageConversation(html, url)
+        }
     }
 
     suspend fun sendPrivateMessage(

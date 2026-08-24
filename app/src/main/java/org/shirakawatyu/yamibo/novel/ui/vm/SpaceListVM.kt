@@ -15,6 +15,7 @@ import kotlinx.coroutines.withContext
 import org.shirakawatyu.yamibo.novel.bean.space.SpaceListItem
 import org.shirakawatyu.yamibo.novel.bean.space.SpaceListRequest
 import org.shirakawatyu.yamibo.novel.bean.space.SpacePageKind
+import org.shirakawatyu.yamibo.novel.bean.space.BlogBatchOperation
 import org.shirakawatyu.yamibo.novel.bean.space.SpaceCategory
 import org.shirakawatyu.yamibo.novel.bean.space.SpaceFriendFilter
 import org.shirakawatyu.yamibo.novel.repository.SpaceRepository
@@ -212,6 +213,89 @@ class SpaceListVM(
                 throw e
             } catch (e: Exception) {
                 onResult(e.message ?: "记录操作失败，请稍后重试", false)
+            } finally {
+                actionBusy = false
+            }
+        }
+    }
+
+    fun loadBlogMenuItem(
+        item: SpaceListItem.Blog,
+        onLoaded: (SpaceListItem.Blog) -> Unit
+    ) {
+        if (item.url.isBlank()) return
+        viewModelScope.launch {
+            val detail = try {
+                withContext(Dispatchers.IO) { repository.getBlogDetail(item.url) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                return@launch
+            }
+            onLoaded(
+                item.copy(
+                    category = detail.category.ifBlank { item.category },
+                    editUrl = item.editUrl.ifBlank { detail.editUrl },
+                    deleteUrl = item.deleteUrl.ifBlank { detail.deleteUrl },
+                    stickUrl = item.stickUrl.ifBlank { detail.stickUrl },
+                    tags = detail.tags
+                )
+            )
+        }
+    }
+
+    fun submitBlogBatchAction(
+        request: SpaceListRequest,
+        items: List<SpaceListItem.Blog>,
+        operation: BlogBatchOperation,
+        onResult: (String, Boolean) -> Unit
+    ) {
+        val baseRequest = requestWithUid(request)
+        val current = states[baseRequest] ?: return
+        if (actionBusy || items.isEmpty()) return
+        actionBusy = true
+        viewModelScope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    repository.performBlogBatchAction(items, operation)
+                }
+                if (result.succeeded > 0) {
+                    val refreshed = withContext(Dispatchers.IO) {
+                        repository.getList(baseRequest, current.page)
+                    }
+                    val latest = states[baseRequest] ?: current
+                    states[baseRequest] = latest.copy(
+                        items = refreshed.items,
+                        isLoading = false,
+                        error = null,
+                        hasMore = refreshed.nextUrl != null,
+                        previousUrl = refreshed.previousUrl,
+                        nextUrl = refreshed.nextUrl,
+                        categories = refreshed.categories.ifEmpty { latest.categories },
+                        friendFilters = refreshed.friendFilters.ifEmpty { latest.friendFilters }
+                    )
+                }
+                val actionName = when (operation) {
+                    BlogBatchOperation.PUBLIC -> "设为全站可见"
+                    BlogBatchOperation.FRIENDS -> "设为好友可见"
+                    BlogBatchOperation.PRIVATE -> "设为自己可见"
+                    BlogBatchOperation.PIN -> if (items.firstOrNull()?.isPinned == true) {
+                        "取消置顶"
+                    } else {
+                        "置顶"
+                    }
+                    BlogBatchOperation.DELETE -> "删除"
+                }
+                val message = when {
+                    result.failed == 0 -> "已${actionName} ${result.succeeded} 篇日志"
+                    result.succeeded == 0 -> "${actionName}失败，请稍后重试"
+                    else -> "已处理 ${result.succeeded} 篇，${result.failed} 篇失败"
+                }
+                onResult(message, result.succeeded > 0)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                onResult(e.message ?: "日志操作失败，请稍后重试", false)
             } finally {
                 actionBusy = false
             }

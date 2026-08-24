@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -30,23 +29,29 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.InlineTextContent
+import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.EditNote
-import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.HowToVote
+import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
@@ -66,11 +71,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.Placeholder
+import androidx.compose.ui.text.PlaceholderVerticalAlign
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -82,10 +91,13 @@ import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import org.shirakawatyu.yamibo.novel.bean.space.SpaceListItem
+import org.shirakawatyu.yamibo.novel.bean.space.ForumInlineImage
+import org.shirakawatyu.yamibo.novel.bean.space.BlogBatchOperation
 import org.shirakawatyu.yamibo.novel.ui.component.YamiboAlertDialog as AlertDialog
 import org.shirakawatyu.yamibo.novel.bean.space.SpacePageKind
 import org.shirakawatyu.yamibo.novel.bean.space.SpaceTabSpec
 import org.shirakawatyu.yamibo.novel.ui.component.YamiboDialogSurface
+import org.shirakawatyu.yamibo.novel.ui.component.YamiboTextEditorDialog
 import org.shirakawatyu.yamibo.novel.ui.component.YamiboLoadError
 import org.shirakawatyu.yamibo.novel.ui.theme.yamiboComponentColors
 import org.shirakawatyu.yamibo.novel.ui.theme.yamiboDangerColor
@@ -126,6 +138,7 @@ fun NativeSpaceListPage(
     uid: String = "",
     showBottomNavBar: Boolean = false,
     initialTabIndex: Int = 0,
+    useSelectedTabAsTitle: Boolean = false,
     showCategories: Boolean = false,
     onTopBarAction: (() -> Unit)? = null,
     onActionClick: (String) -> Unit = {},
@@ -140,6 +153,9 @@ fun NativeSpaceListPage(
     var selectedCategoryId by rememberSaveable { mutableStateOf("") }
     var selectedFriendUid by rememberSaveable { mutableStateOf("") }
     var blogMenuTarget by remember { mutableStateOf<SpaceListItem.Blog?>(null) }
+    var blogManageMode by remember { mutableStateOf(false) }
+    var selectedBlogIds by remember { mutableStateOf(emptySet<String>()) }
+    var blogDeleteTargets by remember { mutableStateOf<List<SpaceListItem.Blog>>(emptyList()) }
     var doingReplyTarget by remember { mutableStateOf<DoingActionTarget?>(null) }
     var doingDeleteTarget by remember { mutableStateOf<DoingActionTarget?>(null) }
     val viewModel: SpaceListVM = viewModel(
@@ -150,10 +166,14 @@ fun NativeSpaceListPage(
     val currentRequest = baseRequest.copy(categoryId = selectedCategoryId, fuid = selectedFriendUid)
     val baseState = viewModel.stateFor(baseRequest)
     val state = viewModel.stateFor(currentRequest)
+    val canManageBlogs = baseRequest.kind == SpacePageKind.BLOG && baseRequest.view == "me"
+    val currentBlogs = state.items.filterIsInstance<SpaceListItem.Blog>()
 
     LaunchedEffect(selectedTab) {
         selectedCategoryId = ""
         selectedFriendUid = ""
+        blogManageMode = false
+        selectedBlogIds = emptySet()
         viewModel.load(currentRequest)
     }
 
@@ -198,7 +218,16 @@ fun NativeSpaceListPage(
                     .height(40.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = { navController.popBackStack() }) {
+                IconButton(
+                    onClick = {
+                        if (blogManageMode) {
+                            blogManageMode = false
+                            selectedBlogIds = emptySet()
+                        } else {
+                            navController.popBackStack()
+                        }
+                    }
+                ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "返回",
@@ -206,20 +235,42 @@ fun NativeSpaceListPage(
                     )
                 }
                 Text(
-                    text = title,
+                    text = if (blogManageMode) {
+                        "管理日志 (" + selectedBlogIds.size + ")"
+                    } else if (useSelectedTabAsTitle) {
+                        tabs[selectedTab.coerceIn(tabs.indices)].label
+                    } else {
+                        title
+                    },
                     color = headerContent,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Medium,
                     modifier = Modifier.weight(1f)
                 )
-                if (onTopBarAction != null) {
+                if (!blogManageMode && onTopBarAction != null) {
                     IconButton(onClick = onTopBarAction) {
                         Icon(Icons.Default.Add, contentDescription = "新增", tint = headerContent)
                     }
                 }
+                if (canManageBlogs && (currentBlogs.isNotEmpty() || blogManageMode)) {
+                    IconButton(
+                        enabled = !viewModel.actionBusy,
+                        onClick = {
+                            blogManageMode = !blogManageMode
+                            selectedBlogIds = emptySet()
+                        }
+                    ) {
+                        Icon(
+                            imageVector = if (blogManageMode) Icons.Default.Check
+                            else Icons.Default.Checklist,
+                            contentDescription = if (blogManageMode) "完成" else "管理日志",
+                            tint = headerContent
+                        )
+                    }
+                }
             }
         }
-        if (tabs.size > 1) {
+        if (!blogManageMode && tabs.size > 1) {
             TabRow(
                 selectedTabIndex = selectedTab,
                 containerColor = headerColor,
@@ -242,7 +293,7 @@ fun NativeSpaceListPage(
                 }
             }
         }
-        if (showCategories && baseState.categories.isNotEmpty()) {
+        if (!blogManageMode && showCategories && baseState.categories.isNotEmpty()) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -264,7 +315,7 @@ fun NativeSpaceListPage(
                 }
             }
         }
-        if (showCategories && baseRequest.kind == SpacePageKind.BLOG && baseRequest.view == "we" &&
+        if (!blogManageMode && showCategories && baseRequest.kind == SpacePageKind.BLOG && baseRequest.view == "we" &&
             baseState.friendFilters.isNotEmpty()) {
             Row(
                 modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
@@ -308,31 +359,32 @@ fun NativeSpaceListPage(
                 }
             }
             else -> {
-                PullToRefreshBox(
-                    isRefreshing = refreshing,
-                    onRefresh = { viewModel.load(currentRequest, refresh = true) },
-                    state = pullState,
-                    modifier = Modifier.fillMaxSize(),
-                    indicator = {
-                        PullToRefreshDefaults.Indicator(
-                            state = pullState,
-                            isRefreshing = refreshing,
-                            modifier = Modifier.align(Alignment.TopCenter),
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                ) {
-                    LazyColumn(
-                        state = listState,
+                Box(modifier = Modifier.fillMaxSize()) {
+                    PullToRefreshBox(
+                        isRefreshing = refreshing,
+                        onRefresh = { viewModel.load(currentRequest, refresh = true) },
+                        state = pullState,
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(
-                            start = 12.dp,
-                            end = 12.dp,
-                            top = 8.dp,
-                            bottom = 24.dp
-                        )
+                        indicator = {
+                            PullToRefreshDefaults.Indicator(
+                                state = pullState,
+                                isRefreshing = refreshing,
+                                modifier = Modifier.align(Alignment.TopCenter),
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
                     ) {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(
+                                start = 12.dp,
+                                end = 12.dp,
+                                top = 8.dp,
+                                bottom = if (blogManageMode) 96.dp else 24.dp
+                            )
+                        ) {
                         itemsIndexed(state.items, key = { index, item ->
                             when (item) {
                                 is SpaceListItem.PrivateMessage -> "pm-${item.touid}-$index"
@@ -343,16 +395,37 @@ fun NativeSpaceListPage(
                                 is SpaceListItem.UserThread -> "thread-${item.tid}-${item.url}-$index"
                             }
                         }) { _, item ->
+                            val blog = item as? SpaceListItem.Blog
+                            val isSelected = blog?.blogId in selectedBlogIds
                             SpaceListItemRow(
                                 item = item,
-                                onClick = { onItemClick(item) },
+                                onClick = {
+                                    if (blogManageMode && blog != null) {
+                                        selectedBlogIds = if (isSelected) {
+                                            selectedBlogIds - blog.blogId
+                                        } else {
+                                            selectedBlogIds + blog.blogId
+                                        }
+                                    } else {
+                                        onItemClick(item)
+                                    }
+                                },
                                 onDoingReply = { doingReplyTarget = it },
                                 onDoingDelete = { doingDeleteTarget = it },
                                 showBlogAuthor = baseRequest.view != "me",
-                                onBlogLongClick = if (item is SpaceListItem.Blog &&
+                                blogManageMode = blogManageMode && blog != null,
+                                blogSelected = isSelected,
+                                onBlogLongClick = if (!blogManageMode && item is SpaceListItem.Blog &&
                                     (item.editUrl.isNotBlank() || item.stickUrl.isNotBlank() || item.deleteUrl.isNotBlank())
                                 ) {
-                                    { blogMenuTarget = item }
+                                    {
+                                        blogMenuTarget = item
+                                        viewModel.loadBlogMenuItem(item) { loaded ->
+                                            if (blogMenuTarget?.blogId == loaded.blogId) {
+                                                blogMenuTarget = loaded
+                                            }
+                                        }
+                                    }
                                 } else null
                             )
                         }
@@ -387,15 +460,131 @@ fun NativeSpaceListPage(
                                 }
                             }
                         }
+                        }
+                    }
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = blogManageMode,
+                        enter = androidx.compose.animation.slideInVertically(
+                            initialOffsetY = { it + 100 }
+                        ),
+                        exit = androidx.compose.animation.slideOutVertically(
+                            targetOffsetY = { it + 100 }
+                        ),
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 24.dp)
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = MaterialTheme.colorScheme.surface,
+                            shadowElevation = 3.dp,
+                            border = BorderStroke(
+                                2.dp,
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+                            ),
+                            modifier = Modifier.padding(horizontal = 10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                val allSelected = currentBlogs.isNotEmpty() &&
+                                    currentBlogs.all { it.blogId in selectedBlogIds }
+                                BlogManageActionButton(
+                                    label = if (allSelected) "取消" else "全选",
+                                    icon = Icons.Default.SelectAll,
+                                    enabled = !viewModel.actionBusy,
+                                    onClick = {
+                                        selectedBlogIds = if (allSelected) emptySet()
+                                        else currentBlogs.map { it.blogId }.toSet()
+                                    }
+                                )
+                                BlogManageActionButton(
+                                    label = "全站",
+                                    icon = Icons.Default.Public,
+                                    enabled = selectedBlogIds.isNotEmpty() && !viewModel.actionBusy,
+                                    onClick = {
+                                        viewModel.submitBlogBatchAction(
+                                            currentRequest,
+                                            currentBlogs.filter { it.blogId in selectedBlogIds },
+                                            BlogBatchOperation.PUBLIC
+                                        ) { message, success ->
+                                            YamiboToast.show(message = message)
+                                            if (success) selectedBlogIds = emptySet()
+                                        }
+                                    }
+                                )
+                                BlogManageActionButton(
+                                    label = "好友",
+                                    icon = Icons.Default.Group,
+                                    enabled = selectedBlogIds.isNotEmpty() && !viewModel.actionBusy,
+                                    onClick = {
+                                        viewModel.submitBlogBatchAction(
+                                            currentRequest,
+                                            currentBlogs.filter { it.blogId in selectedBlogIds },
+                                            BlogBatchOperation.FRIENDS
+                                        ) { message, success ->
+                                            YamiboToast.show(message = message)
+                                            if (success) selectedBlogIds = emptySet()
+                                        }
+                                    }
+                                )
+                                BlogManageActionButton(
+                                    label = "自己",
+                                    icon = Icons.Default.Lock,
+                                    enabled = selectedBlogIds.isNotEmpty() && !viewModel.actionBusy,
+                                    onClick = {
+                                        viewModel.submitBlogBatchAction(
+                                            currentRequest,
+                                            currentBlogs.filter { it.blogId in selectedBlogIds },
+                                            BlogBatchOperation.PRIVATE
+                                        ) { message, success ->
+                                            YamiboToast.show(message = message)
+                                            if (success) selectedBlogIds = emptySet()
+                                        }
+                                    }
+                                )
+                                BlogManageActionButton(
+                                    label = "删除",
+                                    icon = Icons.Default.Delete,
+                                    enabled = selectedBlogIds.isNotEmpty() && !viewModel.actionBusy,
+                                    danger = true,
+                                    onClick = {
+                                        blogDeleteTargets = currentBlogs.filter {
+                                            it.blogId in selectedBlogIds
+                                        }
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
                 blogMenuTarget?.let { target ->
                     BlogActionMenu(
                         target = target,
                         onDismiss = { blogMenuTarget = null },
-                        onAction = { url ->
-                            blogMenuTarget = null
-                            onActionClick(url)
+                        busy = viewModel.actionBusy,
+                        onAction = { action ->
+                            when (action) {
+                                BlogMenuActionType.EDIT -> {
+                                    blogMenuTarget = null
+                                    onActionClick(target.editUrl)
+                                }
+                                BlogMenuActionType.DELETE -> {
+                                    blogMenuTarget = null
+                                    blogDeleteTargets = listOf(target)
+                                }
+                                BlogMenuActionType.PIN -> {
+                                    viewModel.submitBlogBatchAction(
+                                        currentRequest,
+                                        listOf(target),
+                                        BlogBatchOperation.PIN
+                                    ) { message, success ->
+                                        YamiboToast.show(message = message)
+                                        if (success) blogMenuTarget = null
+                                    }
+                                }
+                            }
                         }
                     )
                 }
@@ -439,6 +628,50 @@ fun NativeSpaceListPage(
             }
         )
     }
+    if (blogDeleteTargets.isNotEmpty()) {
+        val count = blogDeleteTargets.size
+        AlertDialog(
+            onDismissRequest = {
+                if (!viewModel.actionBusy) blogDeleteTargets = emptyList()
+            },
+            title = { Text(if (count == 1) "删除日志" else "批量删除日志") },
+            text = {
+                Text(
+                    if (count == 1) "确定删除《${blogDeleteTargets.first().title}》吗？"
+                    else "确定删除选中的 $count 篇日志吗？删除后无法恢复。"
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !viewModel.actionBusy,
+                    onClick = {
+                        viewModel.submitBlogBatchAction(
+                            currentRequest,
+                            blogDeleteTargets,
+                            BlogBatchOperation.DELETE
+                        ) { message, success ->
+                            YamiboToast.show(message = message)
+                            if (success) {
+                                selectedBlogIds = emptySet()
+                                blogDeleteTargets = emptyList()
+                            }
+                        }
+                    }
+                ) {
+                    Text(
+                        if (viewModel.actionBusy) "删除中" else "删除",
+                        color = yamiboDangerColor()
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !viewModel.actionBusy,
+                    onClick = { blogDeleteTargets = emptyList() }
+                ) { Text("取消") }
+            }
+        )
+    }
 }
 
 @Composable
@@ -448,6 +681,8 @@ private fun SpaceListItemRow(
     onDoingReply: (DoingActionTarget) -> Unit,
     onDoingDelete: (DoingActionTarget) -> Unit,
     showBlogAuthor: Boolean,
+    blogManageMode: Boolean,
+    blogSelected: Boolean,
     onBlogLongClick: (() -> Unit)?
 ) {
     when (item) {
@@ -455,7 +690,14 @@ private fun SpaceListItemRow(
         is SpaceListItem.Notice -> NoticeItemRow(item, onClick)
         is SpaceListItem.Friend -> FriendItemRow(item, onClick)
         is SpaceListItem.Doing -> DoingItemRow(item, onDoingReply, onDoingDelete)
-        is SpaceListItem.Blog -> BlogItemRow(item, showBlogAuthor, onClick, onBlogLongClick)
+        is SpaceListItem.Blog -> BlogItemRow(
+            item = item,
+            showAuthor = showBlogAuthor,
+            onClick = onClick,
+            onLongClick = onBlogLongClick,
+            isManageMode = blogManageMode,
+            isSelected = blogSelected
+        )
         is SpaceListItem.UserThread -> UserThreadItemRow(item, onClick)
     }
 }
@@ -492,6 +734,14 @@ private fun PmItemRow(item: SpaceListItem.PrivateMessage, onClick: () -> Unit) {
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (item.isUnread) {
+                        Surface(
+                            modifier = Modifier.size(8.dp),
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.error
+                        ) {}
+                        Spacer(Modifier.width(6.dp))
+                    }
                     Text(
                         text = item.name,
                         fontSize = 15.sp,
@@ -510,7 +760,15 @@ private fun PmItemRow(item: SpaceListItem.PrivateMessage, onClick: () -> Unit) {
                 }
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = item.summary,
+                    text = buildString {
+                        append(item.summary)
+                        if (item.messageCount.isNotBlank()) {
+                            if (isNotBlank()) append("  ·  ")
+                            append("共 ")
+                            append(item.messageCount)
+                            append(" 条")
+                        }
+                    },
                     fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,
@@ -524,37 +782,42 @@ private fun PmItemRow(item: SpaceListItem.PrivateMessage, onClick: () -> Unit) {
 @Composable
 private fun NoticeItemRow(item: SpaceListItem.Notice, onClick: () -> Unit) {
     ItemCard(onClick) {
-        Column(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp)
+                .padding(horizontal = 12.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = item.title,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    text = item.time,
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                )
-            }
-            if (item.summary.isNotBlank()) {
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = item.summary,
-                    fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
+            SpaceAvatar(item.avatarUrl, 42)
+            Spacer(Modifier.width(11.dp))
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = item.title,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = item.time,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    )
+                }
+                if (item.summary.isNotBlank()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = item.summary,
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
         }
     }
@@ -667,11 +930,13 @@ private fun DoingItemRow(
                 }
             }
             Spacer(Modifier.height(8.dp))
-            Text(
+            ForumInlineText(
                 text = item.content,
+                images = item.contentImages,
                 fontSize = 14.sp,
                 lineHeight = 21.sp,
-                color = MaterialTheme.colorScheme.onSurface
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.fillMaxWidth()
             )
             if (item.comments.isNotEmpty()) {
                 Spacer(Modifier.height(10.dp))
@@ -696,9 +961,11 @@ private fun DoingItemRow(
                                         color = MaterialTheme.colorScheme.primary,
                                         fontWeight = FontWeight.Medium
                                     )
-                                    Text(
+                                    ForumInlineText(
                                         text = comment.content,
+                                        images = comment.contentImages,
                                         fontSize = 13.sp,
+                                        lineHeight = 20.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.weight(1f)
                                     )
@@ -784,40 +1051,82 @@ private data class DoingActionTarget(
 )
 
 @Composable
+private fun ForumInlineText(
+    text: String,
+    images: List<ForumInlineImage>,
+    fontSize: androidx.compose.ui.unit.TextUnit,
+    lineHeight: androidx.compose.ui.unit.TextUnit,
+    color: androidx.compose.ui.graphics.Color,
+    modifier: Modifier = Modifier
+) {
+    if (images.isEmpty()) {
+        Text(
+            text = text,
+            fontSize = fontSize,
+            lineHeight = lineHeight,
+            color = color,
+            modifier = modifier
+        )
+        return
+    }
+
+    val inlineContent = linkedMapOf<String, InlineTextContent>()
+    val annotatedText = buildAnnotatedString {
+        var cursor = 0
+        images.sortedBy(ForumInlineImage::offset).forEachIndexed { index, image ->
+            val start = image.offset.coerceIn(cursor, text.length)
+            if (start > cursor) append(text.substring(cursor, start))
+            val id = "forum-image-$index"
+            inlineContent[id] = InlineTextContent(
+                placeholder = Placeholder(
+                    width = fontSize * 1.35f,
+                    height = fontSize * 1.35f,
+                    placeholderVerticalAlign = PlaceholderVerticalAlign.Center
+                )
+            ) {
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(image.url)
+                        .crossfade(false)
+                        .build(),
+                    contentDescription = image.alternateText,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+            appendInlineContent(id, image.alternateText)
+            cursor = (start + image.alternateText.length).coerceAtMost(text.length)
+        }
+        if (cursor < text.length) append(text.substring(cursor))
+    }
+    Text(
+        text = annotatedText,
+        inlineContent = inlineContent,
+        fontSize = fontSize,
+        lineHeight = lineHeight,
+        color = color,
+        modifier = modifier
+    )
+}
+
+@Composable
 private fun DoingReplyDialog(
     target: DoingActionTarget,
     busy: Boolean,
     onDismiss: () -> Unit,
     onSubmit: (String) -> Unit
 ) {
-    var message by remember(target) { mutableStateOf("") }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(target.title) },
-        text = {
-            OutlinedTextField(
-                value = message,
-                onValueChange = { message = it.take(200) },
-                placeholder = { Text("请输入回复内容") },
-                supportingText = { Text("${message.length}/200") },
-                minLines = 3,
-                maxLines = 6,
-                modifier = Modifier.fillMaxWidth().widthIn(min = 240.dp).imePadding(),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = MaterialTheme.colorScheme.surface,
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surface
-                )
-            )
-        },
-        confirmButton = {
-            TextButton(
-                enabled = message.isNotBlank() && !busy,
-                onClick = { onSubmit(message.trim()) }
-            ) { Text(if (busy) "提交中" else "发表") }
-        },
-        dismissButton = {
-            TextButton(enabled = !busy, onClick = onDismiss) { Text("取消") }
-        }
+    YamiboTextEditorDialog(
+        title = target.title,
+        placeholder = "请输入回复内容",
+        confirmLabel = "发表回复",
+        busy = busy,
+        maximumLength = 200,
+        minLines = 4,
+        maxLines = 8,
+        showForumSmilies = true,
+        onDismiss = onDismiss,
+        onConfirm = onSubmit
     )
 }
 
@@ -827,7 +1136,9 @@ private fun BlogItemRow(
     item: SpaceListItem.Blog,
     showAuthor: Boolean,
     onClick: () -> Unit,
-    onLongClick: (() -> Unit)?
+    onLongClick: (() -> Unit)?,
+    isManageMode: Boolean,
+    isSelected: Boolean
 ) {
     val hapticFeedback = LocalHapticFeedback.current
     val cardModifier = Modifier
@@ -846,15 +1157,36 @@ private fun BlogItemRow(
             cardModifier.clickable(onClick = onClick)
         },
         shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.surface,
+        color = if (isManageMode && isSelected) {
+            MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.52f)
+        } else {
+            MaterialTheme.colorScheme.surface
+        },
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
     ) {
+        Box(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (isManageMode) {
+                Checkbox(
+                    checked = isSelected,
+                    onCheckedChange = { onClick() },
+                    modifier = Modifier.padding(start = 6.dp)
+                )
+            }
         Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(13.dp),
+                .weight(1f)
+                .padding(
+                    start = if (isManageMode) 2.dp else 13.dp,
+                    top = 13.dp,
+                    end = if (item.isPinned) 42.dp else 13.dp,
+                    bottom = 13.dp
+                ),
             verticalArrangement = Arrangement.spacedBy(7.dp)
         ) {
             if (showAuthor) {
@@ -942,6 +1274,20 @@ private fun BlogItemRow(
                 )
             }
         }
+        }
+        if (item.isPinned) {
+            Icon(
+                imageVector = Icons.Default.PushPin,
+                contentDescription = "已置顶",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 12.dp, end = 12.dp)
+                    .size(19.dp)
+                    .rotate(-35f)
+            )
+        }
+        }
     }
 }
 
@@ -991,19 +1337,47 @@ private fun BlogMetadataBadges(item: SpaceListItem.Blog) {
     }
 }
 
+private enum class BlogMenuActionType {
+    PIN,
+    EDIT,
+    DELETE
+}
+
+@Composable
+private fun BlogManageActionButton(
+    label: String,
+    icon: ImageVector,
+    enabled: Boolean,
+    danger: Boolean = false,
+    onClick: () -> Unit
+) {
+    val activeColor = if (danger) yamiboDangerColor()
+    else MaterialTheme.colorScheme.onSurfaceVariant
+    val color = activeColor.copy(alpha = if (enabled) 1f else 0.38f)
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 6.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(icon, contentDescription = label, modifier = Modifier.size(18.dp), tint = color)
+        Spacer(Modifier.width(3.dp))
+        Text(text = label, color = color, fontSize = 12.sp, maxLines = 1)
+    }
+}
+
 @Composable
 private fun BlogActionMenu(
     target: SpaceListItem.Blog,
     onDismiss: () -> Unit,
-    onAction: (String) -> Unit
+    busy: Boolean,
+    onAction: (BlogMenuActionType) -> Unit
 ) {
-    val metadataLines = buildList {
-        target.category.takeIf(String::isNotBlank)?.let { add("分类：$it") }
-        target.tags
-            .joinToString("、")
-            .takeIf(String::isNotBlank)
-            ?.let { add("标签：$it") }
-    }
+    val metadataLines = listOf(
+        "分类：" + target.category.ifBlank { "未分类" },
+        "标签：" + target.tags.joinToString("、").ifBlank { "无" }
+    )
 
     Dialog(onDismissRequest = onDismiss) {
         YamiboDialogSurface(
@@ -1041,24 +1415,28 @@ private fun BlogActionMenu(
                 }
                 if (target.stickUrl.isNotBlank()) {
                     BlogMenuAction(
-                        label = "置顶",
-                        icon = Icons.Filled.KeyboardArrowUp,
-                        onClick = { onAction(target.stickUrl) }
+                        label = if (target.isPinned) "取消置顶" else "置顶",
+                        icon = Icons.Filled.PushPin,
+                        iconRotation = -35f,
+                        enabled = !busy,
+                        onClick = { onAction(BlogMenuActionType.PIN) }
                     )
                 }
                 if (target.editUrl.isNotBlank()) {
                     BlogMenuAction(
                         label = "编辑",
                         icon = Icons.Filled.EditNote,
-                        onClick = { onAction(target.editUrl) }
+                        enabled = !busy,
+                        onClick = { onAction(BlogMenuActionType.EDIT) }
                     )
                 }
                 if (target.deleteUrl.isNotBlank()) {
                     BlogMenuAction(
                         label = "删除",
                         icon = Icons.Filled.Delete,
+                        enabled = !busy,
                         danger = true,
-                        onClick = { onAction(target.deleteUrl) }
+                        onClick = { onAction(BlogMenuActionType.DELETE) }
                     )
                 }
             }
@@ -1070,12 +1448,15 @@ private fun BlogActionMenu(
 private fun BlogMenuAction(
     label: String,
     icon: ImageVector,
+    iconRotation: Float = 0f,
+    enabled: Boolean = true,
     danger: Boolean = false,
     onClick: () -> Unit
 ) {
     val contentColor = if (danger) yamiboDangerColor()
     else MaterialTheme.colorScheme.primary
     TextButton(
+        enabled = enabled,
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
@@ -1088,7 +1469,9 @@ private fun BlogMenuAction(
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                modifier = Modifier.size(20.dp),
+                modifier = Modifier
+                    .size(20.dp)
+                    .rotate(iconRotation),
                 tint = contentColor
             )
             Spacer(Modifier.width(12.dp))
@@ -1123,46 +1506,7 @@ private fun UserThreadItemRow(item: SpaceListItem.UserThread, onClick: () -> Uni
                 .fillMaxWidth()
                 .padding(horizontal = 14.dp, vertical = 12.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (item.forumName.isNotBlank()) {
-                    UserThreadBadge(text = item.forumName)
-                    Spacer(Modifier.width(6.dp))
-                }
-                if (item.entryType.isNotBlank()) {
-                    UserThreadBadge(
-                        text = item.entryType,
-                        primary = true
-                    )
-                    Spacer(Modifier.width(6.dp))
-                }
-                if (item.isClosed) {
-                    Icon(
-                        imageVector = Icons.Filled.Lock,
-                        contentDescription = "已关闭",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(15.dp)
-                    )
-                    Spacer(Modifier.width(6.dp))
-                }
-                if (item.isPoll) {
-                    Icon(
-                        imageVector = Icons.Filled.HowToVote,
-                        contentDescription = "投票",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(Modifier.width(6.dp))
-                }
-                Text(
-                    text = item.title,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
-            }
+            UserThreadInlineTitle(item)
             if (item.replyExcerpt.isNotBlank()) {
                 Spacer(Modifier.height(6.dp))
                 Text(
@@ -1203,8 +1547,93 @@ private fun UserThreadItemRow(item: SpaceListItem.UserThread, onClick: () -> Uni
 }
 
 @Composable
-private fun UserThreadBadge(text: String, primary: Boolean = false) {
+private fun UserThreadInlineTitle(item: SpaceListItem.UserThread) {
+    val inlineContent = linkedMapOf<String, InlineTextContent>()
+    val title = buildAnnotatedString {
+        fun appendBadge(id: String, text: String, primary: Boolean) {
+            inlineContent[id] = InlineTextContent(
+                placeholder = Placeholder(
+                    width = (text.length * 11 + 14).sp,
+                    height = 20.sp,
+                    placeholderVerticalAlign = PlaceholderVerticalAlign.Center
+                )
+            ) {
+                UserThreadBadge(
+                    text = text,
+                    primary = primary,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+            appendInlineContent(id, "[$text]")
+            append(" ")
+        }
+
+        fun appendStatusIcon(id: String, alternateText: String, content: @Composable () -> Unit) {
+            inlineContent[id] = InlineTextContent(
+                placeholder = Placeholder(
+                    width = 19.sp,
+                    height = 18.sp,
+                    placeholderVerticalAlign = PlaceholderVerticalAlign.Center
+                )
+            ) { content() }
+            appendInlineContent(id, alternateText)
+            append(" ")
+        }
+
+        if (item.forumName.isNotBlank()) {
+            appendBadge("forum", item.forumName, primary = false)
+        }
+        if (item.entryType.isNotBlank()) {
+            appendBadge("entryType", item.entryType, primary = true)
+        }
+        if (item.isClosed) {
+            appendStatusIcon("closed", "[已关闭]") {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Filled.Lock,
+                        contentDescription = "已关闭",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(15.dp)
+                    )
+                }
+            }
+        }
+        if (item.isPoll) {
+            appendStatusIcon("poll", "[投票]") {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Filled.HowToVote,
+                        contentDescription = "投票",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+        }
+        append(item.title)
+    }
+
+    Text(
+        text = title,
+        inlineContent = inlineContent,
+        fontSize = 15.sp,
+        lineHeight = 22.sp,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.onSurface,
+        maxLines = 2,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.fillMaxWidth()
+    )
+}
+
+@Composable
+private fun UserThreadBadge(
+    text: String,
+    primary: Boolean = false,
+    modifier: Modifier = Modifier
+) {
     Surface(
+        modifier = modifier,
         shape = RoundedCornerShape(6.dp),
         color = if (primary) {
             MaterialTheme.colorScheme.primaryContainer
@@ -1221,7 +1650,9 @@ private fun UserThreadBadge(text: String, primary: Boolean = false) {
                 MaterialTheme.colorScheme.onSecondaryContainer
             },
             maxLines = 1,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 6.dp, vertical = 2.dp)
         )
     }
 }

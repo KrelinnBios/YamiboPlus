@@ -38,9 +38,8 @@ import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.SelectAll
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import org.shirakawatyu.yamibo.novel.ui.component.YamiboAlertDialog as AlertDialog
@@ -1152,7 +1151,7 @@ fun FavoritePage(
                         HorizontalDivider(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                         )
-                        // 同一个按钮根据是否已置顶切换：未置顶=上箭头「置顶」，已置顶=下箭头「取消置顶」回到原位。
+                        // 同一个图钉按钮根据状态切换「置顶」和「取消置顶」。
                         val isPinned = target.pinAnchorUrl != null
                         TextButton(
                             onClick = {
@@ -1177,8 +1176,7 @@ fun FavoritePage(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
-                                    if (isPinned) Icons.Default.KeyboardArrowDown
-                                    else Icons.Default.KeyboardArrowUp,
+                                    Icons.Default.PushPin,
                                     contentDescription = null,
                                     modifier = Modifier.size(21.dp)
                                 )
