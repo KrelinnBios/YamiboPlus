@@ -15,6 +15,8 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import org.shirakawatyu.yamibo.novel.constant.RequestConfig
+import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import java.lang.ref.WeakReference
 import java.util.WeakHashMap
 import java.util.concurrent.CountDownLatch
@@ -468,9 +470,34 @@ object Waf405RecoveryManager {
         AppErrorLog.record(if (succeeded) "WAF 挑战页面就绪" else "WAF 挑战失败或超时")
         cancelRefreshCallbacks()
         runCatching { android.webkit.CookieManager.getInstance().flush() }
+        if (succeeded) {
+            syncWafCookieToStore()
+        }
         signal.latch.countDown()
         destroyHiddenWebView()
         retries.forEach(::retryVisibleWebView)
+    }
+
+    private fun syncWafCookieToStore() {
+        try {
+            val cm = android.webkit.CookieManager.getInstance()
+            val urls = listOf(
+                Waf405RecoveryPolicy.CHALLENGE_URL,
+                "https://bbs.yamibo.com/home.php",
+                "https://bbs.yamibo.com/"
+            )
+            val targetUrl = "https://bbs.yamibo.com/".toHttpUrl()
+
+            for (url in urls) {
+                val cookieString = cm.getCookie(url).orEmpty()
+                if (cookieString.isNotBlank()) {
+                    YamiboRetrofit.sharedWafCookieStore.captureFromCookieString(
+                        targetUrl,
+                        cookieString
+                    )
+                }
+            }
+        } catch (_: Exception) {}
     }
 
     private fun retryVisibleWebView(retry: VisibleRetry) {

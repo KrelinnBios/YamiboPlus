@@ -179,7 +179,7 @@ class YamiboRetrofit {
         }
 
         // 两个 OkHttp 客户端及其 Coil 派生客户端共享同一个进程内 WAF Cookie。
-        private val sharedWafCookieStore = WafCookieStore()
+        internal val sharedWafCookieStore = WafCookieStore()
 
         // 基础客户端
         val okHttpClient: OkHttpClient by lazy {
@@ -409,8 +409,21 @@ class YamiboRetrofit {
                         // 与 YamiboReaderLite 一致：挑战后直接重放一次，不做额外的探测/重试。
                         response.close()
                         sharedConnectionPool.evictAll()
+                        val refreshedCookie = YamiboSession.cookieFor(request.url.toString())
+                        val wafCookie = sharedWafCookieStore.cookieHeaderFor(request.url)
+                        val finalCookie = if (wafCookie != null) {
+                            WafCookieStore.mergeCookieHeader(refreshedCookie, wafCookie)
+                        } else {
+                            refreshedCookie
+                        }
                         val retriedRequest = request.newBuilder()
-                            .header("Cookie", YamiboSession.cookieFor(request.url.toString()))
+                            .header(
+                                "Cookie",
+                                YamiboSession.cookieForRequestUserAgent(
+                                    finalCookie,
+                                    request.header("User-Agent").orEmpty()
+                                )
+                            )
                             .build()
                         val replay = try {
                             chain.proceed(retriedRequest)

@@ -72,7 +72,18 @@ internal data class CapturedSignPage(
 internal fun parseCapturedSignPage(html: String): CapturedSignPage {
     val document = Jsoup.parse(html)
     val pageText = document.text()
+    val signControlText = document
+        .selectFirst(".signbtn a, .signbtn button, .signbtn input")
+        ?.let { element ->
+            element.text().ifBlank { element.attr("value") }.trim()
+        }
+        .orEmpty()
     val status = when {
+        // 签到页的主按钮是当日状态的权威来源。页面下方的历史记录也可能出现
+        // “今日已打卡”，不能让这些旧记录把“点击打卡”误判成已签到。
+        signControlText.isNotBlank() && SIGNED_MARKERS.any(signControlText::contains) ->
+            TodaySignStatus.SIGNED
+        signControlText.isNotBlank() -> TodaySignStatus.NOT_SIGNED
         SIGNED_MARKERS.any(pageText::contains) -> TodaySignStatus.SIGNED
         document.select(".signbtn, a[href*=zqlj_sign], input[value*=签到]").isNotEmpty() ||
                 NOT_SIGNED_MARKERS.any(pageText::contains) -> TodaySignStatus.NOT_SIGNED
@@ -134,6 +145,9 @@ object AutoSignManager {
 
     @Volatile
     private var capturedSignAction: CapturedSignAction? = null
+
+    @Volatile
+    private var lastAutomaticFailureHintKey: String? = null
 
     fun getServerTodayPublic(): String = getServerToday()
     private fun getServerToday(): String {
@@ -211,7 +225,7 @@ object AutoSignManager {
      * 挑战页（仍在验证）直接忽略；真实签到页则缓存当日状态与签到动作地址，
      * 并顺带在未签到时自动签一次（与启动/恢复共用每日配额）。
      */
-    fun captureSignPageHtml(html: String) {
+    fun captureSignPageHtml(html: String, autoSignIfNeeded: Boolean = true) {
         if (html.isBlank()) return
         if (looksLikeChallengePage(html)) return
         if (!html.contains("zqlj_sign") &&
@@ -232,7 +246,8 @@ object AutoSignManager {
                 ?.takeIf(String::isNotBlank)
                 ?.let { CapturedSignAction(it, accountHash, today) }
             // 用户刚通过验证、页面显示未签到：解除 WAF 熔断并顺手自动签一次。
-            if (captured.status == TodaySignStatus.NOT_SIGNED &&
+            if (autoSignIfNeeded &&
+                captured.status == TodaySignStatus.NOT_SIGNED &&
                 GlobalData.isAutoSignInEnabled.value
             ) {
                 resetQuota(accountHash)
@@ -347,11 +362,17 @@ object AutoSignManager {
                     if (wafBlocked) {
                         if (!force) suspendAutomaticRetriesForToday(accountHash, today)
                         AppErrorLog.record("签到被 WAF 拦截：请在签到页完成验证后重试")
-                        if (force) showToast(context, "签到请求被论坛拦截，请稍后重试")
+                        showFailureHint(
+                            context, force, accountHash, today,
+                            "签到请求被论坛拦截，请稍后重试"
+                        )
                         return@withContext ManualSignResult.WAF_BLOCKED
                     }
                     refundQuota()
-                    if (force) showToast(context, "签到页面验证失败，请重新登录后重试")
+                    showFailureHint(
+                        context, force, accountHash, today,
+                        "签到页面验证失败，请重新登录后重试"
+                    )
                     return@withContext ManualSignResult.FAILED
                 }
 
@@ -378,7 +399,10 @@ object AutoSignManager {
                     looksLikeChallengePage(actionResponseHtml) -> {
                         if (!force) suspendAutomaticRetriesForToday(accountHash, today)
                         AppErrorLog.record("签到被 WAF 拦截：请在签到页完成验证后重试")
-                        if (force) showToast(context, "签到请求被论坛拦截，请稍后重试")
+                        showFailureHint(
+                            context, force, accountHash, today,
+                            "签到请求被论坛拦截，请稍后重试"
+                        )
                         ManualSignResult.WAF_BLOCKED
                     }
 
@@ -387,7 +411,10 @@ object AutoSignManager {
                         // 但日历仍保持未打卡。允许后续启动或回前台继续重试。
                         refundQuota()
                         AppErrorLog.record("签到失败：响应未包含成功标记")
-                        if (force) showToast(context, "签到失败，请稍后重试")
+                        showFailureHint(
+                            context, force, accountHash, today,
+                            "签到失败，请稍后重试"
+                        )
                         ManualSignResult.FAILED
                     }
                 }
@@ -396,19 +423,28 @@ object AutoSignManager {
                 if (code == 403 || code == 405) {
                     if (!force) suspendAutomaticRetriesForToday(accountHash, today)
                     AppErrorLog.record("签到被 WAF 拦截($code)：请在签到页完成验证后重试")
-                    if (force) showToast(context, "签到请求被论坛拦截，请稍后重试")
+                    showFailureHint(
+                        context, force, accountHash, today,
+                        "签到请求被论坛拦截，请稍后重试"
+                    )
                     ManualSignResult.WAF_BLOCKED
                 } else {
                     refundQuota()
                     AppErrorLog.record("签到请求失败：HTTP $code")
-                    if (force) showToast(context, "签到请求失败，请稍后重试")
+                    showFailureHint(
+                        context, force, accountHash, today,
+                        "签到请求失败，请稍后重试"
+                    )
                     ManualSignResult.FAILED
                 }
             } catch (error: Exception) {
                 refundQuota()
                 val detail = error.message ?: error::class.simpleName.orEmpty()
                 AppErrorLog.record("签到请求失败：$detail")
-                if (force) showToast(context, "签到请求失败，请稍后重试")
+                showFailureHint(
+                    context, force, accountHash, today,
+                    "签到请求失败，请稍后重试"
+                )
                 ManualSignResult.FAILED
             }
         }
@@ -454,5 +490,23 @@ object AutoSignManager {
                 durationMillis = 1200L
             )
         }
+    }
+
+    /** 自动失败只在当天提醒一次，使用现有胶囊；手动签到仍显示具体错误。 */
+    private suspend fun showFailureHint(
+        context: Context,
+        force: Boolean,
+        accountHash: Int,
+        today: String,
+        manualMessage: String
+    ) {
+        if (force) {
+            showToast(context, manualMessage)
+            return
+        }
+        val hintKey = "$accountHash:$today"
+        if (lastAutomaticFailureHintKey == hintKey) return
+        lastAutomaticFailureHintKey = hintKey
+        showToast(context, "自动签到未完成，可点击头像手动签到")
     }
 }

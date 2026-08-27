@@ -61,6 +61,21 @@ class AutoSignManagerTest {
     }
 
     @Test
+    fun visibleNotSignedButtonOverridesHistoricalSignedText() {
+        val html = """
+            <html><body>
+              <div class="signbtn"><a href="plugin.php?id=zqlj_sign&sign=abc123">点击打卡</a></div>
+              <div id="tblist"><p>上次记录：今日已打卡</p></div>
+            </body></html>
+        """.trimIndent()
+
+        val captured = parseCapturedSignPage(html)
+
+        assertEquals(TodaySignStatus.NOT_SIGNED, captured.status)
+        assertEquals("plugin.php?id=zqlj_sign&sign=abc123", captured.actionUrl)
+    }
+
+    @Test
     fun unrelatedPageYieldsUnknownWithoutActionUrl() {
         val captured = parseCapturedSignPage("<html><body>没有签到相关内容</body></html>")
 

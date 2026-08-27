@@ -71,6 +71,10 @@ object YamiboSession {
         return parts.joinToString("; ")
     }
 
+    /** WAF 挑战后重放请求时，刷新 Cookie 的同时保留原请求的电脑版模板模式。 */
+    internal fun cookieForRequestUserAgent(cookie: String, userAgent: String): String =
+        if (isDesktopUserAgent(userAgent)) desktopCookie(cookie) else cookie
+
     fun syncToWebView(url: String, cookie: String = cookieFor(url)) {
         if (cookie.isBlank()) return
         runCatching {
@@ -126,4 +130,8 @@ object YamiboSession {
     private fun isMobileCookieName(name: String): Boolean =
         name.equals("mobile", ignoreCase = true) ||
                 name.endsWith("_mobile", ignoreCase = true)
+
+    private fun isDesktopUserAgent(userAgent: String): Boolean =
+        userAgent.contains("Windows NT", ignoreCase = true) ||
+                userAgent.contains("Macintosh", ignoreCase = true)
 }

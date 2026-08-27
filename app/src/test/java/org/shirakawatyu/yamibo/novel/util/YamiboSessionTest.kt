@@ -52,6 +52,29 @@ class YamiboSessionTest {
     }
 
     @Test
+    fun cookieForRequestUserAgent_keepsDesktopModeAfterWafRefresh() {
+        assertEquals(
+            "EeqY_2132_auth=secret; EeqY_2132_mobile=no; nox_jst_v1=fresh",
+            YamiboSession.cookieForRequestUserAgent(
+                "EeqY_2132_auth=secret; EeqY_2132_mobile=2; nox_jst_v1=fresh",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0"
+            )
+        )
+    }
+
+    @Test
+    fun cookieForRequestUserAgent_doesNotChangeMobileMode() {
+        val cookie = "EeqY_2132_auth=secret; EeqY_2132_mobile=2; nox_jst_v1=fresh"
+        assertEquals(
+            cookie,
+            YamiboSession.cookieForRequestUserAgent(
+                cookie,
+                "Mozilla/5.0 (Linux; Android 14) Chrome/122.0 Mobile Safari/537.36"
+            )
+        )
+    }
+
+    @Test
     fun authenticationCookieValue_acceptsOnlyValidForumAuthenticationCookie() {
         assertEquals(
             "member-token",

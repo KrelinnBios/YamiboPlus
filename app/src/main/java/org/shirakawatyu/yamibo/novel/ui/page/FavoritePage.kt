@@ -75,6 +75,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
@@ -1178,7 +1179,9 @@ fun FavoritePage(
                                 Icon(
                                     Icons.Default.PushPin,
                                     contentDescription = null,
-                                    modifier = Modifier.size(21.dp)
+                                    modifier = Modifier
+                                        .size(21.dp)
+                                        .rotate(35f)
                                 )
                                 Spacer(Modifier.width(12.dp))
                                 Text(if (isPinned) "取消置顶" else "置顶")

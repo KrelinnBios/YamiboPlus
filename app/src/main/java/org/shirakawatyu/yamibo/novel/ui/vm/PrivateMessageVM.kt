@@ -16,6 +16,7 @@ internal class PrivateMessageVM(
 ) : ViewModel() {
     val conversation = mutableStateOf<PrivateMessageConversation?>(null)
     val isLoading = mutableStateOf(true)
+    val isLoadingMore = mutableStateOf(false)
     val error = mutableStateOf<String?>(null)
     val isSending = mutableStateOf(false)
 
@@ -41,6 +42,32 @@ internal class PrivateMessageVM(
 
     fun loadPage(pageUrl: String) {
         load(pageUrl)
+    }
+
+    /**
+     * 滚动到底部时自动加载更晚的消息，追加到当前列表末尾。
+     */
+    fun loadMore(pageUrl: String) {
+        val current = conversation.value ?: return
+        if (current.nextUrl == null || isLoadingMore.value || isLoading.value) return
+        viewModelScope.launch {
+            isLoadingMore.value = true
+            error.value = null
+            try {
+                val next = withContext(Dispatchers.IO) {
+                    repository.getPrivateMessageConversation(pageUrl)
+                }
+                conversation.value = current.copy(
+                    messages = current.messages + next.messages,
+                    previousUrl = next.previousUrl,
+                    nextUrl = next.nextUrl
+                )
+            } catch (e: Exception) {
+                error.value = e.message ?: "加载失败"
+            } finally {
+                isLoadingMore.value = false
+            }
+        }
     }
 
     fun send(message: String, onSent: () -> Unit = {}) {

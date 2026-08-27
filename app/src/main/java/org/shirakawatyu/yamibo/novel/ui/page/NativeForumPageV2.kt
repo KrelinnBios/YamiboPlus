@@ -2191,7 +2191,17 @@ private fun AuthorAvatarV2(name: String, avatarUrl: String?, size: Int) {
 @Composable
 private fun SmallTagV2(text: String) {
     Surface(shape = RoundedCornerShape(999.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
-        Text(LanguageModeUtil.displayText(text), Modifier.padding(horizontal = 7.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall)
+        Box(
+            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                LanguageModeUtil.displayText(text),
+                style = MaterialTheme.typography.labelSmall,
+                textAlign = TextAlign.Center,
+                lineHeight = 14.sp
+            )
+        }
     }
 }
 

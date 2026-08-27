@@ -53,6 +53,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -461,7 +462,7 @@ private fun BlogDetailActionMenu(
                     )
                 }
                 HorizontalDivider(modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
-                BlogDetailMenuAction("置顶", Icons.Filled.PushPin, detail.stickUrl, onAction)
+                BlogDetailMenuAction("置顶", Icons.Filled.PushPin, detail.stickUrl, onAction, iconRotation = 35f)
                 BlogDetailMenuAction("编辑", Icons.Filled.EditNote, detail.editUrl, onAction)
                 BlogDetailMenuAction("删除", Icons.Filled.Delete, detail.deleteUrl, onAction, danger = true)
             }
@@ -475,7 +476,8 @@ private fun BlogDetailMenuAction(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     url: String,
     onAction: (String) -> Unit,
-    danger: Boolean = false
+    danger: Boolean = false,
+    iconRotation: Float = 0f
 ) {
     val color = if (danger) yamiboDangerColor() else MaterialTheme.colorScheme.primary
     TextButton(
@@ -486,7 +488,7 @@ private fun BlogDetailMenuAction(
         colors = androidx.compose.material3.ButtonDefaults.textButtonColors(contentColor = color)
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp), tint = color)
+            Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp).rotate(iconRotation), tint = color)
             Spacer(Modifier.width(12.dp))
             Text(label, color = color)
         }

@@ -69,6 +69,7 @@ fun NativePrivateMessagePage(
     )
     val conversation by vm.conversation
     val isLoading by vm.isLoading
+    val isLoadingMore by vm.isLoadingMore
     val error by vm.error
     val isSending by vm.isSending
     val colors = yamiboComponentColors()
@@ -156,15 +157,6 @@ fun NativePrivateMessagePage(
                     ),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    current.previousUrl?.let { previous ->
-                        item(key = "previous") {
-                            ConversationPageButton(
-                                label = "查看更早的消息",
-                                enabled = !isLoading,
-                                onClick = { vm.loadPage(previous) }
-                            )
-                        }
-                    }
                     if (isLoading) {
                         item(key = "page-loading") {
                             Box(
@@ -201,16 +193,25 @@ fun NativePrivateMessagePage(
                         key = { index, message ->
                             "pm-" + index + "-" + message.time + "-" + message.content.hashCode()
                         }
-                    ) { _, bubble ->
+                    ) { index, bubble ->
                         MessageBubble(bubble)
+                        val nextUrl = current.nextUrl
+                        if (index >= current.messages.lastIndex - 4 && nextUrl != null) {
+                            LaunchedEffect(nextUrl) {
+                                vm.loadMore(nextUrl)
+                            }
+                        }
                     }
-                    current.nextUrl?.let { next ->
-                        item(key = "next") {
-                            ConversationPageButton(
-                                label = "查看更晚的消息",
-                                enabled = !isLoading,
-                                onClick = { vm.loadPage(next) }
-                            )
+                    if (isLoadingMore) {
+                        item(key = "loading-more") {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 16.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                            }
                         }
                     }
                 }
@@ -304,29 +305,6 @@ fun NativePrivateMessagePage(
                     }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun ConversationPageButton(
-    label: String,
-    enabled: Boolean,
-    onClick: () -> Unit
-) {
-    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-        Surface(
-            shape = RoundedCornerShape(18.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-            modifier = Modifier.clickable(enabled = enabled, onClick = onClick)
-        ) {
-            Text(
-                text = label,
-                color = MaterialTheme.colorScheme.primary.copy(alpha = if (enabled) 1f else 0.5f),
-                fontSize = 13.sp,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 7.dp)
-            )
         }
     }
 }

@@ -53,7 +53,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
@@ -301,11 +301,11 @@ fun FavoriteItem(
             }
 
             // 置顶图钉：固定在卡片右上角（位于状态槽上方，不压标题）。
-            androidx.compose.animation.AnimatedVisibility(
+            androidx.compose.animation.            AnimatedVisibility(
                 visible = isPinned,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(top = 6.dp, end = 8.dp),
+                    .padding(top = 4.dp, end = 6.dp),
                 enter = fadeIn(animationSpec = tween(160, easing = FastOutSlowInEasing)),
                 exit = fadeOut(animationSpec = tween(120))
             ) {
@@ -314,10 +314,8 @@ fun FavoriteItem(
                     contentDescription = "已置顶",
                     tint = pinColor,
                     modifier = Modifier
-                        .size(14.dp)
-                        .graphicsLayer {
-                            rotationZ = 18f
-                        }
+                        .size(19.dp)
+                        .rotate(35f)
                 )
             }
         }

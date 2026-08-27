@@ -71,22 +71,26 @@ class SpaceRepository(
         val html = when (request.kind) {
             SpacePageKind.PRIVATE_MESSAGE -> api.getSpacePage(
                 doParam = "pm",
-                page = page
+                page = page,
+                perPage = SPACE_PAGE_SIZE
             ).string()
             SpacePageKind.NOTICE -> api.getSpacePage(
                 doParam = "notice",
-                page = page
+                page = page,
+                perPage = SPACE_PAGE_SIZE
             ).string()
             SpacePageKind.FRIEND -> api.getSpacePage(
                 doParam = "friend",
                 view = request.view.ifBlank { null },
                 type = request.type.ifBlank { null },
-                page = page
+                page = page,
+                perPage = SPACE_PAGE_SIZE
             ).string()
             SpacePageKind.DOING -> api.getSpacePage(
                 doParam = "doing",
                 view = request.view,
-                page = page
+                page = page,
+                perPage = SPACE_PAGE_SIZE
             ).string()
             SpacePageKind.BLOG -> api.getSpacePage(
                 uid = request.uid,
@@ -94,14 +98,16 @@ class SpaceRepository(
                 view = request.view,
                 classId = request.categoryId.ifBlank { null },
                 friendUid = request.fuid.ifBlank { null },
-                page = page
+                page = page,
+                perPage = SPACE_PAGE_SIZE
             ).string()
             SpacePageKind.USER_THREAD -> api.getSpacePage(
                 uid = request.uid,
                 doParam = "thread",
                 view = "me",
                 type = request.type.ifBlank { null },
-                page = page
+                page = page,
+                perPage = SPACE_PAGE_SIZE
             ).string()
         }
         val result = SpaceDesktopParser.parseListPage(request.kind, html)

@@ -30,7 +30,9 @@ class SignRepository {
         val directUrl = buildUrl(year, month, mobile = false)
         runCatching {
             val html = api.fetch(directUrl).string()
-            AutoSignManager.captureSignPageHtml(html)
+            // 原生签到页只同步状态与动作地址，不在页面加载后悄悄触发一次自动签到；
+            // 否则按钮仍显示“点击打卡”时，头像可能已经先变成已签到的绿色。
+            AutoSignManager.captureSignPageHtml(html, autoSignIfNeeded = false)
             SignPageParser.parse(html)
         }
             .getOrNull()
@@ -46,7 +48,7 @@ class SignRepository {
             }
         ) ?: throw IllegalStateException("论坛拒绝了签到页数据请求，请刷新重试")
 
-        AutoSignManager.captureSignPageHtml(page.html)
+        AutoSignManager.captureSignPageHtml(page.html, autoSignIfNeeded = false)
         return runCatching { SignPageParser.parse(page.html) }
             .getOrElse {
                 throw IllegalStateException("签到页面尚未通过论坛验证，请刷新重试", it)
