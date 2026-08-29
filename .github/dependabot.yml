@@ -41,8 +41,6 @@ updates:
           - '>= 0.7.0'
     commit-message:
       prefix: "依赖"
-    labels:
-      - dependencies
 
   - package-ecosystem: github-actions
     directory: "/"
@@ -58,5 +56,3 @@ updates:
           - "*"
     commit-message:
       prefix: "依赖"
-    labels:
-      - dependencies
