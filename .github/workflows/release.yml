@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: release
@@ -24,7 +25,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Create GitHub release
+      - name: Create GitHub release and trigger APK build
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -40,50 +41,59 @@ jobs:
             echo "Invalid release version: $version" >&2
             exit 1
           fi
+
           if gh release view "$version" >/dev/null 2>&1; then
-            echo "$version is already published"
-            exit 0
-          fi
-
-          previous_tag=$(gh api \
-            "repos/$GITHUB_REPOSITORY/releases/latest" \
-            --jq '.tag_name' 2>/dev/null || true)
-
-          if git show-ref --tags --verify --quiet "refs/tags/$version"; then
-            tagged_commit=$(git rev-list -n 1 "$version")
-            if [[ "$tagged_commit" != "$GITHUB_SHA" ]]; then
-              echo "$version already points to $tagged_commit" >&2
-              exit 1
-            fi
+            echo "$version is already published; triggering APK build again."
           else
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git tag -a "$version" -m "$version"
-            git push origin "$version"
-          fi
+            previous_tag=$(gh api \
+              "repos/$GITHUB_REPOSITORY/releases/latest" \
+              --jq '.tag_name' 2>/dev/null || true)
 
-          range="$GITHUB_SHA"
-          if [[ -n "$previous_tag" && "$previous_tag" != "$version" ]] && \
-             git rev-parse --verify --quiet "refs/tags/$previous_tag" >/dev/null && \
-             git merge-base --is-ancestor "$previous_tag" "$GITHUB_SHA"; then
-            range="$previous_tag..$GITHUB_SHA"
-          fi
-
-          git rev-list "$range" | while IFS= read -r commit; do
-            mapfile -t changed_files < <(
-              git diff-tree --root --no-commit-id --name-only -r "$commit"
-            )
-            if [[ ${#changed_files[@]} -eq 1 && \
-                  "${changed_files[0]}" == ".github/release-version" ]]; then
-              continue
+            if git show-ref --tags --verify --quiet "refs/tags/$version"; then
+              tagged_commit=$(git rev-list -n 1 "$version")
+              if [[ "$tagged_commit" != "$GITHUB_SHA" ]]; then
+                echo "$version already points to $tagged_commit" >&2
+                exit 1
+              fi
+            else
+              git config user.name "github-actions[bot]"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+              git tag -a "$version" -m "$version"
+              git push origin "$version"
             fi
-            git show -s --format='%s' "$commit"
-          done | awk 'NF && !seen[$0]++ { print "- " $0 }' > release-notes.md
-          if [[ ! -s release-notes.md ]]; then
-            printf '%s\n' "- $version" > release-notes.md
+
+            range="$GITHUB_SHA"
+            if [[ -n "$previous_tag" && "$previous_tag" != "$version" ]] && \
+               git rev-parse --verify --quiet "refs/tags/$previous_tag" >/dev/null && \
+               git merge-base --is-ancestor "$previous_tag" "$GITHUB_SHA"; then
+              range="$previous_tag..$GITHUB_SHA"
+            fi
+
+            git rev-list "$range" | while IFS= read -r commit; do
+              mapfile -t changed_files < <(
+                git diff-tree --root --no-commit-id --name-only -r "$commit"
+              )
+              if [[ ${#changed_files[@]} -eq 1 && \
+                    "${changed_files[0]}" == ".github/release-version" ]]; then
+                continue
+              fi
+              git show -s --format='%s' "$commit"
+            done | awk 'NF && !seen[$0]++ { print "- " $0 }' > release-notes.md
+            if [[ ! -s release-notes.md ]]; then
+              printf '%s\n' "- $version" > release-notes.md
+            fi
+
+            gh release create "$version" \
+              --verify-tag \
+              --title "$version" \
+              --notes-file release-notes.md
           fi
 
-          gh release create "$version" \
-            --verify-tag \
-            --title "$version" \
-            --notes-file release-notes.md
+          # GITHUB_TOKEN 创建的 release 事件不会触发另一个 workflow。
+          # workflow_dispatch 是 GitHub 明确允许的例外，因此在这里显式启动 APK 构建。
+          # 始终从 main 运行最新 workflow，再由 build-apk.yml checkout 对应 release tag。
+          gh workflow run build-apk.yml \
+            --ref main \
+            -f release_tag="$version"
+
+          echo "Triggered APK build for $version"
