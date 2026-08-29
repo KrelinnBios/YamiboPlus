@@ -1,8 +1,13 @@
 name: Build APK
-run-name: ${{ github.event.release.tag_name || github.ref_name }}
+run-name: ${{ github.event.release.tag_name || inputs.release_tag || github.ref_name }}
 
 on:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to build and attach (for example v1.0.1)"
+        required: false
+        type: string
   release:
     types:
       - published
@@ -17,7 +22,7 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 concurrency:
-  group: build-apk-${{ github.ref }}
+  group: build-apk-${{ github.event.release.tag_name || inputs.release_tag || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -30,6 +35,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          ref: ${{ github.event.release.tag_name || inputs.release_tag || github.ref }}
           persist-credentials: false
 
       - name: Set up JDK 17
@@ -50,13 +56,13 @@ jobs:
       - name: Grant Gradle wrapper permission
         run: chmod +x ./gradlew
 
-      # Release 触发时版本号必须从 tag 推导，否则 APK 永远是 build.gradle.kts 里的
-      # 默认版本（1.0.0/3），应用内更新会把新版误判为已安装版本，提示死循环。
+      # Release 触发或自动发版显式传入 release_tag 时，从 tag 推导应用版本。
+      # 没有 release_tag 的纯手动构建继续使用 build.gradle.kts 中的默认版本。
       - name: Derive app version from release tag
-        if: github.event_name == 'release'
+        if: github.event_name == 'release' || inputs.release_tag != ''
         shell: bash
         env:
-          RELEASE_TAG_NAME: ${{ github.event.release.tag_name }}
+          RELEASE_TAG_NAME: ${{ github.event.release.tag_name || inputs.release_tag }}
         run: |
           tag="${RELEASE_TAG_NAME:-${GITHUB_REF_NAME:-}}"
           if ! [[ "$tag" =~ ^v?[0-9]+(\.[0-9]+)*$ ]]; then
@@ -137,8 +143,8 @@ jobs:
           retention-days: 30
 
       - name: Attach APK to release
-        if: github.event_name == 'release'
+        if: github.event_name == 'release' || inputs.release_tag != ''
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3
         with:
-          tag_name: ${{ github.event.release.tag_name }}
+          tag_name: ${{ github.event.release.tag_name || inputs.release_tag }}
           files: release/300-Plus.apk
