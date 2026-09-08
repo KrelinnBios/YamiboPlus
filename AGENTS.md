@@ -1,8 +1,8 @@
 # AGENTS.md
 
-本文件为 AI 编码代理在本仓库工作时的项目规范。请始终用**中文**回复。
+本文件适用于整个仓库，作为 AI 编码代理修改本项目时的项目规范。除非用户另有要求，使用中文回复和说明。
 
-## 项目概况
+## 项目概览
 
 - **YamiboPlus（300 Plus）**：面向百合会论坛（bbs.yamibo.com）的非官方 Android 阅读客户端，基于 [prprbell/YamiboReaderPro](https://github.com/prprbell/YamiboReaderPro) 修改而来。
 - Kotlin + Jetpack Compose + Material 3；minSdk 24 / targetSdk 34 / compileSdk 34 / JDK 17。
@@ -10,9 +10,9 @@
 - 仅构建 `arm64-v8a` 和 `armeabi-v7a`；APK 固定命名为 `300-Plus.apk`。
 - 应用内更新绑定 GitHub Releases（KrelinnBios/YamiboPlus）。
 
-## 当前功能
+## 当前功能边界
 
-描述当前实际提供的功能；具体约束与“不要做什么”属于[已确立的决定](#已确立的决定)。
+以下内容只描述当前实际提供的能力，不是未来路线图。具体不可随意改变的实现行为见“已确立的决定”。
 
 - 论坛浏览：账号登录、论坛 WebView 浏览、网页暗黑模式、自动签到、DNS 优化。
 - 链接直达：识别剪贴板或从外部应用打开的百合会帖子链接，一键在论坛 WebView 跳转到对应帖子。
@@ -28,19 +28,32 @@
 - 新手引导：登录后首次进入原生页面（漫画发现、漫画阅读器、收藏管理、小说阅读器）和首次显示底栏时，弹出一次性的基本操作提示卡片。
 - 崩溃兜底：全局崩溃处理器记录未捕获异常日志，并吞掉后台线程异常以减少整体闪退。
 
-## 常用命令
+## 开始任务前
+
+- 先读取与任务直接相关的实现、调用链和已有测试，不根据文件名或界面表象猜测根因。
+- 优先沿用现有类、状态流、Repository 和工具函数，以最小 diff 完成明确需求。
+- 修 UI、WebView 注入或 CSS 前先获取真实页面样本；没有对应 HTML 时不要凭空猜选择器。
+- 涉及网络、解析、缓存、目录、更新或论坛行为时，先检查本文件“已确立的决定”中是否已有历史约束。
+- 先检查工作区已有修改；无关修改不要清理、回滚或格式化。
+- 不把一次局部修复扩展成架构清理、依赖升级、全局格式化或无关功能调整。
+
+## 本地运行与验证
+
+Windows 常用命令：
 
 ```powershell
 .\gradlew.bat compileDebugKotlin   # Kotlin 改动后的最低检查，必须执行
 .\gradlew.bat testDebugUnitTest    # 运行本地单元测试
 .\gradlew.bat assembleDebug        # 生成 app\build\outputs\apk\debug\300-Plus.apk
-.\gradlew.bat clean assembleDebug  # 增量构建出现 TaskOutputsBackup/IOException 等损坏时使用
+.\gradlew.bat clean assembleDebug  # 增量构建损坏时使用
 ```
 
-- 修改 Kotlin 后至少运行 `compileDebugKotlin`；改到解析、URL、会话、更新或图片策略等已有测试覆盖的模块时，同时运行 `testDebugUnitTest`。
+- 修改 Kotlin 后至少运行 `compileDebugKotlin`。
+- 修改 URL 归一化、Cookie、会话、HTML 解析、阅读器返回链接、图片加载策略、应用更新解析、帖子链接识别（`YamiboPostLinkUtil`）或屏蔽数据（`ForumBlocklistManager`）时，应补充或更新 `app/src/test` 下的对应单元测试，并运行 `testDebugUnitTest`。
 - 纯文档、图片或资源说明修改无需运行 Gradle 构建。
-- 本地一般没有连接设备/模拟器，无法跑 instrumented test 或 adb；运行验证依赖用户实机安装反馈。
-- 间歇性、网络相关的 bug 无法在本机稳定复现，修改后必须明确请用户实测确认，不要直接宣称“已修复”。
+- 增量构建出现 `TaskOutputsBackup`、`IOException` 等缓存损坏时再使用 `clean assembleDebug`，不要把 `clean` 当默认步骤。
+- 本地通常没有连接设备或模拟器，无法完整运行 instrumented test 或 adb；UI、WebView 生命周期、网络恢复和系统安装行为仍需要实机确认。
+- 间歇性或网络相关 bug 无法在本机稳定复现时，修改后明确说明需要用户实测，不直接宣称“已修复”。
 
 ## 架构速览
 
@@ -89,37 +102,37 @@
 
 ## 已确立的决定
 
-以下决定已有实机问题和现有实现作为依据，不要反复商量或擅自推翻。
+以下决定已有实机问题和现有实现作为依据。除非用户明确要求改变对应行为，不要仅凭通用最佳实践擅自推翻。
 
 ### 网络
 
 - **禁止强制 HTTP/1.1**（`protocols(HTTP_1_1)`）。这曾导致整个 App 无法连接论坛，并与共享连接池中的 h2 连接冲突。
-- 服务器偶发 `stream was reset: PROTOCOL_ERROR` 已在应用级拦截器 `proceedWithDnsRecovery` 处理：GET 遇瞬时流重置或建连失败（`UnknownHostException`/`ConnectException`/`SocketTimeoutException`/`SSLException`）最多重试 3 次、444 WAF 限流最多重试 2 次（限流多打反而加剧，故更保守），每次重试前执行 `connectionPool.evictAll()` 清理坏连接并递增退避。不要再改协议协商层。
-- `TtlDnsCache` 的 30 分钟 IP 缓存与「DNS 优化」开关无关——开关只决定用哪个解析器（阿里/腾讯 DoH、手动 DoH 或系统 DNS），解析结果一律进同一层缓存，所以关闭优化不会绕开这层缓存。建连失败（上面那几种异常）会在重试前主动令当前 host 的缓存失效，逼下一次重试重新解析，不要只在重试耗尽后才失效，否则同一请求的多次重试会一直打同一个不可达的缓存 IP。
+- 服务器偶发 `stream was reset: PROTOCOL_ERROR` 已在应用级拦截器 `proceedWithDnsRecovery` 处理：GET 遇瞬时流重置或建连失败（`UnknownHostException`/`ConnectException`/`SocketTimeoutException`/`SSLException`）最多重试 3 次、444 WAF 限流最多重试 2 次，每次重试前执行 `connectionPool.evictAll()` 清理坏连接并递增退避。不要再改协议协商层。
+- `TtlDnsCache` 的 30 分钟 IP 缓存与“DNS 优化”开关无关。开关只决定使用阿里/腾讯 DoH、手动 DoH 或系统 DNS；解析结果一律进入同一缓存层。建连失败会在重试前主动令当前 host 缓存失效，不要拖到重试耗尽后才失效。
 - 连接池 keepalive 固定为 **50 秒**，必须短于论坛服务器约 60～75 秒的空闲超时。不要改回分钟级，否则切回 App 时可能复用半死连接。
 
 ### 暗黑模式
 
 - 只有一套深色主题：经典蓝黑 `DarkThemeColors.CLASSIC`，主色 `#4EA1FF`、背景 `#0D141D`、面板 `#182332`。不引入多套深色主题。
 - 论坛网页深色规则全部位于 `util/theme/DarkClassic.kt`，加载时 HTML 代理注入（`proxyHtmlForDarkMode` + `injectThemeCssIntoHtml`）与运行时 JS 注入（`getThemeSetJs`）必须共用同一份 CSS。
-- 原色（浅色）模式**不再是零注入**：会注入一份**极小**的覆盖（`util/theme/LightClassic.kt` 的 `LIGHT_MODE_CSS_RULES_CLASSIC`），目前**仅**统一正文链接颜色。同样走 `injectThemeCssIntoHtml` / `getThemeSetJs` 两条路径，不要往里塞与"链接统一"无关的规则，浅色模式整体应保持论坛原样。
-- 电脑版**空间/家园页**的 viewport 由 `PageJsScripts.shouldUseResponsiveSpaceViewport` 决定：普通空间页用 `width=device-width`（站点自适应），但 **`#ct.ct3_a`（spacecp / BLOG 个人主页等定宽多栏页）与 `pg_space+ct2_a+tl`（空间内主题列表）改用 `width=1200`+按屏宽算出的 `initial-scale`**，整页缩到屏宽、两栏并排，和原色模式一致。`ct3_a` 在 HTML 代理与运行时 JS（`yamiboUseResponsiveSpaceViewport`）两处都要排除 device-width，否则 JS 会把代理写好的 1200 改回去。**不要给 ct3_a 加 `float:none` 之类 reflow**——那是 device-width 时代的治标做法，1200 缩放下会把两栏摞成单栏。
-- CSS 规则字符串末尾会统一执行 `background:` → `background-color:` 重写。规则中可以写 `background:`，但**绝不能覆盖站点的 `background-image`**，轮播图、头像和会员自定义背景依赖它。
-- CSS 规则字符串中**不能出现单引号**，否则会破坏 JS 注入字符串拼接。
-- 只有**自定义 DIY 会员空间**才不启用暗黑模式（保留作者亲手设计的版面）；判定改为**按页面内容**：页面是 `body#space` 且使用了 `data/attachment` 的自定义背景图。普通空间（如「xxx的空间」，只有 `static/image` 默认图、无自定义背景）以及帖子、版块、手机版个人中心等所有其它页面都照常启用暗黑。不要再用 URL（`space-uid-N`/`mod=space&uid=` 等）来排除——那会误伤无自定义的普通空间，让它们也变不了深色。
-- 底栏“我的”是手机版个人中心（`mobile=2` / `mobile=yes` / `mycenter=1`），非 `body#space`，照常暗黑。
-- 会员空间守卫统一由 `util/theme/MemberSpaceGuard` 提供：`isMemberSpaceHtml()` 给 HTML 代理判断、`jsExpression()` 给运行时 JS 判断，两者共用「`body#space` + `data/attachment` 背景」这同一组内容规则。`YamiboRetrofit.proxyHtmlForDarkMode` 不再按 URL 跳过空间页（所有 bbs 主框架页都进代理），由 `injectDarkModeCssIntoHtml` / `injectLightModeCssIntoHtml` 调 `isMemberSpaceHtml()` 决定注不注入；深色/浅色 JS 注入（`getDarkModeSetJs` / `getLightModeSetJs`）调 `jsExpression()`。改判断逻辑要一处改、各处一致。
-- 当前 DIY 检测认 `data/attachment` 自定义背景图。若遇到只用纯外链图（无 `data/attachment`）做 DIY 的空间会漏判，按真实样本再扩展规则，不要凭空猜。
-- 投票区 `#poll` 的彩条以及用户侧栏的经验/积分彩条依赖内联颜色，必须保留原色；不要用大范围 `.plc div` / `.pls div` 规则覆盖 `.pbr`、`.pbg`、`.pbr2`、`.pbg2`。
-- 深色链接统一使用浅蓝 `#7dbdf2`，不允许改成棕色；浅色（原色）模式下正文链接统一为站点默认链接色 `#6E2B19`。
-- 链接颜色统一要覆盖到链接内部的 `font[color]` / 内联 `color` 子元素（楼主常把链接套多种颜色），但只改文字色、绝不动 `background-image`。
-- 新页面未适配时，先让用户提供真实 HTML 片段，再按选择器精准补规则；不要凭空猜测或添加大范围通配。
-- 开屏（系统 SplashScreen + 窗口背景）固定用浅色 `@color/splash_background`(#FCF4CF)，**不跟随暗黑模式**。曾尝试用 SharedPreferences 引导缓存 + `UiModeManager.setApplicationNightMode` + `values-night` 让开屏变暗，但带来点击闪原色、漫画首页加载异常等问题，已整体回退；不要再加这套开屏换色逻辑。
+- 原色（浅色）模式不再是零注入：`util/theme/LightClassic.kt` 的 `LIGHT_MODE_CSS_RULES_CLASSIC` 目前只统一正文链接颜色。同样走 `injectThemeCssIntoHtml` / `getThemeSetJs` 两条路径，不要加入与“链接统一”无关的规则，浅色模式整体应保持论坛原样。
+- 电脑版空间/家园页的 viewport 由 `PageJsScripts.shouldUseResponsiveSpaceViewport` 决定：普通空间页用 `width=device-width`；`#ct.ct3_a`（spacecp / BLOG 个人主页等定宽多栏页）与 `pg_space+ct2_a+tl`（空间内主题列表）改用 `width=1200` 加按屏宽计算的 `initial-scale`。`ct3_a` 在 HTML 代理与运行时 JS（`yamiboUseResponsiveSpaceViewport`）两处都要排除 device-width。不要给 `ct3_a` 加 `float:none` 一类 reflow。
+- CSS 规则字符串末尾会统一执行 `background:` → `background-color:` 重写。规则中可以写 `background:`，但绝不能覆盖站点的 `background-image`，轮播图、头像和会员自定义背景依赖它。
+- CSS 规则字符串中不能出现单引号，否则会破坏 JS 注入字符串拼接。
+- 只有自定义 DIY 会员空间才不启用暗黑模式；判定按页面内容：页面是 `body#space` 且使用 `data/attachment` 的自定义背景图。普通空间以及帖子、版块、手机版个人中心等页面照常启用暗黑。不要再用 URL 规则排除空间页。
+- 底栏“我的”是手机版个人中心（`mobile=2` / `mobile=yes` / `mycenter=1`），不是 `body#space`，照常暗黑。
+- 会员空间守卫统一由 `util/theme/MemberSpaceGuard` 提供：`isMemberSpaceHtml()` 给 HTML 代理判断、`jsExpression()` 给运行时 JS 判断，两者共用“`body#space` + `data/attachment` 背景”规则。修改判断逻辑时保持所有调用路径一致。
+- 当前 DIY 检测认 `data/attachment` 自定义背景图。若遇到只用纯外链图且无 `data/attachment` 的真实样本，再基于样本扩展，不要凭空猜。
+- 投票区 `#poll` 的彩条以及用户侧栏经验/积分彩条依赖内联颜色，必须保留原色；不要用大范围 `.plc div` / `.pls div` 规则覆盖 `.pbr`、`.pbg`、`.pbr2`、`.pbg2`。
+- 深色链接统一使用浅蓝 `#7dbdf2`，不允许改成棕色；浅色模式正文链接统一为站点默认链接色 `#6E2B19`。
+- 链接颜色统一要覆盖链接内部的 `font[color]` / 内联 `color` 子元素，但只改文字色，绝不动 `background-image`。
+- 新页面未适配时，先让用户提供真实 HTML 片段，再按选择器精准补规则，不凭空猜测或添加大范围通配。
+- 开屏（系统 SplashScreen + 窗口背景）固定使用浅色 `@color/splash_background`（`#FCF4CF`），不跟随暗黑模式。此前 SharedPreferences + `UiModeManager.setApplicationNightMode` + `values-night` 的开屏换色方案已因闪原色和漫画首页加载异常整体回退，不要恢复。
 
 ### 交互
 
-- 底栏**单击表示“切换板块”**：跳到对应板块；已在本板块内时不做任何事，避免误触重载。**长按表示“回该板块主页”**（论坛首页 / 个人资料 / 漫画首页 / 收藏首页），即 `returnToHome(notifyHome = true)` 发出的 `goHomeEvent`；单击走 `notifyHome = false`。不要把回主页改回单击。
-- 刷新统一使用下拉手势，原生页用 `PullToRefreshBox`，WebView 页用 `SwipeRefreshLayout`。长按刷新已删除，不要恢复（长按现用于回主页，不是刷新）。
+- 底栏单击表示“切换板块”：跳到对应板块；已在本板块内时不做任何事。长按表示“回该板块主页”（论坛首页 / 个人资料 / 漫画首页 / 收藏首页），即 `returnToHome(notifyHome = true)` 发出的 `goHomeEvent`；单击走 `notifyHome = false`。不要把回主页改回单击。
+- 刷新统一使用下拉手势，原生页用 `PullToRefreshBox`，WebView 页用 `SwipeRefreshLayout`。长按刷新已删除，不要恢复。
 - 下拉刷新指示器必须跟随暗黑模式配色：深色背景 `#223247`、箭头 `#4EA1FF`。
 - 切回 `MangaHomePage`（长按底栏漫画键）不触发网络刷新，只清空搜索词并回到顶部，避免网络波动破坏现有列表。
 - 小说阅读器进度只显示页数 `当前/总数`，不显示百分比。
@@ -134,15 +147,15 @@
 
 ### 漫画目录（DirectoryRepository / MangaTitleCleaner）
 
-- 目录归并默认只看**作品名**和**汉化组**，不自动记发布者（论坛账号）——短篇集这类作品常见同一汉化组多人分工投稿，按账号区分会把本该同目录的章节拆开。只有标题标注为个人/非固定团队发布（`MangaTitleCleaner.isIndividualRelease`：个人汉化/个人翻译/合作汉化/自翻/代发/渣翻及中字渣翻、个人渣翻等变体/转载（含授权转载），含繁体写法）时，才自动用发布者兜底区分；已写入的发布者设置（自动写入的或用户手动填的）不会被清空。用户始终可以在目录编辑弹窗手动填"发布者"覆盖。
-- 短篇集/合集/选集/总集/精选集这类集合类后缀是书名本身的一部分，`getCleanBookName` 会在集合后缀词处优先截断（早于章节标记截断），否则"XX短篇集[原作：yyy]单篇标题"去掉方括号后中间没有分隔符，要么把"集"当普通字被章节标记规则连同单篇标题一起吞掉，要么在单篇标题没有可识别章节标记时被整段并入书名。
-- 标题**开头的括号段是原作/出处标注**（如"( ぼっち・ざ・おんりー!#2)ぼ喜多・が・ろっく2"），`getCleanBookName` 会剥掉它、用后面的真实作品名当书名——否则同 parody 的不相干作品会全部撞进同一个目录。仅当括号段后仍有实质内容时才剥，作品名本身写在括号里的整段标题不动。
-- 目录归并用的组名走 `extractReleaseGroup`：优先显式汉化组名；不带"汉化"字样的制作组（如【大友同好會】）按论坛惯例取第一个【】段兜底（[] 是分类/原作者，不参与），个人发布标注不算组名。这个兜底只用于目录归并，不影响搜索关键词等其他链路。组名比对做繁简归一（會/組/漢/譯）。
-- 汉化组过滤是**硬过滤**（`DirectoryRepository.filterChaptersByDirectoryConstraints`）：设置汉化组后只保留匹配组的章节，不再按话数从其它组补缺。展示侧（`NativeMangaPage` 目录面板）必须复用同一函数，不要另写过滤，否则目录面板和持久化目录会不一致。
-- 若首楼提供编号形式的跨作品链接列表（如作者在正文列出 1、2、3、4 几篇，并且包含其它组链接），该列表视为权威目录：目录初始化优先使用这些链接，去掉当前汉化组约束，并避免自动搜索扩展到未列出的帖子。权威目录用 `MangaDirectory.authoritativeLinks` 持久化标记；章节保持首楼列表的顺序和标题——本帖自身通常也编在列表里（如"2、去你家/君の家まで"），该条目优先于裸帖子标题，不得被覆盖成无话数条目。`manuallyUpdateDirectory`（含目录面板更新、强制搜索、收藏更新检查）对权威目录**整体跳过**：搜索合并会用原始帖子标题覆盖列表条目、按 tid 打乱列表顺序、混入未列出的帖子；列表内容只在打开原帖时按首楼刷新。
-- 目录已存组与当前打开帖子的组不一致时：若当前帖能识别出组名，优先切到当前组；只有当前帖识别不出组名时才沿用旧组，避免把目录约束清空。
-- 已存目录名如果是旧版清洗器留下的残次品，`initDirectoryForThread` 会自动迁移：`isStaleCleanBookName` 处理"切多了"（如"作品名 52+"），`isTruncatedCleanBookName` 处理"切少了"（如集合后缀识别上线前把"作品名短篇集"截成"作品名"），`isParenResidueCleanBookName` 处理未配对括号残渣，`isParodyResidueCleanBookName` 处理把原作标注当书名的 parody 残次目录（迁移时按新书名重新校验章节，甩掉混进来的其它作品）。都要求新旧名字满足特定残渣关系，用户手动改的名字不会被误还原。
-- 两个组对同一作品命名完全不同（如"ぼ喜多・が・ろっく" vs "波喜多摇滚！"）时自动归并做不到（搜索关键词对不上），靠用户手动改目录名/搜索关键词处理，不要试图上模糊匹配自动合并。
+- 目录归并默认只看作品名和汉化组，不自动记发布者（论坛账号）。只有标题标注为个人/非固定团队发布（`MangaTitleCleaner.isIndividualRelease`）时，才自动用发布者兜底区分；已写入的发布者设置不会被清空，用户始终可以在目录编辑弹窗手动填写“发布者”。
+- 短篇集/合集/选集/总集/精选集等集合类后缀是书名本身的一部分，`getCleanBookName` 会在集合后缀词处优先截断，早于章节标记截断。
+- 标题开头的括号段视为原作/出处标注；仅当括号段后仍有实质内容时，`getCleanBookName` 才剥掉它并使用后面的真实作品名，作品名本身写在括号里的整段标题不动。
+- 目录归并用的组名走 `extractReleaseGroup`：优先显式汉化组名；不带“汉化”字样的制作组按论坛惯例取第一个【】段兜底，个人发布标注不算组名。该兜底只用于目录归并；组名比对做繁简归一（會/組/漢/譯）。
+- 汉化组过滤是硬过滤（`DirectoryRepository.filterChaptersByDirectoryConstraints`）：设置汉化组后只保留匹配组章节，不按话数从其他组补缺。展示侧必须复用同一函数。
+- 若首楼提供编号形式的跨作品链接列表，该列表视为权威目录：目录初始化优先使用这些链接，去掉当前汉化组约束，并避免自动搜索扩展到未列出的帖子。权威目录使用 `MangaDirectory.authoritativeLinks` 持久化标记；章节保持首楼列表顺序和标题。`manuallyUpdateDirectory` 对权威目录整体跳过，列表内容只在打开原帖时按首楼刷新。
+- 目录已存组与当前打开帖子的组不一致时：若当前帖能识别出组名，优先切到当前组；只有当前帖识别不出组名时才沿用旧组。
+- 已存目录名若是旧版清洗器残留，`initDirectoryForThread` 会按 `isStaleCleanBookName`、`isTruncatedCleanBookName`、`isParenResidueCleanBookName`、`isParodyResidueCleanBookName` 等规则迁移；这些规则要求新旧名字满足特定残渣关系，不要误还原用户手动修改的名字。
+- 两个组对同一作品命名完全不同、导致搜索关键词对不上时，依赖用户手动修改目录名或搜索关键词，不要引入模糊匹配自动合并。
 
 ### 收藏、历史与缓存
 
@@ -153,41 +166,47 @@
 
 ### 论坛屏蔽
 
-- 只屏蔽**别人**的内容：自己发布的主题/楼层（含 1 楼）不显示「屏蔽」按钮。判断依据是当前登录 uid 与该主题/楼层作者 uid 比对；`view=me` 或自己 `mod=space&do=thread/reply/favorite` 的"我的空间列表页"整页跳过，不依赖行内作者链接（部分模板该页不带作者头像链接）。
-- uid 必须**登录后尽早拿到并本地持久化**（`CurrentUserUtil`），注入屏蔽脚本时作为 `selfUid` 回传给页面。手机版帖子页本身不带任何自身 uid 标识，必须靠提前存好的值。
-- 列表页「屏蔽」按钮用普通的 `.threadlist_foot li` 容器，与浏览/回复数按钮对齐，不要单独重置样式；帖子页按钮与用户名之间用四个不可断空格（`String.fromCharCode(160,...)`）保持间距。
-- 电脑版页面**只隐藏、不注入按钮**：列表行（`tbody[id^=normalthread_/stickthread_]`、标签页 `.tl` 表格行）由 `syncPcListPage` 按黑名单隐藏/恢复，不加占位提示（占位元素插进 `<table>` 会被浏览器移出表格错位）；取消屏蔽走黑名单弹窗或手机版页面。电脑版帖子楼层复用 `syncPostPage`（`[id^="pid"]` 恰好命中电脑版 `table#pidXXX`）。
+- 只屏蔽别人的内容：自己发布的主题/楼层（含 1 楼）不显示「屏蔽」按钮。`view=me` 或自己的 `mod=space&do=thread/reply/favorite` 空间列表页整页跳过。
+- uid 必须登录后尽早获取并由 `CurrentUserUtil` 本地持久化，注入屏蔽脚本时作为 `selfUid` 回传给页面。
+- 列表页「屏蔽」按钮使用普通 `.threadlist_foot li` 容器，与浏览/回复数按钮对齐；帖子页按钮与用户名之间用四个不可断空格保持间距。
+- 电脑版页面只隐藏、不注入按钮：列表行由 `syncPcListPage` 按黑名单隐藏/恢复，不加占位提示；取消屏蔽走黑名单弹窗或手机版页面。电脑版帖子楼层复用 `syncPostPage`。
 
 ### 链接直达
 
-- 帖子链接的识别与归一化统一走 `YamiboPostLinkUtil`：强制 `bbs.yamibo.com` + `mobile=2`，排除图片、首页等非帖子链接；剪贴板检测只在切回前台/启动时读当前剪贴板。
-- 跳转必须经 `BBSPage` 的 `startLoading`（会置 `hasRequestedInitialLoad` 等状态），**不要用裸 `webView.loadUrl`**，否则会与首页初始加载抢加载、表现为"停在论坛首页没反应"。
+- 帖子链接识别与归一化统一走 `YamiboPostLinkUtil`：强制 `bbs.yamibo.com` + `mobile=2`，排除图片、首页等非帖子链接；剪贴板检测只在切回前台或启动时读取当前剪贴板。
+- 跳转必须经 `BBSPage` 的 `startLoading`，不要使用裸 `webView.loadUrl`，否则会与首页初始加载竞争。
 
 ### 崩溃兜底
 
-- `CrashHandler` 在 `YamiboApplication.onCreate` **最先**安装。后台线程未捕获异常记录后吞掉以避免整体闪退；主线程异常仍交还系统默认处理器（此时无法安全恢复）。崩溃日志写入 `getExternalFilesDir/crash`，仅保留最新若干份。
+- `CrashHandler` 在 `YamiboApplication.onCreate` 最先安装。后台线程未捕获异常记录后吞掉以避免整体闪退；主线程异常仍交还系统默认处理器。崩溃日志写入 `getExternalFilesDir/crash`，仅保留最新若干份。
 
 ### CI / 发布
 
 - workflow 只构建 release 签名包（`assembleRelease`），四个签名 secrets 缺一即失败。
-- release 触发时版本号从 tag 推导：`APP_VERSION_NAME` 为 tag 去掉 `v` 前缀，`APP_VERSION_CODE` 为 `github.run_number`；tag 必须符合 `v数字.数字…` 格式，否则构建直接失败。发布包不得回落到 `build.gradle.kts` 的默认版本号，否则会导致应用内更新循环。
+- release 触发时版本号从 tag 推导：`APP_VERSION_NAME` 为 tag 去掉 `v` 前缀，`APP_VERSION_CODE` 为 `github.run_number`；tag 必须符合 `v数字.数字…` 格式，否则构建直接失败。发布包不得回落到 `build.gradle.kts` 默认版本号，否则会导致应用内更新循环。
 - GitHub Actions 固定使用 Node 24 兼容版本：checkout@v5、setup-Java@v5、setup-gradle@v5、setup-android@v4、upload-artifact@v5，并设置 `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24`。不要降级。
 - 发布产物路径和名称固定为 `app/build/outputs/apk/release/300-Plus.apk` / `300-Plus.apk`。
 
-## 测试与修改原则
+## 修改原则
 
-- 优先沿用现有类、状态流和工具函数，不要在 Composable 中复制网络、缓存或持久化逻辑。
-- 修改 URL 归一化、Cookie、会话、HTML 解析、阅读器返回链接、图片加载策略、应用更新解析、帖子链接识别（`YamiboPostLinkUtil`）或屏蔽数据（`ForumBlocklistManager`）时，应补充或更新 `app/src/test` 下的对应单元测试。
-- UI、WebView 生命周期和网络恢复通常无法由 JVM 单元测试完整覆盖，编译通过后仍需说明实机验证点。
-- 不要顺手升级 Gradle、AGP、Kotlin、Compose 或网络依赖；依赖升级必须是明确任务，并单独验证兼容性。
-- 不要提交构建产物、签名材料、`.env`、`local.properties` 或临时抓取页面。
+- 优先沿用现有类、状态流和工具函数，不在 Composable 中复制网络、缓存或持久化逻辑。
+- 修复问题时先确认实际调用链和已有测试，不根据文件名或界面表现直接猜根因。
+- 不顺手升级 Gradle、AGP、Kotlin、Compose 或网络依赖；依赖升级必须是明确任务，并单独验证兼容性。
+- 不提交构建产物、签名材料、`.env`、`local.properties` 或临时抓取页面。
+- 文档和中文源文件统一使用 UTF-8，避免 PowerShell 默认编码造成乱码。
 
-## 其他约定
+## 文档同步
 
-- 提交信息沿用现有简短中文风格，如 `更新 XXX.kt`。
-- 修 UI/CSS 前先获取真实页面样本；没有对应 HTML 时不要凭空猜选择器。
-- README 结构固定为：项目简介 → 功能概览 → 界面预览 → 使用方式 → 数据与安全 → 内容边界 → 许可协议 → 反馈与贡献，与 [NeoDBLite](../NeoDBLite) 保持一致；不设「技术信息」小节。
-- README 功能列表格式为 `- 四字标签：描述。`，不加粗；标签需正好四字；保持扁平列表，不按功能分组加三级标题。
-- README「项目简介」结尾补一句范围说明（如"以下说明仅描述 YamiboPlus 当前实际提供的功能"），不要只留功能段落，也不要和「数据与安全」小节重复表述。
-- 顶部图标统一放在 `icon/icon.svg`（相对仓库根目录）。
-- 文档使用 UTF-8 编码；修改中文文件时避免因 PowerShell 默认编码造成乱码。
+- `README.md` 面向项目使用者；`AGENTS.md` 只记录编码代理修改代码、验证行为和发布时需要遵守的项目规则。
+- README 结构固定为：项目简介 → 功能概览 → 界面预览 → 使用方式 → 数据与安全 → 内容边界 → 许可协议 → 反馈与贡献，与 NeoDBLite 保持一致；不设“技术信息”小节。
+- README 功能列表使用扁平格式 `- 四字标签：描述。`，标签不加粗且正好四个汉字，不按功能再拆三级标题。
+- README“项目简介”结尾保留范围说明，例如“以下说明仅描述 YamiboPlus 当前实际提供的功能”，不要和“数据与安全”重复表述。
+- 顶部图标统一使用仓库根目录下的 `icon/icon.svg`。
+- 修改公开功能、数据处理、发布方式、APK 名称或安装要求时，检查 README 是否需要同步。
+
+## 提交约定
+
+- 一个提交聚焦一个明确主题，不把功能修改、重构、依赖升级和文档清理混在一起。
+- 提交信息沿用简短中文风格，例如 `更新 XXX.kt`。
+- 不提交构建产物、签名材料、本地环境文件、临时抓取页面或与任务无关的生成物。
+- 工作区已有其他修改时，只处理并提交本次任务涉及的内容。
