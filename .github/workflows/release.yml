@@ -91,7 +91,7 @@ jobs:
 
           # GITHUB_TOKEN 创建的 release 事件不会触发另一个 workflow。
           # workflow_dispatch 是 GitHub 明确允许的例外，因此在这里显式启动 APK 构建。
-          # 始终从 main 运行最新 workflow，再由 build-apk.yml checkout 对应 release tag。
+          # 从 main 运行最新 workflow，再由 build-apk.yml checkout 对应 release tag。
           gh workflow run build-apk.yml \
             --ref main \
             -f release_tag="$version"
